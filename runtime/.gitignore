@@ -1,0 +1,13 @@
+/target/
+/apps/admin-dashboard/node_modules/
+/apps/admin-dashboard/.vitest-attachments/
+/bundles/
+/captures/
+/traces/
+/.notaryd-cluster/
+*.llmcapture
+*.llmbundle
+*.key
+*.pem
+*.sqlite
+.env

@@ -1,0 +1,75 @@
+name: Runtime CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: ./tooling/check-boundary.sh
+      - run: python3 -m unittest tooling/test_check_boundary.py
+      - name: Keep the localhost client thin
+        run: |
+          if cargo tree --locked -p notaryctl --edges normal --prefix none \
+            | grep -Eq '^(notary-core|notaryd|tlsn|sqlx|rusqlite|aws-sdk-s3) '; then
+            echo 'notaryctl depends on a daemon, protocol, or storage package' >&2
+            exit 1
+          fi
+      - run: cargo fmt --check -p notary-core -p notaryd -p notaryctl -p notary-updater -p notary-server
+      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --locked --workspace --all-targets --all-features
+
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/admin-dashboard/package-lock.json
+      - run: npm --prefix apps/admin-dashboard ci
+      - run: npm --prefix apps/admin-dashboard run build
+      - run: npm --prefix apps/admin-dashboard run check:local-docs
+      - run: git diff --exit-code -- apps/admin-dashboard/src/generated crates/notaryd/dashboard
+      - name: Install browser test runtime
+        run: npx --prefix apps/admin-dashboard playwright install --with-deps chromium
+      - run: npm --prefix apps/admin-dashboard run test
+
+  containers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-compose-action@v1
+      - name: Verify the default image is the production daemon
+        run: docker build .
+      - run: docker build --target notary-server .
+      - name: Validate Compose files and cluster initialization
+        run: |
+          set -euo pipefail
+          docker compose -f compose.daemon-e2e.yml config --quiet
+          state="$RUNNER_TEMP/notary-cluster"
+          NOTARYD_CLUSTER_STATE_DIR="$state" \
+            ./notary-cluster.sh init \
+              proxy.example.com admin.example.com \
+              tls://notary.example.com:7047 \
+              0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 \
+              >/dev/null
+          docker compose --env-file "$state/.env" -f compose.cluster.yml config --quiet
+          test "$(wc -c < "$state/secrets/cluster-vault.key")" -eq 32
+          if NOTARYD_CLUSTER_STATE_DIR="$state" \
+            ./notary-cluster.sh init \
+              proxy.example.com admin.example.com \
+              tls://notary.example.com:7047 \
+              0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 \
+              >/dev/null 2>&1; then
+            echo "cluster initializer overwrote existing state" >&2
+            exit 1
+          fi

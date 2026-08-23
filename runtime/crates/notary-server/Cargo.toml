@@ -1,0 +1,29 @@
+[package]
+name = "notary-server"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Remote Proxy-TLS Notary server"
+
+[features]
+test-support = []
+
+[[bin]]
+name = "notary-server"
+path = "src/bin/notary-server.rs"
+
+[dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+axum = "0.8"
+clap = { version = "4.5", features = ["derive", "env"] }
+hex = "0.4"
+k256 = { version = "0.13", features = ["ecdsa"] }
+libc = "0.2"
+notary-core = { path = "../notary-core" }
+metrics = { version = "0.24.6", default-features = false }
+tokio = { version = "1.45", features = ["full"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3.20"

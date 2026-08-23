@@ -1,0 +1,8 @@
+/target/
+/apps/admin-dashboard/node_modules/
+/apps/admin-dashboard/.vitest-attachments/
+*.llmcapture
+*.llmbundle
+*.key
+*.pem
+*.sqlite

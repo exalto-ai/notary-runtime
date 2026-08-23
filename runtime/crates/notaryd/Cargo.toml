@@ -1,0 +1,70 @@
+[package]
+name = "notaryd"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Local Notary proxy and administration daemon"
+
+[[bin]]
+name = "notaryd"
+path = "src/bin/notaryd.rs"
+
+[[bin]]
+name = "notary-e2e-notary"
+path = "src/bin/notary-e2e-notary.rs"
+required-features = ["daemon-e2e"]
+
+[features]
+# Used only by the dedicated daemon Docker E2E target. Production client and
+# daemon builds retain the core crate's Mozilla/WebPKI trust configuration.
+daemon-e2e = ["notary-core/daemon-e2e"]
+
+[dependencies]
+anyhow = "1.0"
+argon2 = "0.5"
+async-trait = "0.1"
+aws-sdk-s3 = { version = "1.140", default-features = false, features = [
+    "default-https-client",
+    "rt-tokio",
+    "rustls",
+] }
+axum = { version = "0.8", features = ["macros"] }
+base64 = "0.22"
+bytes = "1.10"
+clap = { version = "4.5", features = ["derive", "string"] }
+http = "1.3"
+http-body-util = "0.1"
+hex = "0.4"
+fs2 = "0.4"
+k256 = { version = "0.13", features = ["ecdsa"] }
+notary-core = { path = "../notary-core", features = ["cli", "openapi"] }
+notary-updater = { path = "../notary-updater" }
+libc = "0.2"
+mime_guess = "2.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+rust-embed = "8.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio-rustls"] }
+tempfile = "3.20"
+thiserror = "2.0"
+tokio = { version = "1.45", features = ["full"] }
+tokio-stream = "0.1"
+toml = "0.8"
+tracing = "0.1"
+tower-http = { version = "0.7", features = ["limit", "request-id", "sensitive-headers", "trace"] }
+url = "2.5"
+utoipa = { version = "5.5", features = ["axum_extras", "uuid"] }
+uuid = { version = "1.16", features = ["v4"] }
+zeroize = "1.8"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Threading"] }
+
+[dev-dependencies]
+notary-core = { path = "../notary-core", features = ["test-utils"] }
+testcontainers-modules = { version = "0.15", default-features = false, features = ["minio", "postgres"] }
+tower = { version = "0.5", features = ["util"] }
+tracing-subscriber = { version = "0.3", features = ["fmt"] }

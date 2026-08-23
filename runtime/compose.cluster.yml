@@ -1,0 +1,142 @@
+name: notary-cluster
+
+x-daemon: &daemon
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: cluster
+  image: ${NOTARYD_CLUSTER_IMAGE:-notaryd-cluster:local}
+  user: "${CLUSTER_UID:-10001}:${CLUSTER_GID:-10001}"
+  command: ["--config", "/etc/notary/config.toml"]
+  environment: &daemon-environment
+    NOTARYD_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+    NOTARYD_ARTIFACT_S3_ACCESS_KEY_ID_FILE: /run/secrets/s3_access_key
+    NOTARYD_ARTIFACT_S3_SECRET_ACCESS_KEY_FILE: /run/secrets/s3_secret_key
+    NOTARYD_METADATA_DATABASE_URL_FILE: /run/secrets/postgres_url
+    NOTARYD_CLUSTER_VAULT_KEY_FILE: /run/secrets/cluster_vault_key
+  secrets: &daemon-secrets
+    - admin_password
+    - postgres_url
+    - s3_access_key
+    - s3_secret_key
+    - cluster_vault_key
+  volumes:
+    - ${CLUSTER_STATE_DIR:?run ./notary-cluster.sh init first}/config.toml:/etc/notary/config.toml:ro
+  read_only: true
+  tmpfs:
+    - /tmp
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+    minio-init:
+      condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:17.7-alpine
+    environment:
+      POSTGRES_DB: notary
+      POSTGRES_USER: notary
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notary -d notary"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER_FILE: /run/secrets/s3_access_key
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/s3_secret_key
+    secrets:
+      - s3_access_key
+      - s3_secret_key
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    environment:
+      MC_CONFIG_DIR: /tmp/.mc
+    command:
+      - |
+        access_key=$$(cat /run/secrets/s3_access_key)
+        secret_key=$$(cat /run/secrets/s3_secret_key)
+        mc alias set private "http://minio:9000" "$$access_key" "$$secret_key"
+        mc mb --ignore-existing private/trace-artifacts
+    secrets:
+      - s3_access_key
+      - s3_secret_key
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: "no"
+
+  migrate:
+    <<: *daemon
+    command: ["migrate", "--config", "/etc/notary/config.toml"]
+    environment:
+      NOTARYD_METADATA_DATABASE_URL_FILE: /run/secrets/postgres_url
+      NOTARYD_CLUSTER_VAULT_KEY_FILE: /run/secrets/cluster_vault_key
+    secrets:
+      - postgres_url
+      - cluster_vault_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  daemon:
+    <<: *daemon
+    expose:
+      - "8787"
+      - "8788"
+    deploy:
+      mode: replicated
+      replicas: ${CLUSTER_REPLICAS:-2}
+
+secrets:
+  admin_password:
+    file: ${CLUSTER_STATE_DIR}/secrets/admin-password
+  postgres_password:
+    file: ${CLUSTER_STATE_DIR}/secrets/postgres-password
+  postgres_url:
+    file: ${CLUSTER_STATE_DIR}/secrets/postgres-url
+  s3_access_key:
+    file: ${CLUSTER_STATE_DIR}/secrets/s3-access-key
+  s3_secret_key:
+    file: ${CLUSTER_STATE_DIR}/secrets/s3-secret-key
+  cluster_vault_key:
+    file: ${CLUSTER_STATE_DIR}/secrets/cluster-vault.key
+
+volumes:
+  postgres-data:
+  minio-data:
+
+networks:
+  default:
+    name: ${CLUSTER_NETWORK_NAME:-notary-cluster}

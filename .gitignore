@@ -1,0 +1,6 @@
+/target/
+**/target/
+**/node_modules/
+**/dist/
+apps/notary-app/src-tauri/binaries/notaryd-*
+!.gitkeep

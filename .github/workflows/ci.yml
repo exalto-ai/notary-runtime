@@ -1,0 +1,68 @@
+name: Public Runtime CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-runtime-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: runtime/apps/admin-dashboard/package-lock.json
+      - run: cargo fmt --manifest-path runtime/Cargo.toml --check --all
+      - run: runtime/tooling/check-boundary.sh
+      - run: python3 -m unittest runtime/tooling/test_check_boundary.py
+      - run: cargo clippy --locked --manifest-path runtime/Cargo.toml --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --locked --manifest-path runtime/Cargo.toml --workspace --all-targets --all-features
+      - run: npm --prefix runtime/apps/admin-dashboard ci
+      - run: npm --prefix runtime/apps/admin-dashboard run build
+      - run: npm --prefix runtime/apps/admin-dashboard run check:local-docs
+
+  desktop:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.95.0
+          components: clippy
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/notary-app/package-lock.json
+      - run: npm --prefix apps/notary-app ci
+      - run: npm --prefix apps/notary-app run prepare:sidecar:debug
+      - run: cargo clippy --manifest-path apps/notary-app/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: npm --prefix apps/notary-app exec -- tauri build --debug --bundles app
+
+  gitleaks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan repository history
+        uses: docker://ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+        with:
+          args: dir --config=/github/workspace/.gitleaks.toml --redact --verbose /github/workspace
