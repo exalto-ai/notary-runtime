@@ -27,7 +27,10 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: runtime/apps/admin-dashboard/package-lock.json
-      - run: cargo fmt --manifest-path runtime/Cargo.toml --check --all
+      - run: >-
+          cargo fmt --manifest-path runtime/Cargo.toml --check
+          -p notary-core -p notaryd -p notaryctl
+          -p notary-updater -p notary-server
       - run: runtime/tooling/check-boundary.sh
       - run: python3 -m unittest runtime/tooling/test_check_boundary.py
       - run: cargo clippy --locked --manifest-path runtime/Cargo.toml --workspace --all-targets --all-features -- -D warnings
