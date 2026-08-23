@@ -10,7 +10,7 @@ exclude = ["vendor/tlsn", "vendor/tlsn-utils"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.3"
+version = "0.1.4"
 
 # The vendored spansy carries a local patch for input-proportional parser
 # stack usage; see vendor/tlsn-utils/README.md.
