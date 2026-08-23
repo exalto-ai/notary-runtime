@@ -13,6 +13,13 @@ tags = ["notary", "private-artifact"]
 description = "Vendored public certificate used by TLS parsing tests"
 paths = ['''(^|/)runtime/vendor/tlsn/crates/tls-core/testdata/cert-digicert\.pem$''']
 
+# The hosted trace API is a source module that happens to be named `traces`, so the directory
+# clause above matches every file in it. Only its own Rust sources are exempt: a capture, key,
+# or database dropped in that directory still trips the rule.
+[[rules.allowlists]]
+description = "Hosted trace API source module, not captured evidence"
+paths = ['''(^|/)platform/crates/notary-api/src/traces/[^/]+\.rs$''']
+
 [[allowlists]]
 description = "Exact synthetic credentials and detector literals in Runtime tests"
 regexTarget = "line"
