@@ -1,6 +1,6 @@
 [package]
 name = "notary-app"
-version = "0.1.1"
+version = "0.1.2"
 description = "Guided desktop shell for Notary by Exalto"
 edition = "2024"
 license = "MIT OR Apache-2.0"
