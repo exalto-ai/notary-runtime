@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import json
 import os
+import random
 import re
 import shutil
 import socket
@@ -23,10 +24,10 @@ from typing import Any
 
 
 RESULT_FORMAT = "notary/opencode-e2e-result/v1"
-FIXTURE_VERSION = "retry-after/v1"
+MANIFEST_NAME = "fixture.json"
 DEFAULT_MODEL = "openrouter/cohere/north-mini-code:free"
 SHARE_VISIBILITY = "listed"
-ALLOWED_FILES = {"retry_after.py"}
+PLAIN_FILENAME = re.compile(r"^[A-Za-z0-9._-]+$")
 TERMINAL_OPERATION_STATES = {"succeeded", "failed", "interrupted"}
 TERMINAL_SHARE_STATES = {"shared", "rejected", "failed"}
 SENSITIVE_ENV_NAME = re.compile(
@@ -324,8 +325,78 @@ def scan_disclosure(value: Any) -> dict[str, int]:
     }
 
 
-def validate_changed_files(files: list[str]) -> bool:
-    return bool(files) and set(files) == ALLOWED_FILES and len(files) == len(set(files))
+def validate_changed_files(files: list[str], allowed: set[str]) -> bool:
+    return bool(files) and set(files) == allowed and len(files) == len(set(files))
+
+
+def load_fixture(path: Path) -> dict[str, Any]:
+    """Read and strictly validate one fixture manifest.
+
+    The allowlist is a safety gate, not configuration: a malformed manifest must fail the run
+    rather than fall back to a permissive default, because these traces are published publicly.
+    """
+
+    manifest_path = path / MANIFEST_NAME
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise CanaryFailure("fixture", "fixture_manifest_unreadable") from error
+    if not isinstance(manifest, dict):
+        raise CanaryFailure("fixture", "fixture_manifest_invalid")
+
+    version = manifest.get("version")
+    summary = manifest.get("summary")
+    allowed = manifest.get("allowed_files")
+    command = manifest.get("test_command")
+    if not isinstance(version, str) or not version.strip():
+        raise CanaryFailure("fixture", "fixture_manifest_invalid")
+    if not isinstance(summary, str) or not summary.strip():
+        raise CanaryFailure("fixture", "fixture_manifest_invalid")
+    if not isinstance(allowed, list) or not allowed:
+        raise CanaryFailure("fixture", "fixture_manifest_invalid")
+    if not isinstance(command, list) or not command:
+        raise CanaryFailure("fixture", "fixture_manifest_invalid")
+    if any(not isinstance(item, str) or not item for item in command):
+        raise CanaryFailure("fixture", "fixture_manifest_invalid")
+    for name in allowed:
+        # A path separator, parent reference, or glob would widen the exact-diff gate.
+        if not isinstance(name, str) or not PLAIN_FILENAME.match(name) or name in {".", ".."}:
+            raise CanaryFailure("fixture", "fixture_manifest_invalid")
+        if not (path / name).is_file():
+            raise CanaryFailure("fixture", "fixture_manifest_invalid")
+    if len(set(allowed)) != len(allowed):
+        raise CanaryFailure("fixture", "fixture_manifest_invalid")
+
+    return {
+        "name": path.name,
+        "path": path,
+        "version": version,
+        "summary": summary,
+        "allowed_files": set(allowed),
+        "test_command": list(command),
+    }
+
+
+def discover_fixtures(root: Path) -> list[Path]:
+    return sorted(
+        child for child in root.iterdir() if child.is_dir() and (child / MANIFEST_NAME).is_file()
+    )
+
+
+def select_fixture(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Pin the requested fixture, or pick one uniformly at random from the library."""
+
+    if arguments.fixture:
+        return load_fixture(Path(arguments.fixture).resolve())
+    root = Path(arguments.fixtures).resolve()
+    if not root.is_dir():
+        raise CanaryFailure("fixture", "fixture_library_missing")
+    candidates = discover_fixtures(root)
+    if not candidates:
+        raise CanaryFailure("fixture", "fixture_library_missing")
+    seed = os.environ.get("NOTARYD_E2E_FIXTURE_SEED")
+    chooser = random.Random(seed) if seed else random.SystemRandom()
+    return load_fixture(chooser.choice(candidates))
 
 
 def classify_provider_failure(traces: list[dict[str, Any]]) -> str | None:
@@ -491,9 +562,10 @@ def trace_record(item: dict[str, Any], attempt: int) -> dict[str, Any]:
 
 
 class Canary:
-    def __init__(self, arguments: argparse.Namespace, root: Path):
+    def __init__(self, arguments: argparse.Namespace, root: Path, fixture: dict[str, Any]):
         self.arguments = arguments
         self.root = root
+        self.fixture = fixture
         self.provider_key = os.environ.get("OPENROUTER_FREE_TIER_API_KEY", "")
         self.platform_key = os.environ.get("NOTARYD_E2E_API_KEY", "")
         self.proxy_port = free_port()
@@ -592,8 +664,9 @@ class Canary:
 
     def run_attempt(self, number: int, result: dict[str, Any]) -> dict[str, Any]:
         repository = self.root / f"fixture-attempt-{number}"
-        initialize_fixture(Path(self.arguments.fixture), repository)
-        tests = safe_run(["python3", "-m", "unittest", "-v"], cwd=repository, timeout=30)
+        initialize_fixture(self.fixture["path"], repository)
+        test_command = self.fixture["test_command"]
+        tests = safe_run(test_command, cwd=repository, timeout=30)
         if tests.returncode == 0:
             raise CanaryFailure("fixture", "fixture_did_not_fail_initially")
         before_ids = {
@@ -647,15 +720,15 @@ class Canary:
             event_summary = parse_opencode_events(b"")
             retry_after = 60
         opencode_wall_ms = elapsed_ms(started)
-        final_tests = safe_run(
-            ["python3", "-m", "unittest", "-v"], cwd=repository, timeout=30
-        )
+        final_tests = safe_run(test_command, cwd=repository, timeout=30)
         files, stats = changed_files(repository)
         new_traces = self.wait_for_new_traces(before_ids)
         new_traces.sort(key=lambda item: int(item.get("created_at_unix_ms") or 0))
         records = [trace_record(item, number) for item in new_traces]
         result["traces"].extend(records)
-        task_completed = final_tests.returncode == 0 and validate_changed_files(files)
+        task_completed = final_tests.returncode == 0 and validate_changed_files(
+            files, self.fixture["allowed_files"]
+        )
         functional_pass = exit_code == 0 and task_completed
         eligible = [item for item in new_traces if item.get("notarization_eligible")]
         summary = {
@@ -871,7 +944,17 @@ def source_commit() -> str:
     return command_version("git", "rev-parse", "HEAD")
 
 
-def base_result(arguments: argparse.Namespace) -> dict[str, Any]:
+def fixture_record(fixture: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": fixture["name"],
+        "version": fixture["version"],
+        "summary": fixture["summary"],
+        "allowed_files": sorted(fixture["allowed_files"]),
+        "test_command": list(fixture["test_command"]),
+    }
+
+
+def base_result(arguments: argparse.Namespace, fixture: dict[str, Any]) -> dict[str, Any]:
     return {
         "format": RESULT_FORMAT,
         "status": "running",
@@ -898,7 +981,7 @@ def base_result(arguments: argparse.Namespace) -> dict[str, Any]:
             "requested_openrouter_model": arguments.model.removeprefix("openrouter/"),
             "preflight": None,
         },
-        "fixture": {"version": FIXTURE_VERSION},
+        "fixture": fixture_record(fixture),
         "attempts": [],
         "traces": [],
         "notarizations": [],
@@ -969,7 +1052,16 @@ def write_step_summary(result: dict[str, Any]) -> None:
 def parse_arguments() -> argparse.Namespace:
     directory = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fixture", default=str(directory / "fixture"))
+    parser.add_argument(
+        "--fixtures",
+        default=str(directory / "fixtures"),
+        help="Directory of fixtures; one is chosen at random unless --fixture pins it",
+    )
+    parser.add_argument(
+        "--fixture",
+        default=None,
+        help="Pin one fixture directory instead of choosing at random",
+    )
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--opencode", default="opencode")
     parser.add_argument("--notaryctl", default="notaryctl")
@@ -989,12 +1081,17 @@ def parse_arguments() -> argparse.Namespace:
 def main() -> int:
     arguments = parse_arguments()
     result_path = Path(arguments.result).resolve()
-    result = base_result(arguments)
+    try:
+        fixture = select_fixture(arguments)
+    except CanaryFailure as failure:
+        sys.stderr.write(f"{failure.stage}: {failure.code}\n")
+        return 1
+    result = base_result(arguments, fixture)
     started = time.monotonic()
     temporary_base = Path(os.environ.get("NOTARYD_E2E_TMPDIR", "/tmp"))
     root = Path(tempfile.mkdtemp(prefix="notary-opencode-e2e-", dir=temporary_base))
     os.chmod(root, 0o700)
-    canary = Canary(arguments, root)
+    canary = Canary(arguments, root, fixture)
     try:
         if not canary.provider_key:
             raise CanaryFailure("configuration", "provider_key_missing")

@@ -203,9 +203,11 @@ class GateAndClassificationTests(unittest.TestCase):
         self.assertNotIn("token-value", json.dumps(violations))
 
     def test_diff_allowlist_is_exact(self) -> None:
-        self.assertTrue(run.validate_changed_files(["retry_after.py"]))
-        self.assertFalse(run.validate_changed_files([]))
-        self.assertFalse(run.validate_changed_files(["retry_after.py", "TASK.md"]))
+        allowed = {"retry_after.py"}
+        self.assertTrue(run.validate_changed_files(["retry_after.py"], allowed))
+        self.assertFalse(run.validate_changed_files([], allowed))
+        self.assertFalse(run.validate_changed_files(["retry_after.py", "TASK.md"], allowed))
+        self.assertFalse(run.validate_changed_files(["slugify.py"], allowed))
 
     def test_classifies_transient_and_auth_provider_failures(self) -> None:
         self.assertEqual(
@@ -265,6 +267,212 @@ class GateAndClassificationTests(unittest.TestCase):
         (root / "secret").write_text("value", encoding="utf-8")
         run.cleanup_private_path(root)
         self.assertFalse(root.exists())
+
+
+class FixtureLibraryTests(unittest.TestCase):
+    def build(self, root: Path, name: str, manifest, files=("target.py",)) -> Path:
+        fixture = root / name
+        fixture.mkdir(parents=True)
+        for filename in files:
+            (fixture / filename).write_text("", encoding="utf-8")
+        if manifest is not None:
+            (fixture / "fixture.json").write_text(
+                manifest if isinstance(manifest, str) else json.dumps(manifest),
+                encoding="utf-8",
+            )
+        return fixture
+
+    def valid(self) -> dict:
+        return {
+            "version": "target/v1",
+            "summary": "Fix the target.",
+            "allowed_files": ["target.py"],
+            "test_command": ["python3", "-m", "unittest", "-v"],
+        }
+
+    def test_loads_a_valid_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self.build(Path(directory), "target", self.valid())
+            loaded = run.load_fixture(fixture)
+            self.assertEqual(loaded["name"], "target")
+            self.assertEqual(loaded["version"], "target/v1")
+            self.assertEqual(loaded["allowed_files"], {"target.py"})
+            self.assertEqual(loaded["test_command"], ["python3", "-m", "unittest", "-v"])
+
+    def test_rejects_manifests_that_would_widen_the_diff_gate(self) -> None:
+        rejected = [
+            {**self.valid(), "allowed_files": []},
+            {**self.valid(), "allowed_files": ["*.py"]},
+            {**self.valid(), "allowed_files": ["../escape.py"]},
+            {**self.valid(), "allowed_files": ["nested/target.py"]},
+            {**self.valid(), "allowed_files": ["target.py", "target.py"]},
+            {**self.valid(), "allowed_files": ["missing.py"]},
+            {**self.valid(), "allowed_files": "target.py"},
+            {**self.valid(), "test_command": []},
+            {**self.valid(), "test_command": "python3 -m unittest"},
+            {**self.valid(), "version": ""},
+            {**self.valid(), "summary": " "},
+            "{ not json",
+            None,
+        ]
+        for index, manifest in enumerate(rejected):
+            with self.subTest(index=index):
+                with tempfile.TemporaryDirectory() as directory:
+                    fixture = self.build(Path(directory), f"target{index}", manifest)
+                    with self.assertRaises(run.CanaryFailure) as raised:
+                        run.load_fixture(fixture)
+                    self.assertEqual(raised.exception.stage, "fixture")
+
+    def test_discovers_only_directories_holding_a_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.build(root, "one", self.valid())
+            self.build(root, "two", self.valid())
+            self.build(root, "no-manifest", None)
+            (root / "loose.txt").write_text("", encoding="utf-8")
+            self.assertEqual([item.name for item in run.discover_fixtures(root)], ["one", "two"])
+
+    def test_selection_pins_a_requested_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.build(root, "one", self.valid())
+            pinned = self.build(root, "two", self.valid())
+            arguments = SimpleNamespace(fixtures=str(root), fixture=str(pinned))
+            self.assertEqual(run.select_fixture(arguments)["name"], "two")
+
+    def test_selection_covers_every_fixture_over_many_draws(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("one", "two", "three"):
+                self.build(root, name, self.valid())
+            arguments = SimpleNamespace(fixtures=str(root), fixture=None)
+            drawn = {run.select_fixture(arguments)["name"] for _ in range(120)}
+            self.assertEqual(drawn, {"one", "two", "three"})
+
+    def test_selection_fails_on_an_empty_library(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            arguments = SimpleNamespace(fixtures=directory, fixture=None)
+            with self.assertRaises(run.CanaryFailure) as raised:
+                run.select_fixture(arguments)
+            self.assertEqual(raised.exception.code, "fixture_library_missing")
+
+
+class ShippedFixtureTests(unittest.TestCase):
+    def fixtures(self) -> list[Path]:
+        return run.discover_fixtures(Path(__file__).resolve().parent / "fixtures")
+
+    def test_every_shipped_fixture_has_a_valid_manifest(self) -> None:
+        found = self.fixtures()
+        self.assertGreaterEqual(len(found), 2)
+        for path in found:
+            with self.subTest(fixture=path.name):
+                loaded = run.load_fixture(path)
+                self.assertTrue(loaded["version"].startswith(f"{path.name}/"))
+
+    def test_every_shipped_fixture_permits_editing_exactly_its_allowlist(self) -> None:
+        for path in self.fixtures():
+            with self.subTest(fixture=path.name):
+                loaded = run.load_fixture(path)
+                config = json.loads((path / "opencode.json").read_text(encoding="utf-8"))
+                permission = config["agent"]["canary"]["permission"]
+                self.assertEqual(permission["edit"]["*"], "deny")
+                allowed = {
+                    name
+                    for name, decision in permission["edit"].items()
+                    if decision == "allow" and not name.startswith("**/")
+                }
+                self.assertEqual(allowed, loaded["allowed_files"])
+                self.assertEqual(
+                    set(permission["bash"]) - {"*"},
+                    {" ".join(loaded["test_command"])},
+                )
+
+    def test_every_shipped_fixture_fails_before_the_task_is_done(self) -> None:
+        for path in self.fixtures():
+            with self.subTest(fixture=path.name):
+                loaded = run.load_fixture(path)
+                completed = run.safe_run(loaded["test_command"], cwd=path, timeout=60)
+                self.assertNotEqual(completed.returncode, 0)
+
+
+# The intended fixes live here, not beside the fixtures: `initialize_fixture` copies a fixture
+# directory wholesale into the agent workspace, so a solution stored there would be handed to
+# the model and published in the trace.
+FIXTURE_SOLUTIONS = {
+    "retry-after": (
+        "retry_after.py",
+        "    return max(0, int(delay_seconds))",
+        "    return max(0, math.ceil(delay_seconds))",
+    ),
+    "slugify": (
+        "slugify.py",
+        '    slug = "".join(character if character.isalnum() else SEPARATOR'
+        " for character in lowered)\n    slug = slug.strip(SEPARATOR)",
+        "    slug = _ALLOWED.sub(SEPARATOR, lowered).strip(SEPARATOR)",
+    ),
+    "semver-compare": (
+        "semver.py",
+        '    return -1 if (left_pre or "") < (right_pre or "") else 1',
+        "    if left_pre is None:\n        return 1\n    if right_pre is None:\n"
+        "        return -1\n    return -1 if left_pre < right_pre else 1",
+    ),
+}
+
+
+class FixtureEndToEndTests(unittest.TestCase):
+    """Walk the path the runner takes, minus the provider call and notarization."""
+
+    def fixtures(self) -> list[Path]:
+        return run.discover_fixtures(Path(__file__).resolve().parent / "fixtures")
+
+    def test_each_fixture_walks_the_full_gate_path(self) -> None:
+        for path in self.fixtures():
+            with self.subTest(fixture=path.name):
+                self.assertIn(path.name, FIXTURE_SOLUTIONS)
+                filename, before, after = FIXTURE_SOLUTIONS[path.name]
+                with tempfile.TemporaryDirectory() as directory:
+                    workspace = Path(directory) / "fixture-attempt-1"
+                    loaded = run.load_fixture(path)
+                    run.initialize_fixture(path, workspace)
+
+                    initial = run.safe_run(loaded["test_command"], cwd=workspace, timeout=60)
+                    self.assertNotEqual(initial.returncode, 0, "fixture must fail first")
+                    self.assertEqual(run.changed_files(workspace)[0], [])
+
+                    target = workspace / filename
+                    source = target.read_text(encoding="utf-8")
+                    self.assertIn(before, source)
+                    target.write_text(source.replace(before, after), encoding="utf-8")
+
+                    final = run.safe_run(loaded["test_command"], cwd=workspace, timeout=60)
+                    self.assertEqual(final.returncode, 0, final.stdout + final.stderr)
+
+                    files, stats = run.changed_files(workspace)
+                    self.assertEqual(set(files), loaded["allowed_files"])
+                    self.assertTrue(run.validate_changed_files(files, loaded["allowed_files"]))
+                    self.assertGreater(stats["added_lines"], 0)
+
+    def test_the_gate_rejects_an_edit_outside_the_allowlist(self) -> None:
+        for path in self.fixtures():
+            with self.subTest(fixture=path.name):
+                with tempfile.TemporaryDirectory() as directory:
+                    workspace = Path(directory) / "fixture-attempt-1"
+                    loaded = run.load_fixture(path)
+                    run.initialize_fixture(path, workspace)
+                    filename, before, after = FIXTURE_SOLUTIONS[path.name]
+
+                    target = workspace / filename
+                    target.write_text(
+                        target.read_text(encoding="utf-8").replace(before, after),
+                        encoding="utf-8",
+                    )
+                    (workspace / "TASK.md").write_text("tampered\n", encoding="utf-8")
+                    (workspace / "sneaked.py").write_text("x = 1\n", encoding="utf-8")
+
+                    files, _ = run.changed_files(workspace)
+                    self.assertIn("TASK.md", files)
+                    self.assertIn("sneaked.py", files)
+                    self.assertFalse(run.validate_changed_files(files, loaded["allowed_files"]))
 
 
 class NotificationTests(unittest.TestCase):
