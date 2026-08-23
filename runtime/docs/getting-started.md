@@ -5,8 +5,8 @@ automated workflow. The daemon keeps private capture material on your machine;
 the CLI is a short-lived client for its loopback REST API.
 
 Notary is pre-release and does not yet promise stable compatibility or file
-formats. The website's `latest` channel is deliberately moving: each successful
-publication replaces the previous release.
+formats. `latest` is the one public release channel: each explicitly published
+stable Runtime version replaces the previous release.
 
 ## Install the CLI and local service
 
@@ -36,8 +36,8 @@ notaryctl update --check
 notaryctl update
 ```
 
-The build ID, not the package's pre-release `0.1.0` label or a timestamp,
-decides whether an update is available. Any different build ID is accepted,
+The immutable build ID, not a timestamp or version comparison, decides whether
+an update is available. Any different build ID is accepted,
 including an intentional rollback selected by the trusted `latest` channel.
 The updater stages and verifies both programs before changing either one and
 keeps rollback copies until both replacements are confirmed. It never stops a

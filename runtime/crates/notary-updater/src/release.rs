@@ -10,7 +10,7 @@ use tokio::io::AsyncWriteExt as _;
 
 use crate::channel::decode_wrapped_text;
 
-const RELEASE_SCHEMA: &str = "notary/release/v1";
+const RELEASE_SCHEMA: &str = "notary/release/v2";
 
 pub(crate) const MANIFEST_LIMIT: usize = 512 * 1024;
 
@@ -61,6 +61,7 @@ pub struct ReleaseManifest {
     pub schema_version: String,
     pub build_id: String,
     pub commit_sha: String,
+    pub public_source_sha: String,
     pub version: String,
     pub published_at: String,
     pub artifacts: BTreeMap<String, ReleasePlatform>,
@@ -120,6 +121,14 @@ pub(crate) fn validate_manifest(manifest: &ReleaseManifest) -> Result<()> {
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()),
         "the release commit SHA is invalid"
+    );
+    ensure!(
+        manifest.public_source_sha.len() == 40
+            && manifest
+                .public_source_sha
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()),
+        "the public release source SHA is invalid"
     );
     validate_identifier(&manifest.version, "release version")?;
     ensure!(
@@ -350,6 +359,7 @@ mod tests {
             "schema_version": schema,
             "build_id": "build",
             "commit_sha": "0".repeat(40),
+            "public_source_sha": "1".repeat(40),
             "version": "0.1.0",
             "published_at": "2026-01-01T00:00:00Z",
             "artifacts": {},
@@ -361,8 +371,10 @@ mod tests {
 
     #[test]
     fn rejects_the_retired_release_manifest_schema() {
-        assert_eq!(RELEASE_SCHEMA, "notary/release/v1");
+        assert_eq!(RELEASE_SCHEMA, "notary/release/v2");
         let error = validate_manifest(&manifest_json("llm-notary/release/v1")).unwrap_err();
+        assert!(error.to_string().contains("schema is unsupported"));
+        let error = validate_manifest(&manifest_json("notary/release/v1")).unwrap_err();
         assert!(error.to_string().contains("schema is unsupported"));
         // The canonical schema passes the schema gate and fails later instead.
         let error = validate_manifest(&manifest_json(RELEASE_SCHEMA)).unwrap_err();

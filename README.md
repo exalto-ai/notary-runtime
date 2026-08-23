@@ -36,5 +36,10 @@ The export workflow verifies the Runtime and desktop from a clean projection
 before advancing `main`. This repository is currently a one-way mirror; public
 contribution import automation is intentionally not part of the first export.
 
+Stable source releases use `vX.Y.Z` tags. Each tag and GitHub Release maps to
+the exact canonical private source SHA recorded in `.notary-source.json`;
+installable clients are published separately through the signed `latest`
+channel at `notary.exalto.ai`.
+
 The source is licensed under MIT or Apache-2.0 at your option. Vendored
 components retain their own notices and licences.
