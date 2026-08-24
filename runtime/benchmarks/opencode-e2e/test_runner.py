@@ -1,3 +1,4 @@
+import ast
 import json
 import sys
 import tempfile
@@ -417,6 +418,67 @@ FIXTURE_SOLUTIONS = {
         "        return -1\n    return -1 if left_pre < right_pre else 1",
     ),
 }
+
+
+class RunnerFailureDetailTests(unittest.TestCase):
+    def test_reports_the_runner_frame_without_the_message(self) -> None:
+        try:
+            run.trace_record(None, 1)
+        except Exception as error:  # noqa: BLE001 - the point is the unexpected case
+            detail = run.runner_failure_detail(error)
+            message = str(error)
+        self.assertEqual(detail["type"], "AttributeError")
+        self.assertRegex(detail["location"], r"^run\.py:\d+$")
+        self.assertNotIn("message", detail)
+        self.assertNotIn(message, json.dumps(detail))
+
+    def test_reports_no_location_for_a_failure_outside_the_runner(self) -> None:
+        try:
+            raise ValueError("prompt text that must not be recorded")
+        except ValueError as error:
+            detail = run.runner_failure_detail(error)
+        self.assertEqual(detail, {"type": "ValueError", "location": None})
+
+
+class ModuleCallSignatureTests(unittest.TestCase):
+    """Guard the arity of module-level calls.
+
+    `main` wraps the run in a bare `except Exception`, so a call left with the wrong number of
+    arguments after a refactor surfaces only as `unexpected_runner_failure` at the end of a live
+    canary run. This caught `validate_changed_files` being updated at one call site but not the
+    other.
+    """
+
+    def test_module_calls_match_local_signatures(self) -> None:
+        source = Path(run.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        signatures = {}
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef):
+                positional = node.args.posonlyargs + node.args.args
+                required = len(positional) - len(node.args.defaults)
+                maximum = None if node.args.vararg else len(positional)
+                signatures[node.name] = (required, maximum, {a.arg for a in positional})
+
+        problems = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            signature = signatures.get(node.func.id)
+            if signature is None:
+                continue
+            if any(isinstance(a, ast.Starred) for a in node.args):
+                continue
+            if any(k.arg is None for k in node.keywords):
+                continue
+            required, maximum, names = signature
+            supplied = len(node.args) + len([k for k in node.keywords if k.arg in names])
+            if supplied < required or (maximum is not None and supplied > maximum):
+                problems.append(
+                    f"{node.func.id} called with {supplied} at line {node.lineno}, "
+                    f"expects {required}..{maximum}"
+                )
+        self.assertEqual(problems, [])
 
 
 class FixtureEndToEndTests(unittest.TestCase):

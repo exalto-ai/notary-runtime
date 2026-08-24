@@ -705,7 +705,7 @@ class Canary:
                     "--dir",
                     str(repository),
                     "--title",
-                    "Notary Retry-After canary",
+                    f"Notary {self.fixture['name']} canary",
                     task,
                 ],
                 cwd=repository,
@@ -738,7 +738,9 @@ class Canary:
             "opencode_wall_ms": opencode_wall_ms,
             "final_tests_passed": final_tests.returncode == 0,
             "changed_files": files,
-            "diff_allowlist_passed": validate_changed_files(files),
+            "diff_allowlist_passed": validate_changed_files(
+                files, self.fixture["allowed_files"]
+            ),
             "diff_stats": stats,
             "trace_count": len(new_traces),
             "eligible_trace_count": len(eligible),
@@ -954,6 +956,28 @@ def fixture_record(fixture: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def runner_failure_detail(error: BaseException) -> dict[str, Any]:
+    """Locate an unexpected runner failure without disclosing anything it touched.
+
+    Exception messages can quote prompts, paths, or provider payloads, so only the type and the
+    deepest frame inside this file are recorded.
+    """
+
+    module = Path(__file__).resolve()
+    location = None
+    trace = error.__traceback__
+    while trace is not None:
+        frame = trace.tb_frame
+        try:
+            same_file = Path(frame.f_code.co_filename).resolve() == module
+        except OSError:
+            same_file = False
+        if same_file:
+            location = f"{module.name}:{trace.tb_lineno}"
+        trace = trace.tb_next
+    return {"type": type(error).__name__, "location": location}
+
+
 def base_result(arguments: argparse.Namespace, fixture: dict[str, Any]) -> dict[str, Any]:
     return {
         "format": RESULT_FORMAT,
@@ -986,6 +1010,7 @@ def base_result(arguments: argparse.Namespace, fixture: dict[str, Any]) -> dict[
         "traces": [],
         "notarizations": [],
         "shares": [],
+        "failure_detail": None,
         "disclosure_violations": {},
         "total_wall_ms": None,
     }
@@ -1116,10 +1141,11 @@ def main() -> int:
         result["status"] = "failed"
         result["failure_stage"] = error.stage
         result["failure_code"] = error.code
-    except Exception:
+    except Exception as error:
         result["status"] = "failed"
         result["failure_stage"] = "runner"
         result["failure_code"] = "unexpected_runner_failure"
+        result["failure_detail"] = runner_failure_detail(error)
     finally:
         canary.stop_daemon()
         cleanup_private_path(root)
