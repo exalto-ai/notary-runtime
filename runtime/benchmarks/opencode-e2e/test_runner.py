@@ -452,6 +452,32 @@ class FixtureEndToEndTests(unittest.TestCase):
                     self.assertTrue(run.validate_changed_files(files, loaded["allowed_files"]))
                     self.assertGreater(stats["added_lines"], 0)
 
+    def test_interpreter_caches_do_not_reach_the_diff_gate(self) -> None:
+        """Each fixture must carry its own .gitignore.
+
+        `initialize_fixture` copies only the fixture directory, so an ignore file kept beside
+        the library rather than inside each fixture never reaches the agent workspace. The
+        interpreter then writes `__pycache__` while running the tests, the cache lands in
+        `changed_files`, and the exact-diff gate refuses to publish. Planting the cache keeps
+        this honest on hosts that do not write bytecode themselves.
+        """
+
+        for path in self.fixtures():
+            with self.subTest(fixture=path.name):
+                self.assertTrue((path / ".gitignore").is_file())
+                with tempfile.TemporaryDirectory() as directory:
+                    workspace = Path(directory) / "fixture-attempt-1"
+                    loaded = run.load_fixture(path)
+                    run.initialize_fixture(path, workspace)
+                    self.assertTrue((workspace / ".gitignore").is_file())
+
+                    cache = workspace / "__pycache__"
+                    cache.mkdir()
+                    (cache / "module.cpython-312.pyc").write_bytes(b"\x00")
+                    run.safe_run(loaded["test_command"], cwd=workspace, timeout=60)
+
+                    self.assertEqual(run.changed_files(workspace)[0], [])
+
     def test_the_gate_rejects_an_edit_outside_the_allowlist(self) -> None:
         for path in self.fixtures():
             with self.subTest(fixture=path.name):
