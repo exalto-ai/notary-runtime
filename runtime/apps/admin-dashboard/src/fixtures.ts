@@ -306,7 +306,7 @@ export const fixtureEvents: Event[] = [
     trace_id: 'trc-20260728-safety-review',
     operation_id: 'op-notarize-safety-review',
     severity: 'info',
-    message: 'Notarization started',
+    message: 'Sealing started',
   },
   {
     event_id: 13,
@@ -315,7 +315,7 @@ export const fixtureEvents: Event[] = [
     trace_id: 'trc-20260727-benchmark',
     operation_id: 'op-notarize-benchmark',
     severity: 'error',
-    message: 'Notarization failed',
+    message: 'Sealing failed',
     safe_code: 'notary_capacity',
   },
   {
@@ -325,7 +325,7 @@ export const fixtureEvents: Event[] = [
     trace_id: 'trc-20260727-research-brief',
     operation_id: 'op-notarize-research-brief',
     severity: 'success',
-    message: 'Notarization completed',
+    message: 'Sealing completed',
   },
   {
     event_id: 11,
@@ -334,7 +334,7 @@ export const fixtureEvents: Event[] = [
     trace_id: 'trc-20260726-direct-link',
     operation_id: 'op-notarize-direct-link',
     severity: 'success',
-    message: 'Notarization completed',
+    message: 'Sealing completed',
   },
 ];
 
@@ -380,9 +380,9 @@ export const fixtureNotaries: Notaries = {
   active_key_id: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   notaries: [
     {
-      name: 'Alice',
+      name: 'Exalto Seal',
       operator: 'Exalto',
-      endpoint: 'tls://alice.notary.exalto.ai:443',
+      endpoint: 'tls://seal.exalto.ai:443',
       transport: 'tls',
       key_id: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       verification_key: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -392,7 +392,7 @@ export const fixtureNotaries: Notaries = {
       notarize_until_unix_ms: null,
     },
     {
-      name: 'Alice (retiring key)',
+      name: 'Exalto Seal (retiring key)',
       operator: 'Exalto',
       endpoint: 'tls://notary-old.exalto.ai:7047',
       transport: 'tls',
@@ -404,7 +404,7 @@ export const fixtureNotaries: Notaries = {
       notarize_until_unix_ms: fixtureNow + hour * 24 * 14,
     },
     {
-      name: 'Alice (historical key)',
+      name: 'Exalto Seal (historical key)',
       operator: 'Exalto',
       endpoint: 'tls://notary-history.exalto.ai:7047',
       transport: 'tls',
@@ -416,7 +416,7 @@ export const fixtureNotaries: Notaries = {
       notarize_until_unix_ms: fixtureNow - hour * 24 * 90,
     },
     {
-      name: 'Revoked Notary',
+      name: 'Revoked sealing service',
       operator: 'Exalto',
       endpoint: 'tls://notary-revoked.exalto.ai:7047',
       transport: 'tls',
@@ -845,7 +845,7 @@ export function createFixtureApi({
       setCaptureNotarization(operation.trace_id, 'running');
       recordEvent(
         'notarization_started',
-        'Notarization started',
+        'Sealing started',
         'info',
         operation.trace_id,
         operationId,
@@ -886,7 +886,7 @@ export function createFixtureApi({
     if (capture) traces.set(capture.trace_id, traceForCapture(capture));
     recordEvent(
       'notarization_completed',
-      'Notarization completed',
+      'Sealing completed',
       'success',
       operation.trace_id,
       operationId,
@@ -971,6 +971,47 @@ export function createFixtureApi({
     return Number.isFinite(position) ? position : undefined;
   };
   const cursor = (kind: string, position: number) => `fixture:${kind}:${position}`;
+  const traceDeletionSkipReason = (
+    capture: TraceSummary,
+  ): 'capture_active' | 'sealing_active' | 'share_active' | null => {
+    if (capture.status === 'capturing') return 'capture_active';
+    if (
+      capture.status === 'notarizing' ||
+      operations.some(
+        (operation) =>
+          operation.trace_id === capture.trace_id &&
+          (operation.state === 'queued' || operation.state === 'running'),
+      )
+    ) {
+      return 'sealing_active';
+    }
+    if (
+      [...shares.values()].some(
+        (share) =>
+          share.captureId === capture.trace_id &&
+          (share.progress === 'verifying' || share.accessEnabled),
+      )
+    ) {
+      return 'share_active';
+    }
+    return null;
+  };
+  const removeTrace = (captureId: string) => {
+    const operationIds = new Set(
+      operations
+        .filter((operation) => operation.trace_id === captureId)
+        .map((operation) => operation.operation_id),
+    );
+    captures = captures.filter((capture) => capture.trace_id !== captureId);
+    operations = operations.filter((operation) => operation.trace_id !== captureId);
+    events = events.filter(
+      (event) => event.trace_id !== captureId && !operationIds.has(event.operation_id ?? ''),
+    );
+    traces.delete(captureId);
+    for (const [shareId, share] of shares) {
+      if (share.captureId === captureId) shares.delete(shareId);
+    }
+  };
   return {
     session: async () => undefined,
     endSession: async () => undefined,
@@ -1061,6 +1102,21 @@ export function createFixtureApi({
         share ? fixtureShare(share[0], share[1]) : null,
       );
     },
+    deleteTrace: async (captureId) => {
+      const capture = captures.find((item) => item.trace_id === captureId);
+      if (!capture) return;
+      const reason = traceDeletionSkipReason(capture);
+      if (reason) {
+        const code =
+          reason === 'capture_active'
+            ? 'trace_capture_active'
+            : reason === 'sealing_active'
+              ? 'trace_sealing_active'
+              : 'trace_share_active';
+        throw new LocalApiError(409, code, 'Trace cannot be deleted while work is active');
+      }
+      removeTrace(captureId);
+    },
     startNotarization: async (captureId) => {
       const capture = captures.find((item) => item.trace_id === captureId);
       if (!capture) throw new LocalApiError(404, 'pending_capture_not_found', 'Trace not found');
@@ -1068,7 +1124,7 @@ export function createFixtureApi({
         throw new LocalApiError(
           409,
           capture.notarization_ineligibility_code ?? 'capture_not_eligible',
-          'Trace is not eligible for notarization',
+          'Trace is not eligible for sealing',
         );
       }
       const existing = operations.find((operation) => operation.trace_id === captureId);
@@ -1092,7 +1148,7 @@ export function createFixtureApi({
           progressingOperations.add(existing.operation_id);
           recordEvent(
             'notarization_queued',
-            'Notarization retry queued',
+            'Sealing retry queued',
             'info',
             captureId,
             existing.operation_id,
@@ -1121,7 +1177,7 @@ export function createFixtureApi({
       progressingOperations.add(operation.operation_id);
       recordEvent(
         'notarization_queued',
-        'Notarization queued',
+        'Sealing queued',
         'info',
         captureId,
         operation.operation_id,
@@ -1157,7 +1213,7 @@ export function createFixtureApi({
     traceContent: async (captureId) => {
       const trace = traces.get(captureId);
       if (!trace)
-        throw new LocalApiError(404, 'notarized_trace_not_found', 'Notarized trace not found');
+        throw new LocalApiError(404, 'notarized_trace_not_found', 'Sealed trace not found');
       return structuredClone(trace);
     },
     downloadPackage: async (captureId) =>
@@ -1176,8 +1232,8 @@ export function createFixtureApi({
     account: async () => account,
     startAccountConnection: async () => ({
       request_id: 'auth-docs-fixture',
-      user_code: 'NOTARY-7K3',
-      verification_uri_complete: 'https://notary.example/authorize?user_code=NOTARY-7K3',
+      user_code: '7A3C-91F2',
+      verification_uri_complete: 'https://notary.example/authorize?user_code=7A3C-91F2',
       expires_in_seconds: 600,
       poll_interval_seconds: 0,
       state: 'pending',
@@ -1200,7 +1256,7 @@ export function createFixtureApi({
     },
     share: async (captureId, settings) => {
       if (!traces.has(captureId))
-        throw new LocalApiError(404, 'notarized_trace_not_found', 'Notarized trace not found');
+        throw new LocalApiError(404, 'notarized_trace_not_found', 'Sealed trace not found');
       const existing = [...shares.entries()].find(([, share]) => share.captureId === captureId);
       const shareId = existing?.[0] ?? 'share-fixture';
       const previous = existing?.[1];

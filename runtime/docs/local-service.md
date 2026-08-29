@@ -404,8 +404,8 @@ which workflow owns each operation:
 | Discovery | `GET /healthz`, `GET /readyz`, `GET /openapi.json` |
 | Session and status | `POST /v1/session`, `DELETE /v1/session`, `GET /v1/status` |
 | Capture setting | `GET /v1/settings/capture`, `PUT /v1/settings/capture` |
-| Notaries and providers | `GET /v1/notaries`, `GET /v1/providers` |
-| Traces | `GET /v1/traces`, `GET /v1/traces/{trace_id}` |
+| Notaries and providers | `GET /v1/notaries`, `GET /v1/notaries/readiness`, `GET /v1/providers` |
+| Traces | `GET /v1/traces`, `GET /v1/traces/{trace_id}`, `DELETE /v1/traces/{trace_id}` |
 | Notarization | `POST /v1/traces/{trace_id}/notarizations`, `GET /v1/operations/{operation_id}` |
 | Notarized Trace | `GET /v1/traces/{trace_id}/package.llmtrace`, `GET /v1/traces/{trace_id}/content`, `POST /v1/traces/{trace_id}/verify` |
 | Portable verification | `POST /v1/verify` |
@@ -417,9 +417,26 @@ which workflow owns each operation:
 server-shared Registry, or the explicitly configured self-hosted endpoint and
 key. Each Notary preserves its proper `name`, `operator`, verification key, and
 `lifecycle`. Registry membership describes allowed protocol use; it is not an
-endpoint health check. `GET /v1/providers` is the explicit provider allowlist:
+endpoint health check. `GET /v1/notaries/readiness` resolves that trusted
+selection, then performs a bounded TCP connection and TLS validation when the
+endpoint uses `tls://`. It sends no admission credential and starts no capture,
+sealing, or billable operation. A `ready` result confirms transport reachability
+only; final admission is checked when sealing starts. `GET /v1/providers` is the explicit provider allowlist:
 it reports pinned hosts, client API styles, proxy route prefixes, and configured
 readiness without accepting arbitrary upstream hosts.
+
+`DELETE /v1/traces/{trace_id}` idempotently removes one terminal local Trace,
+its metadata, and its owned `.llmcapture` and `.llmtrace` artifacts. Capturing,
+queued or running sealing, share verification, and enabled public access return
+stable conflicts. Stop sharing first when public access is active. A `shared`
+record whose hosted access is already disabled, including an expired share, is
+safe to remove because no public access remains. This local action does not
+delete a separately retained hosted Trace. Artifact cleanup completes before metadata
+removal, so a cleanup failure retains the exact ID for a safe retry.
+
+`POST /v1/traces/{trace_id}/verify` holds the same local Trace lifecycle gate
+as deletion while it reads and verifies the retained package. A concurrent
+delete therefore waits for verification to finish before removing artifacts.
 
 For example, search the plain-text preview index and fetch one Trace by its
 identifier:

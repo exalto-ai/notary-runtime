@@ -10,6 +10,7 @@ use zeroize::Zeroizing;
 
 const CONVENIENCE_MARKER: &str = "desktop-convenience-v1";
 const ONBOARDING_MARKER: &str = "desktop-onboarding-v1";
+const TEMPORARY_CAPTURE_MARKER: &str = "desktop-temporary-capture-v1";
 
 #[derive(Default)]
 pub(super) struct VaultSession(pub(super) Mutex<Option<Vault>>);
@@ -54,6 +55,33 @@ pub(super) fn onboarding_marker_path() -> Result<PathBuf, String> {
     local_marker_path(ONBOARDING_MARKER)
 }
 
+fn temporary_capture_marker_path() -> Result<PathBuf, String> {
+    local_marker_path(TEMPORARY_CAPTURE_MARKER)
+}
+
+pub(super) fn temporary_capture_recovery_pending() -> bool {
+    temporary_capture_marker_path().is_ok_and(|path| path.exists())
+}
+
+pub(super) fn mark_temporary_capture_recovery() -> Result<(), String> {
+    write_private_marker(
+        &temporary_capture_marker_path()?,
+        b"Exalto Capture temporary capture recovery\n",
+    )
+}
+
+pub(super) fn clear_temporary_capture_recovery() -> Result<(), String> {
+    let path = temporary_capture_marker_path()?;
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "Could not clear temporary capture recovery at {}: {error}",
+            path.display()
+        )),
+    }
+}
+
 pub(super) fn agent_config_path() -> Result<PathBuf, String> {
     let base = if let Some(path) = std::env::var_os("XDG_CONFIG_HOME") {
         PathBuf::from(path)
@@ -96,9 +124,11 @@ fn write_private_marker(path: &Path, contents: &[u8]) -> Result<(), String> {
     }
 }
 
-fn mark_convenience_vault() -> Result<(), String> {
-    let path = convenience_marker_path()?;
-    write_private_marker(&path, b"Notary desktop convenience vault\n")
+fn validate_new_passphrase(passphrase: &str) -> Result<(), String> {
+    if passphrase.trim().is_empty() {
+        return Err("Enter a non-empty vault passphrase.".into());
+    }
+    Ok(())
 }
 
 pub(super) fn vault_unlock_key_for_child(
@@ -160,12 +190,10 @@ pub(super) fn configure_vault(
             let passphrase = Zeroizing::new(
                 passphrase.ok_or_else(|| "Enter and confirm a vault passphrase.".to_string())?,
             );
+            validate_new_passphrase(&passphrase)?;
             let vault = Vault::init_passphrase(&passphrase).map_err(|error| {
                 format!("Could not initialize the local capture vault: {error}")
             })?;
-            if passphrase.is_empty() {
-                mark_convenience_vault()?;
-            }
             *vault_session
                 .0
                 .lock()
@@ -173,6 +201,18 @@ pub(super) fn configure_vault(
             Ok(())
         }
         _ => Err("Choose Keychain protection or a passphrase.".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_new_passphrase;
+
+    #[test]
+    fn new_passphrase_vaults_require_meaningful_input() {
+        assert!(validate_new_passphrase("").is_err());
+        assert!(validate_new_passphrase("   \t\n").is_err());
+        assert!(validate_new_passphrase("correct horse battery staple").is_ok());
     }
 }
 

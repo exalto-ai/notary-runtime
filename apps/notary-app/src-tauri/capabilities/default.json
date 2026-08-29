@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop-capability",
-  "description": "Permissions required by the Notary desktop window",
+  "description": "Permissions required by the Exalto Capture desktop window",
   "windows": ["main"],
   "permissions": [
     "core:default",

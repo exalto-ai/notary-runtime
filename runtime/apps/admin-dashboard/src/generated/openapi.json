@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Notary local administration API",
+    "title": "Exalto Capture local administration API",
     "description": "Loopback administration API. Routes are available without credentials by default; configure admin.auth to require HTTP Basic authentication.",
     "license": {
       "name": "MIT OR Apache-2.0",
@@ -84,7 +84,7 @@
         "tags": [
           "local-admin"
         ],
-        "summary": "Get the Notary account connection",
+        "summary": "Get the Exalto account connection",
         "description": "Reports whether this local service has an account connection used for hosted admission, credits, and sharing.",
         "operationId": "account_status",
         "responses": {
@@ -130,7 +130,7 @@
         "tags": [
           "local-admin"
         ],
-        "summary": "Connect a Notary account",
+        "summary": "Connect an Exalto account",
         "description": "Starts browser approval for an account connection used for hosted admission, credits, and sharing. Browser approval is unavailable while the daemon uses an injected API key.",
         "operationId": "start_account_connection",
         "requestBody": {
@@ -196,7 +196,7 @@
         "tags": [
           "local-admin"
         ],
-        "summary": "Disconnect the Notary account",
+        "summary": "Disconnect the Exalto account",
         "description": "Removes the local account credentials. Future hosted sessions use public access until a new browser approval is completed. Injected API keys must instead be revoked in the hosted dashboard.",
         "operationId": "end_account_connection",
         "responses": {
@@ -248,7 +248,7 @@
           "local-admin"
         ],
         "summary": "Poll account authorization",
-        "description": "Checks a pending Notary account approval after its required polling interval.",
+        "description": "Checks a pending Exalto account approval after its required polling interval.",
         "operationId": "poll_account_connection",
         "parameters": [
           {
@@ -480,6 +480,76 @@
             }
           },
           "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "basicAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/notaries/readiness": {
+      "get": {
+        "tags": [
+          "local-admin"
+        ],
+        "summary": "Probe trusted Notary reachability",
+        "description": "Resolves the endpoint selected by current Registry or explicit key trust, then performs a bounded TCP connection and configured TLS validation. It sends no admission credential and starts no capture, sealing, or billable operation. Ready means the transport is reachable; final admission is still checked when sealing starts.",
+        "operationId": "notary_readiness",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "description": "Ignore the short-lived probe cache and check the trusted endpoint now.",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotaryReadinessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
             "description": "",
             "content": {
               "application/json": {
@@ -1032,6 +1102,75 @@
             }
           },
           "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "basicAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "local-admin"
+        ],
+        "summary": "Delete a local Trace",
+        "description": "Idempotently removes one terminal Trace and its private local artifacts. Active capture, sealing, share verification, or enabled public sharing must finish or be stopped first. An expired share whose hosted access is already disabled can be removed safely. This action does not delete a separately retained hosted Trace.",
+        "operationId": "delete_trace",
+        "parameters": [
+          {
+            "name": "trace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Local Trace and owned artifacts deleted, or already absent"
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -1685,7 +1824,7 @@
           "local-admin"
         ],
         "summary": "Verify a retained Trace",
-        "description": "Verifies the retained package evidence, disclosure, hashes, provider mapping, and canonical content against configured Notary trust.",
+        "description": "Verifies the retained package evidence, disclosure, hashes, provider mapping, and canonical content against configured Notary trust. Local deletion waits until this retained-package read and verification finishes.",
         "operationId": "verify_trace",
         "parameters": [
           {
@@ -2425,6 +2564,62 @@
           },
           "verification_key": {
             "type": "string"
+          }
+        }
+      },
+      "NotaryReadinessPhase": {
+        "type": "string",
+        "enum": [
+          "trust_unavailable",
+          "unreachable",
+          "ready"
+        ]
+      },
+      "NotaryReadinessResponse": {
+        "type": "object",
+        "required": [
+          "phase",
+          "source",
+          "configured",
+          "trusted",
+          "reachable",
+          "checked_at_unix_ms",
+          "message"
+        ],
+        "properties": {
+          "checked_at_unix_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "configured": {
+            "type": "boolean",
+            "description": "A trust source is selected in local configuration."
+          },
+          "message": {
+            "type": "string"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/NotaryReadinessPhase"
+          },
+          "reachable": {
+            "type": "boolean",
+            "description": "The endpoint completed TCP connection and, when configured, TLS validation."
+          },
+          "source": {
+            "type": "string",
+            "description": "`registry` or `explicit_configuration`."
+          },
+          "transport": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`tcp` or `tls` after trusted endpoint resolution."
+          },
+          "trusted": {
+            "type": "boolean",
+            "description": "The current trust source resolved a validated endpoint and key selection."
           }
         }
       },

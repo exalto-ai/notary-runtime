@@ -1,4 +1,4 @@
-# Notary admin dashboard
+# Exalto Capture admin dashboard
 
 Open [http://127.0.0.1:8788](http://127.0.0.1:8788) while `notaryd` is
 running. The default local configuration opens the dashboard directly. If
@@ -14,17 +14,17 @@ The dashboard is the same compiled application in two contexts:
   reports public endpoints, the responding replica, shared backends, and
   deployment-managed update state.
 
-The browser title is **Admin · Notary by Exalto**. Admin authentication is
+The browser title is **Admin · Exalto Capture**. Admin authentication is
 separate from the optional hosted **Account** connection in Settings.
 
 ## Overview
 
 Overview reports the service, vault, capture behavior, and work queue. Its
-trace strip has exactly four counts: **Captured**, **Notarizing**,
-**Notarized**, and **Needs attention**. Every count opens the unified Traces
+trace strip has exactly four counts: **Captured**, **Sealing**,
+**Sealed**, and **Needs attention**. Every count opens the unified Traces
 workspace. Recent Activity uses bounded safe messages and identifiers.
 
-![Notary local administration Overview showing service readiness, vault state, four trace counts, the next useful action, and recent safe activity.](images/admin-dashboard/overview-light.png)
+![Exalto Capture local administration Overview showing service readiness, vault state, four trace counts, the next useful action, and recent safe activity.](images/admin-dashboard/overview-light.png)
 
 The standalone navigation has exactly five destinations:
 

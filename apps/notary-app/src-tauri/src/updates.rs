@@ -12,8 +12,12 @@ use serde::Serialize;
 use tauri::Manager;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-use crate::daemon::{DaemonProcess, request_managed_daemon_shutdown, spawn_daemon};
-use crate::service_client::{daemon_is_healthy, read_admin_status};
+use crate::ExitState;
+use crate::daemon::{
+    DaemonProcess, managed_daemon_is_healthy, owned_child_present,
+    request_managed_daemon_shutdown_inner, spawn_daemon_locked,
+};
+use crate::service_client::{TemporaryCaptureState, daemon_is_healthy, read_admin_status};
 
 struct PendingDesktopUpdate {
     build_id: String,
@@ -80,13 +84,21 @@ pub(super) fn restart_block_reason(
     if counts.capturing > 0 {
         Some("Wait for the active capture to finish before restarting to update.")
     } else if counts.notarizing > 0 {
-        Some("Wait for the active notarization to finish before restarting to update.")
+        Some("Wait for the active seal to finish before restarting to update.")
     } else if running && !managed_by_desktop {
         Some(
             "The running local service was started outside this app. Stop or update it from the process that launched it before restarting the app.",
         )
     } else {
         None
+    }
+}
+
+fn ensure_install_not_draining(exit: &ExitState) -> Result<(), String> {
+    if exit.is_draining() {
+        Err("Exalto Capture is already quitting. The update was not installed.".into())
+    } else {
+        Ok(())
     }
 }
 
@@ -331,11 +343,25 @@ async fn install_update_and_restart_inner(app: &tauri::AppHandle) -> Result<(), 
     confirm_pending_is_latest(&updates, &pending_build_id, pending_revision).await?;
 
     let process = app.state::<DaemonProcess>();
-    let managed = process
-        .0
-        .lock()
-        .map_err(|_| "daemon process state is unavailable")?
-        .is_some();
+    let _start_block = process.block_starts();
+    let lifecycle = process.lifecycle.lock().await;
+    // ExitRequested marks draining before its asynchronous shutdown waits for
+    // this same lifecycle lock. Recheck only after taking the lock, so an
+    // update that lost the race to quit can never enter the installer.
+    ensure_install_not_draining(&app.state::<ExitState>())?;
+    if app.state::<TemporaryCaptureState>().is_active() {
+        return Err(
+            "Finish or cancel the disposable capture test before installing the update.".into(),
+        );
+    }
+    let owned_child = owned_child_present(&process)?;
+    let managed = managed_daemon_is_healthy(&process).await;
+    if owned_child && !managed {
+        return Err(
+            "The bundled local service is still starting or could not authenticate its listener. Stop it before installing the update."
+                .into(),
+        );
+    }
     match read_admin_status().await {
         Ok(status) => {
             if let Some(reason) = restart_block_reason(&status.counts, true, managed) {
@@ -351,12 +377,12 @@ async fn install_update_and_restart_inner(app: &tauri::AppHandle) -> Result<(), 
     }
 
     if managed {
-        request_managed_daemon_shutdown(&process).await?;
+        request_managed_daemon_shutdown_inner(&process).await?;
     }
     if let Err(error) =
         confirm_pending_is_latest(&updates, &pending_build_id, pending_revision).await
     {
-        if managed && let Err(restart_error) = spawn_daemon(app, &process) {
+        if managed && let Err(restart_error) = spawn_daemon_locked(app, &process).await {
             return Err(format!(
                 "{error} The local service could not be restarted: {restart_error}"
             ));
@@ -365,7 +391,7 @@ async fn install_update_and_restart_inner(app: &tauri::AppHandle) -> Result<(), 
     }
     set_update_view(&updates, |view| {
         view.phase = "installing".into();
-        view.message = Some("Installing the update and reopening Notary…".into());
+        view.message = Some("Installing the update and reopening Exalto Capture…".into());
     })?;
     let pending = updates
         .pending
@@ -379,11 +405,18 @@ async fn install_update_and_restart_inner(app: &tauri::AppHandle) -> Result<(), 
             .pending
             .lock()
             .map_err(|_| "desktop update state is unavailable")? = Some(pending);
-        if managed {
-            let _ = spawn_daemon(app, &process);
+        if managed && let Err(restart_error) = spawn_daemon_locked(app, &process).await {
+            return Err(format!(
+                "Could not install the desktop update: {error}. The local service could not be restarted: {restart_error}"
+            ));
         }
         return Err(format!("Could not install the desktop update: {error}"));
     }
+    // Tauri delivers ExitRequested synchronously from restart(). The exit
+    // handler must be able to take the lifecycle lock to complete the already
+    // drained shutdown. Keep the start gate raised across that handoff, but do
+    // not keep this lock while restart waits for the exit handler.
+    drop(lifecycle);
     app.restart()
 }
 
@@ -429,4 +462,47 @@ pub(super) fn schedule_update_checks(app: tauri::AppHandle) {
             tokio::time::sleep(Duration::from_secs(6 * 60 * 60 + jitter)).await;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    use tokio::sync::Notify;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn quit_before_the_update_barrier_prevents_install_entry() {
+        let process = Arc::new(DaemonProcess::default());
+        let exit = Arc::new(ExitState::default());
+        let lifecycle = process.lifecycle.lock().await;
+        let waiting = Arc::new(Notify::new());
+        let install_entered = Arc::new(AtomicBool::new(false));
+
+        let queued_process = Arc::clone(&process);
+        let queued_exit = Arc::clone(&exit);
+        let queued_waiting = Arc::clone(&waiting);
+        let queued_install_entered = Arc::clone(&install_entered);
+        let update = tokio::spawn(async move {
+            queued_waiting.notify_one();
+            let _start_block = queued_process.block_starts();
+            let _lifecycle = queued_process.lifecycle.lock().await;
+            let result = ensure_install_not_draining(&queued_exit);
+            if result.is_ok() {
+                queued_install_entered.store(true, Ordering::Release);
+            }
+            result
+        });
+
+        waiting.notified().await;
+        exit.draining.store(true, Ordering::Release);
+        drop(lifecycle);
+
+        assert!(update.await.unwrap().is_err());
+        assert!(!install_entered.load(Ordering::Acquire));
+    }
 }

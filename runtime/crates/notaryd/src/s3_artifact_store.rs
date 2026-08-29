@@ -784,6 +784,23 @@ impl ArtifactStore for S3ArtifactStore {
             object.size_bytes,
         ))
     }
+
+    async fn delete(&self, key: &ArtifactKey) -> ArtifactResult<()> {
+        let object_key = self.object_key(key);
+        let request = self
+            .client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(object_key)
+            .send();
+        tokio::time::timeout(self.operation_timeout, request)
+            .await
+            .map_err(|_| backend(anyhow!("S3 artifact deletion timed out")))?
+            .map_err(|error| {
+                backend(anyhow!(error).context("deleting private S3 artifact object"))
+            })?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy)]

@@ -1,13 +1,8 @@
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-import '@fontsource-variable/instrument-sans';
-import '@fontsource/ibm-plex-mono/latin-400.css';
-import '@fontsource/ibm-plex-mono/latin-ext-400.css';
-import '@fontsource/ibm-plex-mono/latin-500.css';
-import '@fontsource/ibm-plex-mono/latin-ext-500.css';
 import { createTheme, localStorageColorSchemeManager, MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import './shadcn.css';
@@ -21,9 +16,12 @@ const colorSchemeManager = localStorageColorSchemeManager({
   key: 'notary-admin-dashboard-color-scheme',
 });
 const theme = createTheme({
-  fontFamily: 'Instrument Sans Variable, system-ui, sans-serif',
-  fontFamilyMonospace: '"IBM Plex Mono", ui-monospace, monospace',
-  headings: { fontFamily: 'Instrument Sans Variable, system-ui, sans-serif', fontWeight: '600' },
+  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif',
+  fontFamilyMonospace: 'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, monospace',
+  headings: {
+    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif',
+    fontWeight: '600',
+  },
   primaryColor: 'axis',
   defaultRadius: 0,
   colors: {

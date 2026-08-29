@@ -378,6 +378,12 @@ pub trait ArtifactStore: Send + Sync {
         record: &ArtifactRecord,
         max_bytes: u64,
     ) -> ArtifactResult<VerifiedArtifact>;
+
+    /// Idempotently removes the exact backend-owned object for a logical key.
+    ///
+    /// Implementations must never interpret the Trace ID as an unchecked path
+    /// or delete outside their configured private storage roots.
+    async fn delete(&self, key: &ArtifactKey) -> ArtifactResult<()>;
 }
 
 /// Local filesystem artifact storage used by the default desktop daemon.
@@ -556,6 +562,17 @@ impl ArtifactStore for FileSystemArtifactStore {
         Ok(VerifiedArtifact::from_spool(
             spool.file, spool.path, size_bytes,
         ))
+    }
+
+    async fn delete(&self, key: &ArtifactKey) -> ArtifactResult<()> {
+        let path = self
+            .current_path(key)
+            .map_err(|error| invalid("invalid_storage_root", error))?;
+        tokio::task::spawn_blocking(move || delete_artifact(&path))
+            .await
+            .map_err(|error| {
+                backend(anyhow!(error).context("filesystem artifact deletion task failed"))
+            })?
     }
 }
 
@@ -742,6 +759,38 @@ fn open_regular_file(path: &Path) -> ArtifactResult<File> {
             anyhow!(error).context(format!("opening artifact {}", path.display())),
         )),
     }
+}
+
+fn delete_artifact(path: &Path) -> ArtifactResult<()> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .ok_or_else(|| invalid("invalid_storage_root", anyhow!("artifact path has no root")))?;
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(backend(
+                anyhow!(error).context(format!("inspecting artifact {}", path.display())),
+            ));
+        }
+    };
+    if !(metadata.file_type().is_file() || metadata.file_type().is_symlink()) {
+        return Err(integrity(anyhow!(
+            "artifact {} is not a removable file",
+            path.display()
+        )));
+    }
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(backend(
+                anyhow!(error).context(format!("removing artifact {}", path.display())),
+            ));
+        }
+    }
+    sync_directory(parent).map_err(backend)
 }
 
 struct StagedArtifact {

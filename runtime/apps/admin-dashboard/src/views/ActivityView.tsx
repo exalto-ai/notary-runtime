@@ -131,7 +131,7 @@ export function ActivityView({
         <EmptyState
           icon={Activity}
           title="No activity"
-          copy="New capture and notarization events will appear here."
+          copy="New capture and sealing events will appear here."
         />
       )}
     </div>
@@ -142,13 +142,13 @@ const activityLabels: Record<string, string> = {
   capture_disabled: 'Capture turned off',
   capture_enabled: 'Capture turned on',
   capture_failed: 'Trace capture failed',
-  notarization_completed: 'Notarization completed',
-  notarization_failed: 'Notarization failed',
-  notarization_interrupted: 'Notarization interrupted',
+  notarization_completed: 'Sealing completed',
+  notarization_failed: 'Sealing failed',
+  notarization_interrupted: 'Sealing interrupted',
   notarization_progress: 'Generating private proof',
-  notarization_queued: 'Notarization queued',
-  notarization_retried: 'Notarization retry queued',
-  notarization_started: 'Notarization started',
+  notarization_queued: 'Sealing queued',
+  notarization_retried: 'Sealing retry queued',
+  notarization_started: 'Sealing started',
 };
 
 function activityLabel(event: Event) {

@@ -2,33 +2,46 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use notaryctl::client::TraceCounts;
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+#[cfg(target_os = "macos")]
+use tauri_plugin_autostart::ManagerExt;
 
 mod daemon;
+mod provider_test;
 mod service_client;
 mod tray;
 mod updates;
 mod vault;
 
 use daemon::{
-    DaemonProcess, request_managed_daemon_shutdown, restart_daemon, start_daemon, stop_daemon,
+    DaemonProcess, managed_daemon_is_healthy, owned_child_present,
+    request_managed_daemon_shutdown_inner, restart_daemon, start_daemon, stop_daemon,
 };
+use provider_test::run_provider_capture_test;
 use service_client::{
-    daemon_is_healthy, disconnect_account, get_account_connection, open_account_link,
-    poll_account_connection, read_admin_status, start_account_connection,
+    SealingServiceIdentity, TemporaryCaptureState, begin_temporary_capture,
+    confirm_disposable_trace, daemon_is_healthy, disconnect_account, end_temporary_capture,
+    get_account_connection, get_recent_trace_probes, open_account_link, open_product_link,
+    poll_account_connection, read_admin_status, read_sealing_service,
+    read_sealing_service_readiness, recover_temporary_capture, restore_temporary_capture,
+    set_capture_enabled, start_account_connection,
 };
-use tray::{create_tray, schedule_capture_menu_updates, show_main_window};
+use tray::{
+    AppMenuAction, app_menu_action, create_app_menu, create_tray, schedule_capture_menu_updates,
+    show_main_window, show_settings_window,
+};
 use updates::{
     DesktopUpdaterState, check_for_updates, get_update_state, install_update_and_restart,
     schedule_update_checks,
 };
 use vault::{
     VaultSession, agent_config_path, complete_onboarding, configure_vault, local_vault_mode,
-    onboarding_marker_path, passphrase_vault_is_locked, should_auto_start, unlock_vault,
+    onboarding_marker_path, passphrase_vault_is_locked, should_auto_start,
+    temporary_capture_recovery_pending, unlock_vault,
 };
 
 #[cfg(test)]
-use service_client::validate_account_link;
+use service_client::{product_link, validate_account_link};
 #[cfg(test)]
 use updates::{
     build_ids_require_update, desktop_updates_enabled, pending_build_is_latest,
@@ -36,9 +49,15 @@ use updates::{
 };
 
 #[derive(Default)]
-struct ExitState {
+pub(crate) struct ExitState {
     allowed: AtomicBool,
     draining: AtomicBool,
+}
+
+impl ExitState {
+    pub(crate) fn is_draining(&self) -> bool {
+        self.draining.load(Ordering::Acquire)
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -56,33 +75,304 @@ struct DesktopState {
     daemon_build_id: Option<String>,
     proxy_listener: String,
     admin_listener: String,
-    notary: Option<String>,
+    sealing_service: Option<SealingServiceIdentity>,
+    sealing_service_readiness: SealingServiceReadiness,
     capture_enabled: bool,
+    temporary_capture_generation: u64,
     counts: TraceCounts,
     message: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SealingServiceReadinessPhase {
+    Off,
+    Starting,
+    TrustUnavailable,
+    Unreachable,
+    Ready,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct SealingServiceReadiness {
+    phase: SealingServiceReadinessPhase,
+    configured: bool,
+    trusted: bool,
+    reachable: bool,
+    checked_at_unix_ms: Option<u64>,
+    message: Option<String>,
+}
+
+impl SealingServiceReadiness {
+    fn off() -> Self {
+        Self {
+            phase: SealingServiceReadinessPhase::Off,
+            configured: false,
+            trusted: false,
+            reachable: false,
+            checked_at_unix_ms: None,
+            message: None,
+        }
+    }
+
+    fn starting() -> Self {
+        Self {
+            phase: SealingServiceReadinessPhase::Starting,
+            configured: true,
+            ..Self::off()
+        }
+    }
+
+    fn from_probe(probe: notaryctl::client::NotaryReadiness) -> Self {
+        let phase = match probe.phase.as_str() {
+            "ready" if probe.configured && probe.trusted && probe.reachable => {
+                SealingServiceReadinessPhase::Ready
+            }
+            "unreachable" if probe.configured && probe.trusted && !probe.reachable => {
+                SealingServiceReadinessPhase::Unreachable
+            }
+            _ => SealingServiceReadinessPhase::TrustUnavailable,
+        };
+        Self {
+            phase,
+            configured: probe.configured,
+            trusted: matches!(
+                phase,
+                SealingServiceReadinessPhase::Ready | SealingServiceReadinessPhase::Unreachable
+            ),
+            reachable: phase == SealingServiceReadinessPhase::Ready,
+            checked_at_unix_ms: Some(probe.checked_at_unix_ms),
+            message: Some(probe.message),
+        }
+    }
+
+    fn trust_unavailable(message: impl Into<String>) -> Self {
+        Self {
+            phase: SealingServiceReadinessPhase::TrustUnavailable,
+            configured: true,
+            message: Some(message.into()),
+            ..Self::off()
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TemporaryCaptureEvent {
+    window_generation: u64,
+    lease_id: Option<String>,
+}
+
+fn can_defer_capture_restore(recovery_pending: bool, managed: bool, healthy: bool) -> bool {
+    recovery_pending && !managed && !healthy
+}
+
+const AUTOSTART_NAME: &str = "Exalto Capture";
+
+fn autostart_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    let builder = tauri_plugin_autostart::Builder::new().app_name(AUTOSTART_NAME);
+    #[cfg(target_os = "macos")]
+    let builder = builder.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
+    builder.build()
+}
+
+#[cfg(target_os = "macos")]
+const LEGACY_AUTOSTART_NAME: &str = "Notary";
+
+#[cfg(target_os = "macos")]
+fn capture_bundle_executable(path: &std::path::Path) -> bool {
+    let Some(macos) = path.parent() else {
+        return false;
+    };
+    let Some(contents) = macos.parent() else {
+        return false;
+    };
+    let Some(bundle) = contents.parent() else {
+        return false;
+    };
+    path.is_absolute()
+        && path.file_name().is_some_and(|name| name == "notary-app")
+        && macos.file_name().is_some_and(|name| name == "MacOS")
+        && contents.file_name().is_some_and(|name| name == "Contents")
+        && bundle
+            .file_name()
+            .is_some_and(|name| name == "Notary.app" || name == "Exalto Capture.app")
+}
+
+#[cfg(target_os = "macos")]
+fn durable_capture_install(path: &std::path::Path, home: &std::path::Path) -> bool {
+    let Some(bundle) = path
+        .parent()
+        .and_then(std::path::Path::parent)
+        .and_then(std::path::Path::parent)
+    else {
+        return false;
+    };
+    let user_applications = home.join("Applications");
+    capture_bundle_executable(path)
+        && (bundle.parent() == Some(std::path::Path::new("/Applications"))
+            || bundle.parent() == Some(user_applications.as_path()))
+}
+
+#[cfg(target_os = "macos")]
+fn launch_agent_executable(
+    path: &std::path::Path,
+    expected_label: &str,
+) -> Result<Option<std::path::PathBuf>, String> {
+    let value = plist::Value::from_file(path)
+        .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    let Some(dictionary) = value.as_dictionary() else {
+        return Ok(None);
+    };
+    if dictionary.get("Label").and_then(plist::Value::as_string) != Some(expected_label) {
+        return Ok(None);
+    }
+    let executable = dictionary
+        .get("ProgramArguments")
+        .and_then(plist::Value::as_array)
+        .and_then(|arguments| arguments.first())
+        .and_then(plist::Value::as_string)
+        .map(std::path::PathBuf::from);
+    Ok(executable.filter(|path| capture_bundle_executable(path)))
+}
+
+#[cfg(target_os = "macos")]
+fn restore_autostart_entry(path: &std::path::Path, original: Option<&[u8]>) -> Result<(), String> {
+    match original {
+        Some(bytes) => std::fs::write(path, bytes),
+        None if path.exists() => std::fs::remove_file(path),
+        None => return Ok(()),
+    }
+    .map_err(|error| format!("could not restore {}: {error}", path.display()))
+}
+
+#[cfg(target_os = "macos")]
+fn migrate_legacy_launch_agent(
+    launch_agents: &std::path::Path,
+    current_executable: &std::path::Path,
+    enable_current: impl FnOnce() -> Result<(), String>,
+) -> Result<bool, String> {
+    let legacy = launch_agents.join(format!("{LEGACY_AUTOSTART_NAME}.plist"));
+    if !legacy.exists() {
+        return Ok(false);
+    }
+    if launch_agent_executable(&legacy, LEGACY_AUTOSTART_NAME)?.is_none() {
+        return Err(format!(
+            "left the unrecognized legacy launch agent untouched at {}",
+            legacy.display()
+        ));
+    }
+
+    let current = launch_agents.join(format!("{AUTOSTART_NAME}.plist"));
+    let original_current = if current.exists() {
+        if launch_agent_executable(&current, AUTOSTART_NAME)?.is_none() {
+            return Err(format!(
+                "left the legacy launch agent enabled because {} is not an Exalto Capture entry",
+                current.display()
+            ));
+        }
+        Some(
+            std::fs::read(&current)
+                .map_err(|error| format!("could not back up {}: {error}", current.display()))?,
+        )
+    } else {
+        None
+    };
+
+    if let Err(error) = enable_current() {
+        let rollback = restore_autostart_entry(&current, original_current.as_deref());
+        return Err(match rollback {
+            Ok(()) => format!(
+                "could not enable the Exalto Capture launch agent; preserved the legacy entry: {error}"
+            ),
+            Err(rollback_error) => format!(
+                "could not enable the Exalto Capture launch agent ({error}) or restore the previous entry ({rollback_error})"
+            ),
+        });
+    }
+    let installed_executable = match launch_agent_executable(&current, AUTOSTART_NAME) {
+        Ok(executable) => executable,
+        Err(error) => {
+            let rollback = restore_autostart_entry(&current, original_current.as_deref());
+            return Err(match rollback {
+                Ok(()) => format!(
+                    "could not validate the Exalto Capture launch agent; preserved the legacy entry: {error}"
+                ),
+                Err(rollback_error) => format!(
+                    "could not validate the Exalto Capture launch agent ({error}) or restore the previous entry ({rollback_error})"
+                ),
+            });
+        }
+    };
+    if installed_executable.as_deref() != Some(current_executable) {
+        restore_autostart_entry(&current, original_current.as_deref())?;
+        return Err(
+            "the Exalto Capture launch agent did not point to the running application; the legacy entry remains enabled"
+                .into(),
+        );
+    }
+
+    if let Err(error) = std::fs::remove_file(&legacy) {
+        let rollback = restore_autostart_entry(&current, original_current.as_deref());
+        return Err(match rollback {
+            Ok(()) => format!(
+                "could not remove the legacy launch agent; restored the previous launch-at-login state: {error}"
+            ),
+            Err(rollback_error) => format!(
+                "could not remove the legacy launch agent ({error}) or roll back the new entry ({rollback_error})"
+            ),
+        });
+    }
+    Ok(true)
+}
+
+#[cfg(target_os = "macos")]
+fn migrate_legacy_autostart<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<bool, String> {
+    let home = app
+        .path()
+        .home_dir()
+        .map_err(|error| format!("could not resolve the home directory: {error}"))?;
+    let current_executable = std::env::current_exe()
+        .and_then(|path| path.canonicalize())
+        .map_err(|error| format!("could not resolve the running application: {error}"))?;
+    if !durable_capture_install(&current_executable, &home) {
+        return Ok(false);
+    }
+    let launch_agents = home.join("Library").join("LaunchAgents");
+    migrate_legacy_launch_agent(&launch_agents, &current_executable, || {
+        app.autolaunch().enable().map_err(|error| error.to_string())
+    })
 }
 
 #[tauri::command]
 async fn get_desktop_state(
     process: tauri::State<'_, DaemonProcess>,
     vault_session: tauri::State<'_, VaultSession>,
+    temporary_capture: tauri::State<'_, TemporaryCaptureState>,
+    refresh_sealing_service: Option<bool>,
 ) -> Result<DesktopState, String> {
     let (vault_configured, local_mode) = local_vault_mode();
     let agent_configured = agent_config_path().is_ok_and(|path| path.exists());
     let onboarding_complete = onboarding_marker_path().is_ok_and(|path| path.exists());
-    let managed_by_desktop = process
-        .0
-        .lock()
-        .map_err(|_| "daemon process state is unavailable")?
-        .is_some();
+    let managed_by_desktop = managed_daemon_is_healthy(&process).await;
+    let managed_child_present = owned_child_present(&process).unwrap_or(false);
 
     match read_admin_status().await {
         Ok(status) => {
             let daemon_build_id = status.build_id.clone();
-            let message = (daemon_build_id != env!("NOTARY_BUILD_ID")).then(|| {
+            let build_message = (daemon_build_id != env!("NOTARY_BUILD_ID")).then(|| {
                 "The app and running local service are different builds. Update or restart the separately installed service before relying on new client behavior."
                     .into()
             });
+            let sealing_service_readiness =
+                read_sealing_service_readiness(refresh_sealing_service.unwrap_or(false))
+                    .await
+                    .map(SealingServiceReadiness::from_probe)
+                    .unwrap_or_else(|_| {
+                        SealingServiceReadiness::trust_unavailable(
+                            "The local service could not check its trusted sealing endpoint.",
+                        )
+                    });
+            let sealing_service = read_sealing_service().await.unwrap_or(None);
             Ok(DesktopState {
                 running: true,
                 managed_by_desktop,
@@ -101,14 +391,21 @@ async fn get_desktop_state(
                 daemon_build_id: Some(daemon_build_id),
                 proxy_listener: status.proxy_listener,
                 admin_listener: status.admin_listener,
-                notary: Some(status.notary),
+                sealing_service,
+                sealing_service_readiness,
                 capture_enabled: status.capture_enabled,
+                temporary_capture_generation: temporary_capture.window_generation(),
                 counts: status.counts,
-                message,
+                message: build_message,
             })
         }
         Err(error) => {
             let running = daemon_is_healthy().await;
+            let sealing_service_readiness = if managed_child_present || running {
+                SealingServiceReadiness::starting()
+            } else {
+                SealingServiceReadiness::off()
+            };
             Ok(DesktopState {
                 running,
                 managed_by_desktop,
@@ -123,10 +420,16 @@ async fn get_desktop_state(
                 daemon_build_id: None,
                 proxy_listener: "127.0.0.1:8787".into(),
                 admin_listener: "127.0.0.1:8788".into(),
-                notary: None,
+                sealing_service: None,
+                sealing_service_readiness,
                 capture_enabled: false,
+                temporary_capture_generation: temporary_capture.window_generation(),
                 counts: TraceCounts::default(),
-                message: if running { Some(error) } else { None },
+                message: if running && !managed_child_present {
+                    Some(error)
+                } else {
+                    None
+                },
             })
         }
     }
@@ -135,8 +438,12 @@ async fn get_desktop_state(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .manage(DaemonProcess::default())
         .manage(VaultSession::default())
+        .manage(TemporaryCaptureState::default())
         .manage(ExitState::default())
         .manage(DesktopUpdaterState::default())
         .plugin(tauri_plugin_shell::init())
@@ -145,10 +452,7 @@ pub fn run() {
                 .pubkey(include_str!("../../../../runtime/config/updater-public-key.txt").trim())
                 .build(),
         )
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ))
+        .plugin(autostart_plugin())
         .invoke_handler(tauri::generate_handler![
             get_desktop_state,
             get_account_connection,
@@ -156,6 +460,14 @@ pub fn run() {
             poll_account_connection,
             disconnect_account,
             open_account_link,
+            open_product_link,
+            get_recent_trace_probes,
+            confirm_disposable_trace,
+            run_provider_capture_test,
+            set_capture_enabled,
+            begin_temporary_capture,
+            end_temporary_capture,
+            recover_temporary_capture,
             configure_vault,
             unlock_vault,
             complete_onboarding,
@@ -166,17 +478,66 @@ pub fn run() {
             check_for_updates,
             install_update_and_restart,
         ])
+        .on_menu_event(|app, event| match app_menu_action(event.id().as_ref()) {
+            Some(AppMenuAction::Hide) => {
+                if let Some(window) = app.get_webview_window("main")
+                    && let Err(error) = window.close()
+                {
+                    eprintln!("Could not hide Exalto Capture safely: {error}");
+                    show_main_window(app);
+                }
+            }
+            Some(AppMenuAction::Settings) => show_settings_window(app),
+            Some(AppMenuAction::HelpGuide) => {
+                let _ = open_product_link("guide".into());
+            }
+            Some(AppMenuAction::HelpCatalogue) => {
+                let _ = open_product_link("catalogue".into());
+            }
+            Some(AppMenuAction::HelpReport) => {
+                let _ = open_product_link("report".into());
+            }
+            None => {}
+        })
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            if let Err(error) = migrate_legacy_autostart(app) {
+                eprintln!("Could not migrate the launch-at-login entry: {error}");
+            }
+            create_app_menu(app)?;
             let capture_requests = create_tray(app)?;
             schedule_capture_menu_updates(capture_requests);
             schedule_update_checks(app.handle().clone());
             let (vault_configured, vault_mode) = local_vault_mode();
             let onboarding_complete = onboarding_marker_path().is_ok_and(|path| path.exists());
-            if should_auto_start(vault_configured, &vault_mode, onboarding_complete) {
+            let temporary_capture_recovery = app
+                .state::<TemporaryCaptureState>()
+                .recovery_owner()
+                .ok()
+                .flatten();
+            if should_auto_start(vault_configured, &vault_mode, onboarding_complete)
+                || temporary_capture_recovery.is_some()
+            {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     let process = app_handle.state::<DaemonProcess>();
-                    let _ = start_daemon(app_handle.clone(), process).await;
+                    if start_daemon(app_handle.clone(), process).await.is_ok()
+                        && let Some(recovery_owner) = temporary_capture_recovery
+                    {
+                        let temporary_capture = app_handle.state::<TemporaryCaptureState>();
+                        let process = app_handle.state::<DaemonProcess>();
+                        if let Err(error) = restore_temporary_capture(
+                            &temporary_capture,
+                            &process,
+                            Some(&recovery_owner),
+                        )
+                        .await
+                        {
+                            eprintln!(
+                                "Could not recover the interrupted disposable capture: {error}"
+                            );
+                        }
+                    }
                 });
             }
             Ok(())
@@ -184,6 +545,107 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
+                if window.label() == "main" {
+                    let temporary_capture = window.app_handle().state::<TemporaryCaptureState>();
+                    let (window_generation, lease_id) =
+                        match temporary_capture.suspend_live_leases_and_invalidate() {
+                        Ok(closing) => closing,
+                        Err(error) => {
+                            eprintln!("Could not inspect disposable capture on close: {error}");
+                            show_main_window(window.app_handle());
+                            return;
+                        }
+                    };
+                    let cancellation = TemporaryCaptureEvent {
+                        window_generation,
+                        lease_id: lease_id.clone(),
+                    };
+                    let _ = window
+                        .app_handle()
+                        .emit("exalto:temporary-capture-cancelled", cancellation.clone());
+                    let Some(lease_id) = lease_id else {
+                        match temporary_capture.finish_close_if_current(window_generation, || {
+                            let _ = window.hide();
+                            #[cfg(target_os = "macos")]
+                            let _ = window
+                                .app_handle()
+                                .set_activation_policy(tauri::ActivationPolicy::Accessory);
+                        }) {
+                            Ok(true) => {}
+                            Ok(false) => {}
+                            Err(error) => eprintln!(
+                                "Could not finish closing Exalto Capture safely: {error}"
+                            ),
+                        }
+                        return;
+                    };
+                    let app_handle = window.app_handle().clone();
+                    let window = window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let state = app_handle.state::<TemporaryCaptureState>();
+                        let process = app_handle.state::<DaemonProcess>();
+                        match restore_temporary_capture(&state, &process, Some(&lease_id)).await {
+                            Ok(_) => {
+                                let _ = app_handle.emit(
+                                    "exalto:temporary-capture-restored",
+                                    TemporaryCaptureEvent {
+                                        window_generation,
+                                        lease_id: Some(lease_id),
+                                    },
+                                );
+                                match state.finish_close_if_current(window_generation, || {
+                                    let _ = window.hide();
+                                    #[cfg(target_os = "macos")]
+                                    let _ = app_handle
+                                        .set_activation_policy(tauri::ActivationPolicy::Accessory);
+                                }) {
+                                    Ok(true) => {}
+                                    Ok(false) => {}
+                                    Err(error) => eprintln!(
+                                        "Could not finish closing Exalto Capture safely: {error}"
+                                    ),
+                                }
+                            }
+                            Err(error) => {
+                                eprintln!("Could not restore capture after setup closed: {error}");
+                                let managed = owned_child_present(
+                                    &app_handle.state::<DaemonProcess>(),
+                                )
+                                .unwrap_or(true);
+                                let healthy = daemon_is_healthy().await;
+                                if can_defer_capture_restore(
+                                    temporary_capture_recovery_pending(),
+                                    managed,
+                                    healthy,
+                                ) {
+                                    eprintln!(
+                                        "Preserved interrupted-test recovery for the next unlocked launch."
+                                    );
+                                    match state.finish_close_if_current(window_generation, || {
+                                        let _ = window.hide();
+                                        #[cfg(target_os = "macos")]
+                                        let _ = app_handle.set_activation_policy(
+                                            tauri::ActivationPolicy::Accessory,
+                                        );
+                                    }) {
+                                        Ok(true) => {}
+                                        Ok(false) => {}
+                                        Err(error) => eprintln!(
+                                            "Could not finish closing Exalto Capture safely: {error}"
+                                        ),
+                                    }
+                                } else {
+                                    let _ = app_handle.emit(
+                                        "exalto:temporary-capture-restore-failed",
+                                        error,
+                                    );
+                                    show_main_window(&app_handle);
+                                }
+                            }
+                        }
+                    });
+                    return;
+                }
                 let _ = window.hide();
                 #[cfg(target_os = "macos")]
                 let _ = window
@@ -191,35 +653,106 @@ pub fn run() {
                     .set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
         })
-        .build(tauri::generate_context!())
-        .expect("error while building Notary desktop");
+        .build(tauri::generate_context!("tauri.conf.json"))
+        .expect("error while building Exalto Capture desktop");
 
     app.run(|app, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen {
+            has_visible_windows: false,
+            ..
+        } = &event
+        {
+            show_main_window(app);
+            return;
+        }
         if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
             let exit = app.state::<ExitState>();
             if exit.allowed.load(Ordering::Acquire) {
                 return;
             }
-            let managed = app
-                .state::<DaemonProcess>()
-                .0
-                .lock()
-                .is_ok_and(|process| process.is_some());
-            if !managed {
-                return;
-            }
-            api.prevent_exit();
             if exit
                 .draining
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
                 .is_err()
             {
+                api.prevent_exit();
                 return;
             }
+            let process = app.state::<DaemonProcess>();
+            process.suspend_starts();
+            let temporary_capture = app.state::<TemporaryCaptureState>();
+            let (window_generation, temporary_capture_owner) =
+                match temporary_capture.suspend_live_leases_and_invalidate() {
+                    Ok(closing) => closing,
+                    Err(error) => {
+                        api.prevent_exit();
+                        process.resume_starts();
+                        exit.draining.store(false, Ordering::Release);
+                        eprintln!("Could not secure disposable capture before exit: {error}");
+                        show_main_window(app);
+                        return;
+                    }
+                };
+            let _ = app.emit(
+                "exalto:temporary-capture-cancelled",
+                TemporaryCaptureEvent {
+                    window_generation,
+                    lease_id: temporary_capture_owner.clone(),
+                },
+            );
+            api.prevent_exit();
             let app_handle = app.clone();
             tauri::async_runtime::spawn(async move {
+                let temporary_capture = app_handle.state::<TemporaryCaptureState>();
+                if let Some(owner) = temporary_capture_owner
+                    && let Err(error) = restore_temporary_capture(
+                        &temporary_capture,
+                        &app_handle.state::<DaemonProcess>(),
+                        Some(&owner),
+                    )
+                    .await
+                {
+                    eprintln!("Could not restore capture before exit: {error}");
+                    let managed = owned_child_present(
+                        &app_handle.state::<DaemonProcess>(),
+                    )
+                    .unwrap_or(true);
+                    let healthy = daemon_is_healthy().await;
+                    if can_defer_capture_restore(
+                        temporary_capture_recovery_pending(),
+                        managed,
+                        healthy,
+                    ) {
+                        eprintln!(
+                            "Exiting with interrupted-test recovery preserved for the next unlocked launch."
+                        );
+                        app_handle
+                            .state::<ExitState>()
+                            .allowed
+                            .store(true, Ordering::Release);
+                        app_handle.exit(code.unwrap_or(0));
+                        return;
+                    }
+                    app_handle
+                        .state::<ExitState>()
+                        .draining
+                        .store(false, Ordering::Release);
+                    app_handle.state::<DaemonProcess>().resume_starts();
+                    let _ = app_handle.emit(
+                        "exalto:temporary-capture-restore-failed",
+                        error,
+                    );
+                    show_main_window(&app_handle);
+                    return;
+                }
+                // Re-read the process after restoring. A temporary-capture
+                // preparation can spawn the managed sidecar while quit is
+                // waiting on the lease mutex.
                 let process = app_handle.state::<DaemonProcess>();
-                match request_managed_daemon_shutdown(&process).await {
+                let _lifecycle = process.lifecycle.lock().await;
+                let shutdown = request_managed_daemon_shutdown_inner(&process).await;
+                match shutdown {
                     Ok(_) => {
                         app_handle
                             .state::<ExitState>()
@@ -233,6 +766,7 @@ pub fn run() {
                             .state::<ExitState>()
                             .draining
                             .store(false, Ordering::Release);
+                        process.resume_starts();
                         show_main_window(&app_handle);
                     }
                 }
@@ -273,6 +807,14 @@ mod tests {
     }
 
     #[test]
+    fn pending_recovery_can_defer_only_without_a_running_service() {
+        assert!(can_defer_capture_restore(true, false, false));
+        assert!(!can_defer_capture_restore(false, false, false));
+        assert!(!can_defer_capture_restore(true, true, false));
+        assert!(!can_defer_capture_restore(true, false, true));
+    }
+
+    #[test]
     fn daemon_counts_round_trip_through_the_shared_client_contract() {
         let counts: TraceCounts = serde_json::from_value(serde_json::json!({
             "captured": 3,
@@ -295,6 +837,38 @@ mod tests {
                 "capture_failed": 1
             })
         );
+    }
+
+    #[test]
+    fn desktop_sealing_readiness_rejects_inconsistent_ready_claims() {
+        let probe = |phase: &str, configured: bool, trusted: bool, reachable: bool| {
+            notaryctl::client::NotaryReadiness {
+                phase: phase.into(),
+                source: "registry".into(),
+                configured,
+                trusted,
+                reachable,
+                transport: Some("tls".into()),
+                checked_at_unix_ms: 42,
+                message: "bounded fixture".into(),
+            }
+        };
+
+        let ready = SealingServiceReadiness::from_probe(probe("ready", true, true, true));
+        assert_eq!(ready.phase, SealingServiceReadinessPhase::Ready);
+        assert!(ready.configured && ready.trusted && ready.reachable);
+
+        let unreachable =
+            SealingServiceReadiness::from_probe(probe("unreachable", true, true, false));
+        assert_eq!(unreachable.phase, SealingServiceReadinessPhase::Unreachable);
+        assert!(unreachable.configured && unreachable.trusted && !unreachable.reachable);
+
+        let inconsistent = SealingServiceReadiness::from_probe(probe("ready", true, false, true));
+        assert_eq!(
+            inconsistent.phase,
+            SealingServiceReadinessPhase::TrustUnavailable
+        );
+        assert!(!inconsistent.trusted && !inconsistent.reachable);
     }
 
     #[test]
@@ -328,5 +902,259 @@ mod tests {
                 .is_err()
         );
         assert!(validate_account_link("http://example.com/#/account").is_err());
+    }
+
+    #[test]
+    fn product_links_are_an_explicit_allowlist() {
+        assert_eq!(
+            product_link("catalogue"),
+            Some("https://llm-notary.exalto.ai/traces")
+        );
+        assert_eq!(product_link("guide"), Some("https://exalto.ai/docs/"));
+        assert_eq!(
+            product_link("report"),
+            Some("https://github.com/exalto-ai/notary/issues/new")
+        );
+        assert_eq!(
+            product_link("openai_key"),
+            Some("https://platform.openai.com/api-keys")
+        );
+        assert_eq!(
+            product_link("anthropic_key"),
+            Some("https://console.anthropic.com/settings/keys")
+        );
+        assert_eq!(
+            product_link("openrouter_key"),
+            Some("https://openrouter.ai/settings/keys")
+        );
+        assert_eq!(
+            product_link("xai_key"),
+            Some("https://docs.x.ai/developers/quickstart")
+        );
+        assert_eq!(product_link("https://example.com"), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn launch_agent_fixture(label: &str, executable: &std::path::Path) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>{label}</string>
+  <key>ProgramArguments</key>
+  <array><string>{}</string></array>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+"#,
+            executable.display()
+        )
+    }
+
+    #[cfg(target_os = "macos")]
+    fn temporary_launch_agents() -> std::path::PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "exalto-capture-autostart-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        directory
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn automatic_autostart_migration_requires_a_durable_install_location() {
+        let home = std::path::Path::new("/Users/capture-user");
+        assert!(durable_capture_install(
+            std::path::Path::new("/Applications/Exalto Capture.app/Contents/MacOS/notary-app"),
+            home,
+        ));
+        assert!(durable_capture_install(
+            std::path::Path::new(
+                "/Users/capture-user/Applications/Exalto Capture.app/Contents/MacOS/notary-app"
+            ),
+            home,
+        ));
+        assert!(!durable_capture_install(
+            std::path::Path::new(
+                "/Users/capture-user/project/target/debug/bundle/macos/Exalto Capture.app/Contents/MacOS/notary-app"
+            ),
+            home,
+        ));
+        assert!(!durable_capture_install(
+            std::path::Path::new(
+                "/Volumes/Exalto Capture/Exalto Capture.app/Contents/MacOS/notary-app"
+            ),
+            home,
+        ));
+        assert!(!durable_capture_install(
+            std::path::Path::new(
+                "/Applications-backup/Exalto Capture.app/Contents/MacOS/notary-app"
+            ),
+            home,
+        ));
+        assert!(!durable_capture_install(
+            std::path::Path::new(
+                "/Users/capture-user/Applications-backup/Exalto Capture.app/Contents/MacOS/notary-app"
+            ),
+            home,
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn legacy_autostart_is_replaced_without_losing_enabled_state() {
+        let directory = temporary_launch_agents();
+        let legacy = directory.join("Notary.plist");
+        let current = directory.join("Exalto Capture.plist");
+        let old_executable =
+            std::path::Path::new("/Applications/Notary.app/Contents/MacOS/notary-app");
+        let current_executable =
+            std::path::Path::new("/Applications/Exalto Capture.app/Contents/MacOS/notary-app");
+        std::fs::write(
+            &legacy,
+            launch_agent_fixture(LEGACY_AUTOSTART_NAME, old_executable),
+        )
+        .unwrap();
+
+        assert!(
+            migrate_legacy_launch_agent(&directory, current_executable, || {
+                std::fs::write(
+                    &current,
+                    launch_agent_fixture(AUTOSTART_NAME, current_executable),
+                )
+                .map_err(|error| error.to_string())
+            })
+            .unwrap()
+        );
+        assert!(!legacy.exists());
+        assert_eq!(
+            launch_agent_executable(&current, AUTOSTART_NAME).unwrap(),
+            Some(current_executable.into())
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn legacy_autostart_migration_removes_an_existing_duplicate() {
+        let directory = temporary_launch_agents();
+        let legacy = directory.join("Notary.plist");
+        let current = directory.join("Exalto Capture.plist");
+        let old_executable =
+            std::path::Path::new("/Applications/Notary.app/Contents/MacOS/notary-app");
+        let current_executable =
+            std::path::Path::new("/Applications/Exalto Capture.app/Contents/MacOS/notary-app");
+        std::fs::write(
+            &legacy,
+            launch_agent_fixture(LEGACY_AUTOSTART_NAME, old_executable),
+        )
+        .unwrap();
+        std::fs::write(
+            &current,
+            launch_agent_fixture(AUTOSTART_NAME, old_executable),
+        )
+        .unwrap();
+
+        migrate_legacy_launch_agent(&directory, current_executable, || {
+            std::fs::write(
+                &current,
+                launch_agent_fixture(AUTOSTART_NAME, current_executable),
+            )
+            .map_err(|error| error.to_string())
+        })
+        .unwrap();
+        assert!(!legacy.exists());
+        assert_eq!(
+            launch_agent_executable(&current, AUTOSTART_NAME).unwrap(),
+            Some(current_executable.into())
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn autostart_migration_never_deletes_an_unrecognized_legacy_entry() {
+        let directory = temporary_launch_agents();
+        let legacy = directory.join("Notary.plist");
+        let current = directory.join("Exalto Capture.plist");
+        let current_executable =
+            std::path::Path::new("/Applications/Exalto Capture.app/Contents/MacOS/notary-app");
+        std::fs::write(
+            &legacy,
+            launch_agent_fixture(
+                LEGACY_AUTOSTART_NAME,
+                std::path::Path::new("/Applications/Other.app/Contents/MacOS/notary-app"),
+            ),
+        )
+        .unwrap();
+
+        let result = migrate_legacy_launch_agent(&directory, current_executable, || {
+            panic!("an unrecognized legacy entry must not be replaced")
+        });
+        assert!(result.is_err());
+        assert!(legacy.exists());
+        assert!(!current.exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn autostart_migration_never_overwrites_an_unrecognized_current_entry() {
+        let directory = temporary_launch_agents();
+        let legacy = directory.join("Notary.plist");
+        let current = directory.join("Exalto Capture.plist");
+        let old_executable =
+            std::path::Path::new("/Applications/Notary.app/Contents/MacOS/notary-app");
+        let current_executable =
+            std::path::Path::new("/Applications/Exalto Capture.app/Contents/MacOS/notary-app");
+        std::fs::write(
+            &legacy,
+            launch_agent_fixture(LEGACY_AUTOSTART_NAME, old_executable),
+        )
+        .unwrap();
+        let unrelated = launch_agent_fixture(
+            "Another application",
+            std::path::Path::new("/Applications/Other.app/Contents/MacOS/notary-app"),
+        );
+        std::fs::write(&current, &unrelated).unwrap();
+
+        let result = migrate_legacy_launch_agent(&directory, current_executable, || {
+            panic!("an unrecognized current entry must not be overwritten")
+        });
+        assert!(result.is_err());
+        assert!(legacy.exists());
+        assert_eq!(std::fs::read_to_string(&current).unwrap(), unrelated);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn autostart_migration_rolls_back_a_failed_new_entry() {
+        let directory = temporary_launch_agents();
+        let legacy = directory.join("Notary.plist");
+        let current = directory.join("Exalto Capture.plist");
+        let old_executable =
+            std::path::Path::new("/Applications/Notary.app/Contents/MacOS/notary-app");
+        let current_executable =
+            std::path::Path::new("/Applications/Exalto Capture.app/Contents/MacOS/notary-app");
+        std::fs::write(
+            &legacy,
+            launch_agent_fixture(LEGACY_AUTOSTART_NAME, old_executable),
+        )
+        .unwrap();
+
+        let result = migrate_legacy_launch_agent(&directory, current_executable, || {
+            std::fs::write(&current, "incomplete launch agent").unwrap();
+            Err("simulated write failure".into())
+        });
+        assert!(result.is_err());
+        assert!(legacy.exists());
+        assert!(!current.exists());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

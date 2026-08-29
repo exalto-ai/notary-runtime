@@ -33,10 +33,11 @@ use tower_http::{
     sensitive_headers::SetSensitiveRequestHeadersLayer,
     trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer},
 };
-use utoipa::{Modify, OpenApi, ToSchema};
+use utoipa::{IntoParams, Modify, OpenApi, ToSchema};
 
 use notary_core::{
     pagination::{CursorScope, Page, PageQuery, PaginationError, decode_cursor, encode_cursor},
+    probe_notary_transport,
     public_safety::PublicPackageSafetyError,
 };
 
@@ -54,7 +55,10 @@ use crate::{
         Event, EventFilters, Operation, OperationAttempt, OperationFilters, RegistrySnapshot,
         TraceFilters, TracePagePosition, TraceShareRecord, TraceSummary as StoredTraceSummary,
     },
-    metadata_store::{MetadataStore, MetadataStoreError, NotarizationClaim},
+    metadata_store::{
+        MetadataStore, MetadataStoreError, NotarizationClaim, TraceDeletionOutcome,
+        TraceDeletionPreparation,
+    },
     notarization::{
         notarize_capture_checkpoint_admitted_bytes_with_progress,
         notarize_capture_checkpoint_bytes_with_progress, trace_package_created_at_unix_ms_bytes,
@@ -72,6 +76,9 @@ const SESSION_COOKIE: &str = "notary_admin_session";
 const SESSION_MAX_AGE_SECONDS: u64 = 43_200;
 const DEPENDENCY_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const DEPENDENCY_PROBE_CACHE_TTL: Duration = Duration::from_secs(1);
+const NOTARY_TRUST_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(3);
+const NOTARY_TRANSPORT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+const NOTARY_READINESS_CACHE_TTL: Duration = Duration::from_secs(15);
 const DASHBOARD_HEADER: &str = "x-notary-request";
 const DASHBOARD_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const DESKTOP_DASHBOARD_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'self' tauri://localhost http://tauri.localhost https://tauri.localhost";
@@ -82,6 +89,14 @@ struct DashboardAssets;
 
 type DependencyProbeResult = std::result::Result<(), &'static str>;
 type DependencyProbeCache = Option<(Instant, DependencyProbeResult)>;
+type NotaryReadinessCache = Option<(Instant, NotaryReadinessResponse)>;
+
+#[cfg(test)]
+#[derive(Clone)]
+struct AdminConcurrencyTestHook {
+    entered: Arc<Notify>,
+    release: Arc<Notify>,
+}
 
 #[derive(Clone)]
 pub(crate) struct AdminState {
@@ -95,6 +110,10 @@ pub(crate) struct AdminState {
     cluster_runtime: Option<Arc<ClusterRuntime>>,
     cluster_vault_identity: Option<String>,
     dependency_probe: Arc<Mutex<DependencyProbeCache>>,
+    notary_readiness: Arc<Mutex<NotaryReadinessCache>>,
+    trace_lifecycle: Arc<Mutex<()>>,
+    #[cfg(test)]
+    verification_test_hook: Option<AdminConcurrencyTestHook>,
     capture_mode: Arc<crate::service::proxy::CaptureMode>,
 }
 
@@ -140,6 +159,10 @@ impl AdminState {
             cluster_runtime,
             cluster_vault_identity,
             dependency_probe: Arc::new(Mutex::new(None)),
+            notary_readiness: Arc::new(Mutex::new(None)),
+            trace_lifecycle: Arc::new(Mutex::new(())),
+            #[cfg(test)]
+            verification_test_hook: None,
             capture_mode,
         })
     }
@@ -212,9 +235,10 @@ pub(crate) fn router(state: AdminState) -> Result<Router> {
             get(capture_setting).put(update_capture_setting),
         )
         .route("/v1/notaries", get(notaries))
+        .route("/v1/notaries/readiness", get(notary_readiness))
         .route("/v1/providers", get(providers))
         .route("/v1/traces", get(traces))
-        .route("/v1/traces/{trace_id}", get(trace))
+        .route("/v1/traces/{trace_id}", get(trace).delete(delete_trace))
         .route(
             "/v1/traces/{trace_id}/notarizations",
             post(start_notarization),
@@ -334,13 +358,14 @@ fn embedded_dashboard_response(path: &str, desktop_embed: bool) -> Response {
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "Notary local administration API",
+        title = "Exalto Capture local administration API",
         version = "1.0.0",
         description = "Loopback administration API. Routes are available without credentials by default; configure admin.auth to require HTTP Basic authentication."
     ),
     paths(
         health, readiness, openapi, start_session, end_session, status, capture_setting,
-        update_capture_setting, notaries, providers, traces, trace, start_notarization,
+        update_capture_setting, notaries, notary_readiness, providers, traces, trace,
+        delete_trace, start_notarization,
         operation, trace_content, download_package, verify_trace, verify_uploaded_trace,
         activity, account_status, start_account_connection, end_account_connection,
         poll_account_connection, get_trace_share, put_trace_share, delete_trace_share
@@ -348,8 +373,10 @@ fn embedded_dashboard_response(path: &str, desktop_embed: bool) -> Response {
     components(schemas(
         HealthResponse, ReadinessResponse, StatusResponse, CaptureSettingResponse,
         UpdateCaptureSetting, TraceCounts, UpdateStatusResponse, NotariesResponse, Notary,
+        NotaryReadinessResponse, NotaryReadinessPhase,
         ProvidersResponse, Provider, TraceState, TraceOperationalStatus, TracePage, TraceSummary,
-        TraceDetail, EvidenceArtifact, TechnicalOperation, OperationProgressResponse,
+        TraceDetail, EvidenceArtifact,
+        TechnicalOperation, OperationProgressResponse,
         OperationProofProgressResponse, NotarizationAttempt,
         NotarizationRequest, ActivityItem, ActivityPage, TraceContent, VerificationResult,
         VerificationOutcome, AccountConnectionResponse, AccountConnectionRequest,
@@ -668,6 +695,157 @@ async fn update_capture_setting(
             })
         })?;
     Ok(Json(CaptureSettingResponse { enabled }))
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[serde(deny_unknown_fields)]
+#[into_params(parameter_in = Query)]
+struct NotaryReadinessQuery {
+    /// Ignore the short-lived probe cache and check the trusted endpoint now.
+    #[param(default = false)]
+    refresh: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+enum NotaryReadinessPhase {
+    /// The configured trust source could not currently resolve a trusted endpoint.
+    TrustUnavailable,
+    /// Trust resolved, but the endpoint did not complete its configured transport handshake.
+    Unreachable,
+    /// Trust resolved and the endpoint completed its configured transport handshake.
+    Ready,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+struct NotaryReadinessResponse {
+    phase: NotaryReadinessPhase,
+    /// `registry` or `explicit_configuration`.
+    source: String,
+    /// A trust source is selected in local configuration.
+    configured: bool,
+    /// The current trust source resolved a validated endpoint and key selection.
+    trusted: bool,
+    /// The endpoint completed TCP connection and, when configured, TLS validation.
+    reachable: bool,
+    /// `tcp` or `tls` after trusted endpoint resolution.
+    transport: Option<String>,
+    checked_at_unix_ms: u64,
+    message: String,
+}
+
+impl NotaryReadinessResponse {
+    fn trust_unavailable(source: &str, checked_at_unix_ms: u64) -> Self {
+        Self {
+            phase: NotaryReadinessPhase::TrustUnavailable,
+            source: source.into(),
+            configured: true,
+            trusted: false,
+            reachable: false,
+            transport: None,
+            checked_at_unix_ms,
+            message: "The configured trust source could not resolve a trusted sealing endpoint."
+                .into(),
+        }
+    }
+
+    fn for_trusted_endpoint(
+        source: &str,
+        transport: &str,
+        checked_at_unix_ms: u64,
+        reachable: bool,
+    ) -> Self {
+        Self {
+            phase: if reachable {
+                NotaryReadinessPhase::Ready
+            } else {
+                NotaryReadinessPhase::Unreachable
+            },
+            source: source.into(),
+            configured: true,
+            trusted: true,
+            reachable,
+            transport: Some(transport.into()),
+            checked_at_unix_ms,
+            message: if reachable {
+                "The trusted sealing endpoint completed its transport handshake. Final admission is checked when sealing starts."
+            } else {
+                "A trusted sealing endpoint is configured, but its transport handshake did not complete."
+            }
+            .into(),
+        }
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/notaries/readiness",
+    summary = "Probe trusted Notary reachability",
+    description = "Resolves the endpoint selected by current Registry or explicit key trust, then performs a bounded TCP connection and configured TLS validation. It sends no admission credential and starts no capture, sealing, or billable operation. Ready means the transport is reachable; final admission is still checked when sealing starts.",
+    params(NotaryReadinessQuery),
+    responses(
+        (status = 200, body = NotaryReadinessResponse),
+        (status = 400, body = ErrorEnvelope),
+        (status = 401, body = ErrorEnvelope),
+        (status = 500, body = ErrorEnvelope)
+    ),
+    security((), ("basicAuth" = [])),
+    tag = "local-admin"
+)]
+async fn notary_readiness(
+    State(state): State<AdminState>,
+    query: Result<Query<NotaryReadinessQuery>, QueryRejection>,
+) -> Result<Json<NotaryReadinessResponse>, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::bad_request("invalid_query_parameter"))?;
+    let mut cache = state.notary_readiness.lock().await;
+    if !query.refresh.unwrap_or(false)
+        && let Some((checked_at, response)) = cache.as_ref()
+        && checked_at.elapsed() < NOTARY_READINESS_CACHE_TTL
+    {
+        return Ok(Json(response.clone()));
+    }
+
+    let checked_at_unix_ms = now_ms().map_err(|_| ApiError::internal("clock_unavailable"))?;
+    let source = if state.config.notary.endpoint.is_some() {
+        "explicit_configuration"
+    } else {
+        "registry"
+    };
+    let explicit_trust_is_valid = state.config.notary.endpoint.is_none()
+        || state
+            .config
+            .notary_public_key()
+            .is_ok_and(|key| key.is_some());
+    let endpoint = if explicit_trust_is_valid {
+        Some(
+            tokio::time::timeout(
+                NOTARY_TRUST_RESOLUTION_TIMEOUT,
+                state.capture_mode.trusted_notary(),
+            )
+            .await,
+        )
+    } else {
+        None
+    };
+    let response = match endpoint {
+        Some(Ok(Ok(endpoint))) => {
+            let transport = endpoint.transport.scheme();
+            let reachable = probe_notary_transport(&endpoint, NOTARY_TRANSPORT_PROBE_TIMEOUT)
+                .await
+                .is_ok();
+            NotaryReadinessResponse::for_trusted_endpoint(
+                source,
+                transport,
+                checked_at_unix_ms,
+                reachable,
+            )
+        }
+        Some(Ok(Err(_))) | Some(Err(_)) | None => {
+            NotaryReadinessResponse::trust_unavailable(source, checked_at_unix_ms)
+        }
+    };
+    *cache = Some((Instant::now(), response.clone()));
+    Ok(Json(response))
 }
 
 #[utoipa::path(get, path = "/v1/notaries", summary = "List Notaries", description = "Returns a safe read-only projection of the locally pinned Registry or the explicitly configured self-hosted endpoint and key. Registry membership describes allowed protocol use and does not report endpoint health.", responses((status = 200, body = NotariesResponse), (status = 401, body = ErrorEnvelope), (status = 500, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
@@ -990,12 +1168,129 @@ async fn trace(
     }))
 }
 
+#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+enum TraceDeletionSkipReason {
+    CaptureActive,
+    SealingActive,
+    ShareActive,
+    ArtifactCleanupFailed,
+}
+
+enum LocalTraceDeletion {
+    Deleted,
+    Skipped(TraceDeletionSkipReason),
+}
+
+async fn delete_local_trace_unlocked(
+    state: &AdminState,
+    trace_id: &str,
+) -> Result<LocalTraceDeletion, ApiError> {
+    match state
+        .persistence
+        .metadata
+        .prepare_trace_deletion(trace_id)
+        .await
+        .map_err(metadata_api_error)?
+    {
+        TraceDeletionPreparation::Ready => {}
+        TraceDeletionPreparation::NotFound => return Ok(LocalTraceDeletion::Deleted),
+        TraceDeletionPreparation::CaptureActive => {
+            return Ok(LocalTraceDeletion::Skipped(
+                TraceDeletionSkipReason::CaptureActive,
+            ));
+        }
+        TraceDeletionPreparation::NotarizationActive => {
+            return Ok(LocalTraceDeletion::Skipped(
+                TraceDeletionSkipReason::SealingActive,
+            ));
+        }
+        TraceDeletionPreparation::ShareActive => {
+            return Ok(LocalTraceDeletion::Skipped(
+                TraceDeletionSkipReason::ShareActive,
+            ));
+        }
+    }
+
+    // The caller holds the lifecycle gate across this preflight, artifact
+    // cleanup, and metadata commit. Sealing and sharing therefore cannot
+    // activate between the safety check and deletion. Keep metadata until
+    // both exact artifact keys are gone so a failed cleanup remains retryable
+    // by exact Trace ID.
+    let mut cleanup_failed = false;
+    for kind in [ArtifactKind::CaptureCheckpoint, ArtifactKind::TracePackage] {
+        let key = ArtifactKey::new(trace_id, kind)
+            .map_err(|_| ApiError::bad_request("invalid_trace_id"))?;
+        if state.persistence.artifacts.delete(&key).await.is_err() {
+            cleanup_failed = true;
+        }
+    }
+    if cleanup_failed {
+        return Ok(LocalTraceDeletion::Skipped(
+            TraceDeletionSkipReason::ArtifactCleanupFailed,
+        ));
+    }
+
+    match state
+        .persistence
+        .metadata
+        .delete_trace(trace_id)
+        .await
+        .map_err(metadata_api_error)?
+    {
+        TraceDeletionOutcome::Deleted | TraceDeletionOutcome::NotFound => {
+            Ok(LocalTraceDeletion::Deleted)
+        }
+        TraceDeletionOutcome::CaptureActive => Ok(LocalTraceDeletion::Skipped(
+            TraceDeletionSkipReason::CaptureActive,
+        )),
+        TraceDeletionOutcome::NotarizationActive => Ok(LocalTraceDeletion::Skipped(
+            TraceDeletionSkipReason::SealingActive,
+        )),
+        TraceDeletionOutcome::ShareActive => Ok(LocalTraceDeletion::Skipped(
+            TraceDeletionSkipReason::ShareActive,
+        )),
+    }
+}
+
+#[utoipa::path(delete, path = "/v1/traces/{trace_id}", summary = "Delete a local Trace", description = "Idempotently removes one terminal Trace and its private local artifacts. Active capture, sealing, share verification, or enabled public sharing must finish or be stopped first. An expired share whose hosted access is already disabled can be removed safely. This action does not delete a separately retained hosted Trace.", params(("trace_id" = String, Path)), responses((status = 204, description = "Local Trace and owned artifacts deleted, or already absent"), (status = 400, body = ErrorEnvelope), (status = 401, body = ErrorEnvelope), (status = 409, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
+async fn delete_trace(
+    State(state): State<AdminState>,
+    Path(trace_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    validate_id(&trace_id, "trc-")?;
+    if state.cluster_runtime.is_some() {
+        return Err(ApiError::conflict("trace_deletion_cluster_managed"));
+    }
+    // Sharing calls hold this gate across their hosted request and metadata
+    // update. Deletion therefore cannot strand newly activated public access.
+    let _lifecycle = state.trace_lifecycle.lock().await;
+    match delete_local_trace_unlocked(&state, &trace_id).await? {
+        LocalTraceDeletion::Deleted => Ok(StatusCode::NO_CONTENT),
+        LocalTraceDeletion::Skipped(TraceDeletionSkipReason::CaptureActive) => {
+            Err(ApiError::conflict("trace_capture_active"))
+        }
+        LocalTraceDeletion::Skipped(TraceDeletionSkipReason::SealingActive) => {
+            Err(ApiError::conflict("trace_sealing_active"))
+        }
+        LocalTraceDeletion::Skipped(TraceDeletionSkipReason::ShareActive) => {
+            Err(ApiError::trace_share_active_for_deletion())
+        }
+        LocalTraceDeletion::Skipped(TraceDeletionSkipReason::ArtifactCleanupFailed) => Err(
+            ApiError::service_unavailable("trace_artifact_deletion_failed"),
+        ),
+    }
+}
+
 #[utoipa::path(post, path = "/v1/traces/{trace_id}/notarizations", summary = "Notarize a Trace", description = "Idempotently starts, resumes, or retries the Trace's one durable notarization operation and returns its technical polling location.", params(("trace_id" = String, Path)), responses((status = 202, body = NotarizationRequest), (status = 401, body = ErrorEnvelope), (status = 404, body = ErrorEnvelope), (status = 409, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
 async fn start_notarization(
     State(state): State<AdminState>,
     Path(trace_id): Path<String>,
 ) -> Result<Response, ApiError> {
     validate_id(&trace_id, "trc-")?;
+    // Serialize activation with local deletion's safety preflight and artifact
+    // cleanup. Existing queued or running work is still rejected by metadata.
+    let _lifecycle = state.trace_lifecycle.lock().await;
     let capture = state
         .persistence
         .metadata
@@ -1120,12 +1415,20 @@ async fn download_package(
         .into_response())
 }
 
-#[utoipa::path(post, path = "/v1/traces/{trace_id}/verify", summary = "Verify a retained Trace", description = "Verifies the retained package evidence, disclosure, hashes, provider mapping, and canonical content against configured Notary trust.", params(("trace_id" = String, Path)), responses((status = 200, body = VerificationResult), (status = 401, body = ErrorEnvelope), (status = 404, body = ErrorEnvelope), (status = 409, body = ErrorEnvelope), (status = 422, body = ErrorEnvelope), (status = 500, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
+#[utoipa::path(post, path = "/v1/traces/{trace_id}/verify", summary = "Verify a retained Trace", description = "Verifies the retained package evidence, disclosure, hashes, provider mapping, and canonical content against configured Notary trust. Local deletion waits until this retained-package read and verification finishes.", params(("trace_id" = String, Path)), responses((status = 200, body = VerificationResult), (status = 401, body = ErrorEnvelope), (status = 404, body = ErrorEnvelope), (status = 409, body = ErrorEnvelope), (status = 422, body = ErrorEnvelope), (status = 500, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
 async fn verify_trace(
     State(state): State<AdminState>,
     Path(trace_id): Path<String>,
 ) -> Result<Json<VerificationResult>, ApiError> {
     validate_id(&trace_id, "trc-")?;
+    // Retained verification and deletion share one lifecycle gate, so the
+    // package cannot disappear between its metadata lookup and verified read.
+    let _lifecycle = state.trace_lifecycle.lock().await;
+    #[cfg(test)]
+    if let Some(hook) = state.verification_test_hook.as_ref() {
+        hook.entered.notify_one();
+        hook.release.notified().await;
+    }
     let bytes = trace_package_bytes(&state.persistence, &trace_id).await?;
     let verified_at_unix_ms = now_ms().map_err(|_| ApiError::internal("clock_error"))?;
     let configured_key = state
@@ -1419,7 +1722,7 @@ async fn activity(
     }))
 }
 
-#[utoipa::path(get, path = "/v1/account", summary = "Get the Notary account connection", description = "Reports whether this local service has an account connection used for hosted admission, credits, and sharing.", responses((status = 200, body = AccountConnectionResponse), (status = 401, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
+#[utoipa::path(get, path = "/v1/account", summary = "Get the Exalto account connection", description = "Reports whether this local service has an account connection used for hosted admission, credits, and sharing.", responses((status = 200, body = AccountConnectionResponse), (status = 401, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
 async fn account_status(
     State(_state): State<AdminState>,
 ) -> Result<Json<AccountConnectionResponse>, ApiError> {
@@ -1461,7 +1764,7 @@ fn default_device_name() -> String {
     auth::DEFAULT_DEVICE_NAME.to_owned()
 }
 
-#[utoipa::path(post, path = "/v1/account", summary = "Connect a Notary account", description = "Starts browser approval for an account connection used for hosted admission, credits, and sharing. Browser approval is unavailable while the daemon uses an injected API key.", request_body = AccountConnectionRequest, responses((status = 202, body = AccountConnectionStartedResponse), (status = 401, body = ErrorEnvelope), (status = 409, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
+#[utoipa::path(post, path = "/v1/account", summary = "Connect an Exalto account", description = "Starts browser approval for an account connection used for hosted admission, credits, and sharing. Browser approval is unavailable while the daemon uses an injected API key.", request_body = AccountConnectionRequest, responses((status = 202, body = AccountConnectionStartedResponse), (status = 401, body = ErrorEnvelope), (status = 409, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
 async fn start_account_connection(
     State(state): State<AdminState>,
     Json(body): Json<AccountConnectionRequest>,
@@ -1490,7 +1793,7 @@ async fn start_account_connection(
     Ok((StatusCode::ACCEPTED, Json(response)))
 }
 
-#[utoipa::path(get, path = "/v1/account/{request_id}", summary = "Poll account authorization", description = "Checks a pending Notary account approval after its required polling interval.", params(("request_id" = String, Path)), responses((status = 200, body = AccountConnectionResponse), (status = 401, body = ErrorEnvelope), (status = 404, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
+#[utoipa::path(get, path = "/v1/account/{request_id}", summary = "Poll account authorization", description = "Checks a pending Exalto account approval after its required polling interval.", params(("request_id" = String, Path)), responses((status = 200, body = AccountConnectionResponse), (status = 401, body = ErrorEnvelope), (status = 404, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
 async fn poll_account_connection(
     State(state): State<AdminState>,
     Path(request_id): Path<String>,
@@ -1542,7 +1845,7 @@ async fn poll_account_connection(
     }
 }
 
-#[utoipa::path(delete, path = "/v1/account", summary = "Disconnect the Notary account", description = "Removes the local account credentials. Future hosted sessions use public access until a new browser approval is completed. Injected API keys must instead be revoked in the hosted dashboard.", responses((status = 204, description = "Account disconnected; hosted sessions return to public access"), (status = 401, body = ErrorEnvelope), (status = 409, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
+#[utoipa::path(delete, path = "/v1/account", summary = "Disconnect the Exalto account", description = "Removes the local account credentials. Future hosted sessions use public access until a new browser approval is completed. Injected API keys must instead be revoked in the hosted dashboard.", responses((status = 204, description = "Account disconnected; hosted sessions return to public access"), (status = 401, body = ErrorEnvelope), (status = 409, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
 async fn end_account_connection(State(state): State<AdminState>) -> Result<StatusCode, ApiError> {
     let _credentials = state.account_credentials.lock().await;
     if auth::api_key_mode_active()
@@ -1634,6 +1937,7 @@ async fn get_trace_share(
     Path(trace_id): Path<String>,
 ) -> Result<Json<TraceShare>, ApiError> {
     validate_id(&trace_id, "trc-")?;
+    let _lifecycle = state.trace_lifecycle.lock().await;
     let stored = state
         .persistence
         .metadata
@@ -1678,6 +1982,7 @@ async fn put_trace_share(
     {
         return Err(ApiError::bad_request("invalid_share_access_settings"));
     }
+    let _lifecycle = state.trace_lifecycle.lock().await;
     let _credentials = state.account_credentials.lock().await;
     let existing = state
         .persistence
@@ -1787,6 +2092,7 @@ async fn delete_trace_share(
     Path(trace_id): Path<String>,
 ) -> Result<Json<TraceShare>, ApiError> {
     validate_id(&trace_id, "trc-")?;
+    let _lifecycle = state.trace_lifecycle.lock().await;
     let Some(stored) = state
         .persistence
         .metadata
@@ -3211,6 +3517,13 @@ impl ApiError {
             message: "The operation is not retryable",
         }
     }
+    fn trace_share_active_for_deletion() -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code: "trace_share_active",
+            message: "Stop sharing this Trace before deleting its local copy",
+        }
+    }
     fn payment_required(code: &'static str) -> Self {
         Self {
             status: StatusCode::PAYMENT_REQUIRED,
@@ -3250,7 +3563,7 @@ impl ApiError {
         Self {
             status: StatusCode::CONFLICT,
             code: "account_authentication_required",
-            message: "The Notary account connection must be renewed",
+            message: "The Exalto account connection must be renewed",
         }
     }
     fn service_unavailable(code: &'static str) -> Self {
@@ -3587,6 +3900,56 @@ mod tests {
             .unwrap()
     }
 
+    async fn insert_completed_test_trace(state: &AdminState, trace_id: &str) {
+        state
+            .persistence
+            .metadata
+            .begin_capture(crate::metadata::NewTrace {
+                trace_id: trace_id.to_owned(),
+                created_at_unix_ms: 1,
+                provider: "openai".to_owned(),
+                operation: "responses".to_owned(),
+                requested_model: Some("gpt-5".to_owned()),
+                streaming: false,
+                request_bytes: 1,
+                prompt_preview: String::new(),
+                prompt_preview_truncated: false,
+                config_fingerprint: "sha256:test".to_owned(),
+            })
+            .await
+            .unwrap();
+        let checkpoint = state
+            .persistence
+            .artifacts
+            .put(
+                &ArtifactKey::new(trace_id, ArtifactKind::CaptureCheckpoint).unwrap(),
+                ArtifactSource::from_bytes(b"encrypted checkpoint".to_vec()),
+                MAX_ARCHIVE_WIRE_BYTES,
+            )
+            .await
+            .unwrap();
+        state
+            .persistence
+            .metadata
+            .complete_capture(
+                crate::metadata::CaptureCompletion {
+                    trace_id: trace_id.to_owned(),
+                    completed_at_unix_ms: 2,
+                    duration_ms: 1,
+                    http_status: 200,
+                    response_bytes: 1,
+                    response_model: Some("gpt-5".to_owned()),
+                    output_preview: String::new(),
+                    output_preview_truncated: false,
+                    expected_artifact_size_bytes: checkpoint.size_bytes,
+                    expected_artifact_sha256: checkpoint.sha256.clone(),
+                },
+                checkpoint,
+            )
+            .await
+            .unwrap();
+    }
+
     fn basic_header(username: &str, password: &str) -> String {
         format!(
             "Basic {}",
@@ -3738,7 +4101,7 @@ mod tests {
         );
         assert_eq!(
             ApiError::account_authentication_required().message,
-            "The Notary account connection must be renewed"
+            "The Exalto account connection must be renewed"
         );
     }
 
@@ -3838,6 +4201,7 @@ mod tests {
             "/v1/status",
             "/v1/settings/capture",
             "/v1/notaries",
+            "/v1/notaries/readiness",
             "/v1/providers",
             "/v1/traces",
             "/v1/traces/{trace_id}",
@@ -3860,9 +4224,11 @@ mod tests {
             ("/v1/settings/capture", "get"),
             ("/v1/settings/capture", "put"),
             ("/v1/notaries", "get"),
+            ("/v1/notaries/readiness", "get"),
             ("/v1/providers", "get"),
             ("/v1/traces", "get"),
             ("/v1/traces/{trace_id}", "get"),
+            ("/v1/traces/{trace_id}", "delete"),
             ("/v1/traces/{trace_id}/notarizations", "post"),
             ("/v1/operations/{operation_id}", "get"),
             ("/v1/traces/{trace_id}/content", "get"),
@@ -3910,7 +4276,7 @@ mod tests {
                 documented_operations += 1;
             }
         }
-        assert_eq!(documented_operations, 26);
+        assert_eq!(documented_operations, 28);
     }
 
     #[tokio::test]
@@ -3997,6 +4363,252 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
         }
+    }
+
+    #[tokio::test]
+    async fn local_trace_deletion_is_idempotent_and_refuses_active_work_or_sharing() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = state(directory.path()).await;
+
+        state
+            .persistence
+            .metadata
+            .begin_capture(crate::metadata::NewTrace {
+                trace_id: "trc-delete-capturing".into(),
+                created_at_unix_ms: 1,
+                provider: "openai".into(),
+                operation: "responses".into(),
+                requested_model: None,
+                streaming: false,
+                request_bytes: 1,
+                prompt_preview: String::new(),
+                prompt_preview_truncated: false,
+                config_fingerprint: "sha256:test".into(),
+            })
+            .await
+            .unwrap();
+        let app = router(state.clone()).unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::delete("/v1/traces/trc-delete-capturing")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(body["error"]["code"], "trace_capture_active");
+
+        insert_completed_test_trace(&state, "trc-delete-sealing").await;
+        state
+            .persistence
+            .metadata
+            .enqueue_notarization("trc-delete-sealing", 3)
+            .await
+            .unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::delete("/v1/traces/trc-delete-sealing")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(body["error"]["code"], "trace_sealing_active");
+
+        insert_completed_test_trace(&state, "trc-delete-shared").await;
+        state
+            .persistence
+            .metadata
+            .put_trace_share(TraceShareRecord {
+                trace_id: "trc-delete-shared".into(),
+                hosted_trace_id: "trc-delete-shared-hosted".into(),
+                progress: "shared".into(),
+                visibility: "unlisted".into(),
+                access_enabled: true,
+                password_protected: false,
+                expires_at_unix_ms: None,
+                failure_code: None,
+                share_url: Some("https://notary.example/traces/shared".into()),
+                package_url: None,
+                updated_at_unix_ms: 3,
+            })
+            .await
+            .unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::delete("/v1/traces/trc-delete-shared")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(body["error"]["code"], "trace_share_active");
+        assert_eq!(
+            body["error"]["message"],
+            "Stop sharing this Trace before deleting its local copy"
+        );
+
+        insert_completed_test_trace(&state, "trc-delete-expired-share").await;
+        state
+            .persistence
+            .metadata
+            .put_trace_share(TraceShareRecord {
+                trace_id: "trc-delete-expired-share".into(),
+                hosted_trace_id: "trc-delete-expired-share-hosted".into(),
+                progress: "shared".into(),
+                visibility: "unlisted".into(),
+                access_enabled: false,
+                password_protected: false,
+                expires_at_unix_ms: Some(2),
+                failure_code: None,
+                share_url: None,
+                package_url: None,
+                updated_at_unix_ms: 3,
+            })
+            .await
+            .unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::delete("/v1/traces/trc-delete-expired-share")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(
+            state
+                .persistence
+                .metadata
+                .trace("trc-delete-expired-share")
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        insert_completed_test_trace(&state, "trc-delete-terminal").await;
+        let package_key =
+            ArtifactKey::new("trc-delete-terminal", ArtifactKind::TracePackage).unwrap();
+        state
+            .persistence
+            .artifacts
+            .put(
+                &package_key,
+                ArtifactSource::from_bytes(b"orphaned package fixture".to_vec()),
+                MAX_ARCHIVE_WIRE_BYTES,
+            )
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::delete("/v1/traces/trc-delete-terminal")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        }
+        assert!(
+            state
+                .persistence
+                .metadata
+                .trace("trc-delete-terminal")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        for kind in [ArtifactKind::CaptureCheckpoint, ArtifactKind::TracePackage] {
+            let key = ArtifactKey::new("trc-delete-terminal", kind).unwrap();
+            assert!(
+                state
+                    .persistence
+                    .artifacts
+                    .find(&key, MAX_ARCHIVE_WIRE_BYTES)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_artifact_cleanup_keeps_trace_retryable_by_exact_id() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = state(directory.path()).await;
+        let trace_id = "trc-cleanup-retry";
+        insert_completed_test_trace(&state, trace_id).await;
+
+        let checkpoint_path = directory
+            .path()
+            .join("checkpoints")
+            .join(format!("{trace_id}.llmcapture"));
+        assert!(checkpoint_path.is_file());
+        std::fs::remove_file(&checkpoint_path).unwrap();
+        std::fs::create_dir(&checkpoint_path).unwrap();
+
+        let app = router(state.clone()).unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::delete(format!("/v1/traces/{trace_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(body["error"]["code"], "trace_artifact_deletion_failed");
+        assert!(
+            state
+                .persistence
+                .metadata
+                .trace(trace_id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        std::fs::remove_dir(&checkpoint_path).unwrap();
+        let response = app
+            .oneshot(
+                Request::delete(format!("/v1/traces/{trace_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(
+            state
+                .persistence
+                .metadata
+                .trace(trace_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -4109,6 +4721,181 @@ mod tests {
             response.into_body().collect().await.unwrap().to_bytes(),
             expected.as_slice()
         );
+    }
+
+    #[tokio::test]
+    async fn retained_verification_holds_deletion_until_its_package_read_finishes() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut state = state(directory.path()).await;
+        let hook = AdminConcurrencyTestHook {
+            entered: Arc::new(Notify::new()),
+            release: Arc::new(Notify::new()),
+        };
+        state.verification_test_hook = Some(hook.clone());
+        let trace_id = "trc-verify-delete-race";
+        insert_completed_test_trace(&state, trace_id).await;
+        let package = state
+            .persistence
+            .artifacts
+            .put(
+                &ArtifactKey::new(trace_id, ArtifactKind::TracePackage).unwrap(),
+                ArtifactSource::from_bytes(b"invalid package fixture".to_vec()),
+                MAX_ARCHIVE_WIRE_BYTES,
+            )
+            .await
+            .unwrap();
+        let operation = state
+            .persistence
+            .metadata
+            .enqueue_notarization(trace_id, 3)
+            .await
+            .unwrap()
+            .unwrap()
+            .0;
+        let running = state
+            .persistence
+            .metadata
+            .claim_next_notarization(4)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(running.operation_id, operation.operation_id);
+        state
+            .persistence
+            .metadata
+            .complete_notarization(&running.operation_id, package, 5)
+            .await
+            .unwrap();
+
+        let app = router(state.clone()).unwrap();
+        let verify_app = app.clone();
+        let verification = tokio::spawn(async move {
+            verify_app
+                .oneshot(
+                    Request::post(format!("/v1/traces/{trace_id}/verify"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+        });
+        tokio::time::timeout(Duration::from_secs(1), hook.entered.notified())
+            .await
+            .expect("verification did not acquire the lifecycle gate");
+
+        let mut deletion = tokio::spawn(async move {
+            app.oneshot(
+                Request::delete(format!("/v1/traces/{trace_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(25), &mut deletion)
+                .await
+                .is_err(),
+            "deletion must wait while retained verification owns the lifecycle gate"
+        );
+        assert!(
+            state
+                .persistence
+                .metadata
+                .trace(trace_id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        hook.release.notify_one();
+        let verification = tokio::time::timeout(Duration::from_secs(1), verification)
+            .await
+            .expect("verification did not finish")
+            .unwrap();
+        assert_eq!(verification.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let deletion = tokio::time::timeout(Duration::from_secs(1), deletion)
+            .await
+            .expect("deletion did not resume after verification")
+            .unwrap();
+        assert_eq!(deletion.status(), StatusCode::NO_CONTENT);
+        assert!(
+            state
+                .persistence
+                .metadata
+                .trace(trace_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn notary_readiness_requires_both_trust_and_transport_reachability() {
+        let unavailable = NotaryReadinessResponse::trust_unavailable("registry", 10);
+        assert_eq!(unavailable.phase, NotaryReadinessPhase::TrustUnavailable);
+        assert!(unavailable.configured);
+        assert!(!unavailable.trusted);
+        assert!(!unavailable.reachable);
+
+        let unreachable =
+            NotaryReadinessResponse::for_trusted_endpoint("registry", "tls", 11, false);
+        assert_eq!(unreachable.phase, NotaryReadinessPhase::Unreachable);
+        assert!(unreachable.configured);
+        assert!(unreachable.trusted);
+        assert!(!unreachable.reachable);
+        assert_eq!(unreachable.transport.as_deref(), Some("tls"));
+
+        let ready = NotaryReadinessResponse::for_trusted_endpoint(
+            "explicit_configuration",
+            "tcp",
+            12,
+            true,
+        );
+        assert_eq!(ready.phase, NotaryReadinessPhase::Ready);
+        assert!(ready.configured && ready.trusted && ready.reachable);
+        assert!(ready.message.contains("Final admission"));
+    }
+
+    #[tokio::test]
+    async fn notary_readiness_route_reuses_its_bounded_cache_and_rejects_bad_queries() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = state(directory.path()).await;
+        *state.notary_readiness.lock().await = Some((
+            Instant::now(),
+            NotaryReadinessResponse::for_trusted_endpoint("registry", "tls", 42, true),
+        ));
+        let app = router(state).unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get("/v1/notaries/readiness")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(body["phase"], "ready");
+        assert_eq!(body["checked_at_unix_ms"], 42);
+
+        let response = app
+            .oneshot(
+                Request::get("/v1/notaries/readiness?refresh=sometimes")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(body["error"]["code"], "invalid_query_parameter");
     }
 
     #[test]

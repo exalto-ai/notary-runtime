@@ -11,6 +11,7 @@ use crate::metadata::{
     OperationAttempt, OperationFilters, TerminalOperationResult, TraceFilters, TraceShareRecord,
     TraceSummary, trace_search_expression,
 };
+use crate::metadata_store::{TraceDeletionOutcome, TraceDeletionPreparation};
 
 const METADATA_SCHEMA_VERSION: i64 = 2;
 
@@ -494,6 +495,125 @@ impl SqliteMetadata {
                 )
             })
             .collect()
+    }
+
+    pub fn prepare_trace_deletion(&self, trace_id: &str) -> Result<TraceDeletionPreparation> {
+        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let Some((capture_status, notarization_status)) = connection
+            .query_row(
+                "SELECT capture_status, notarization_status FROM traces WHERE trace_id = ?",
+                params![trace_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?
+        else {
+            return Ok(TraceDeletionPreparation::NotFound);
+        };
+        if capture_status == "capturing" {
+            return Ok(TraceDeletionPreparation::CaptureActive);
+        }
+        let active_operation = connection.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM operations
+                WHERE trace_id = ? AND state IN ('queued', 'running')
+             )",
+            params![trace_id],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if matches!(notarization_status.as_str(), "queued" | "running") || active_operation {
+            return Ok(TraceDeletionPreparation::NotarizationActive);
+        }
+        let active_share = connection
+            .query_row(
+                "SELECT progress, access_enabled FROM trace_shares WHERE trace_id = ?",
+                params![trace_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
+            )
+            .optional()?
+            .is_some_and(|(progress, access_enabled)| progress == "verifying" || access_enabled);
+        if active_share {
+            return Ok(TraceDeletionPreparation::ShareActive);
+        }
+        Ok(TraceDeletionPreparation::Ready)
+    }
+
+    /// Atomically removes one terminal Trace and every metadata row it owns.
+    pub fn delete_trace(&self, trace_id: &str) -> Result<TraceDeletionOutcome> {
+        let mut connection = self.connection.lock().expect("metadata mutex poisoned");
+        let transaction = connection.transaction()?;
+        let Some((capture_status, notarization_status)) = transaction
+            .query_row(
+                "SELECT capture_status, notarization_status FROM traces WHERE trace_id = ?",
+                params![trace_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?
+        else {
+            return Ok(TraceDeletionOutcome::NotFound);
+        };
+        if capture_status == "capturing" {
+            return Ok(TraceDeletionOutcome::CaptureActive);
+        }
+        let active_operation = transaction.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM operations
+                WHERE trace_id = ? AND state IN ('queued', 'running')
+             )",
+            params![trace_id],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if matches!(notarization_status.as_str(), "queued" | "running") || active_operation {
+            return Ok(TraceDeletionOutcome::NotarizationActive);
+        }
+        let active_share = transaction
+            .query_row(
+                "SELECT progress, access_enabled FROM trace_shares WHERE trace_id = ?",
+                params![trace_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
+            )
+            .optional()?
+            .is_some_and(|(progress, access_enabled)| progress == "verifying" || access_enabled);
+        if active_share {
+            return Ok(TraceDeletionOutcome::ShareActive);
+        }
+
+        // Delete references in dependency order. Activity belongs to the
+        // private local Trace, so it must not retain identifiers after removal.
+        transaction.execute(
+            "DELETE FROM events
+             WHERE trace_id = ? OR operation_id IN (
+                 SELECT operation_id FROM operations WHERE trace_id = ?
+             )",
+            params![trace_id, trace_id],
+        )?;
+        transaction.execute(
+            "DELETE FROM operation_attempts
+             WHERE operation_id IN (
+                 SELECT operation_id FROM operations WHERE trace_id = ?
+             )",
+            params![trace_id],
+        )?;
+        transaction.execute(
+            "DELETE FROM operations WHERE trace_id = ?",
+            params![trace_id],
+        )?;
+        transaction.execute(
+            "DELETE FROM artifacts WHERE trace_id = ?",
+            params![trace_id],
+        )?;
+        transaction.execute(
+            "DELETE FROM trace_shares WHERE trace_id = ?",
+            params![trace_id],
+        )?;
+        transaction.execute(
+            "DELETE FROM trace_search WHERE trace_id = ?",
+            params![trace_id],
+        )?;
+        let changed =
+            transaction.execute("DELETE FROM traces WHERE trace_id = ?", params![trace_id])?;
+        anyhow::ensure!(changed == 1, "Trace deletion lost its metadata row");
+        transaction.commit()?;
+        Ok(TraceDeletionOutcome::Deleted)
     }
 
     pub fn counts(&self) -> Result<MetadataCounts> {

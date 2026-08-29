@@ -127,6 +127,8 @@ export const localApi = {
   providers: () => request<Providers>('/v1/providers'),
   traces: (filters: TraceFilters = {}) => request<TraceList>(`/v1/traces${queryString(filters)}`),
   trace: (traceId: string) => request<TraceDetail>(`/v1/traces/${encodeURIComponent(traceId)}`),
+  deleteTrace: (traceId: string) =>
+    request<void>(`/v1/traces/${encodeURIComponent(traceId)}`, { method: 'DELETE' }),
   startNotarization: (traceId: string) =>
     request<NotarizationResult>(`/v1/traces/${encodeURIComponent(traceId)}/notarizations`, {
       method: 'POST',

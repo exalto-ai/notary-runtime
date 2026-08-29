@@ -273,10 +273,12 @@ mod tests {
     use super::*;
     use axum::{
         Json, Router,
+        extract::{Path as AxumPath, Query},
         http::StatusCode as AxumStatus,
         routing::{get, post},
     };
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn every_initial_command_parses_and_the_cli_never_has_an_implicit_daemon_mode() {
@@ -996,6 +998,162 @@ mod tests {
         assert_eq!(response.request_id, "request_123");
         assert_eq!(response.poll_interval_seconds, 5);
         server.abort();
+    }
+
+    #[test]
+    fn disposable_trace_markers_are_bounded_and_unambiguous() {
+        assert!(valid_disposable_trace_marker(
+            "EXALTO-CAPTURE-TEST-0123456789ABCDEF01234567"
+        ));
+        assert!(!valid_disposable_trace_marker(
+            "EXALTO-CAPTURE-TEST-0123456789abcdef01234567"
+        ));
+        assert!(!valid_disposable_trace_marker(
+            "EXALTO-CAPTURE-TEST-0123456789ABCDEF"
+        ));
+        assert!(!valid_disposable_trace_marker(
+            "OTHER-TEST-0123456789ABCDEF01234567"
+        ));
+    }
+
+    #[tokio::test]
+    async fn disposable_trace_confirmation_filters_metadata_before_reading_candidate_details() {
+        const MARKER: &str = "EXALTO-CAPTURE-TEST-0123456789ABCDEF01234567";
+
+        let detail_requests = Arc::new(Mutex::new(Vec::<String>::new()));
+        let detail_requests_for_route = detail_requests.clone();
+        let router = Router::new()
+            .route(
+                "/v1/traces",
+                get(
+                    |Query(query): Query<std::collections::HashMap<String, String>>| async move {
+                        assert_eq!(query.get("provider").map(String::as_str), Some("openai"));
+                        assert_eq!(query.get("metadata_only").map(String::as_str), Some("true"));
+                        assert_eq!(query.get("limit").map(String::as_str), Some("50"));
+                        Json(json!({
+                            "items": [
+                                {
+                                    "trace_id": "trc-old",
+                                    "state": "captured",
+                                    "status": null,
+                                    "created_at_unix_ms": 1,
+                                    "provider": "openai",
+                                    "http_status": 200,
+                                    "prompt_preview": ""
+                                },
+                                {
+                                    "trace_id": "trc-wrong-provider",
+                                    "state": "captured",
+                                    "status": null,
+                                    "created_at_unix_ms": 2,
+                                    "provider": "anthropic",
+                                    "http_status": 200,
+                                    "prompt_preview": ""
+                                },
+                                {
+                                    "trace_id": "trc-auth-error",
+                                    "state": "captured",
+                                    "status": null,
+                                    "created_at_unix_ms": 3,
+                                    "provider": "openai",
+                                    "http_status": 401,
+                                    "prompt_preview": ""
+                                },
+                                {
+                                    "trace_id": "trc-capturing",
+                                    "state": null,
+                                    "status": "capturing",
+                                    "created_at_unix_ms": 4,
+                                    "provider": "openai",
+                                    "http_status": null,
+                                    "prompt_preview": ""
+                                },
+                                {
+                                    "trace_id": "trc-unrelated",
+                                    "state": "captured",
+                                    "status": null,
+                                    "created_at_unix_ms": 5,
+                                    "provider": "openai",
+                                    "http_status": 200,
+                                    "prompt_preview": MARKER
+                                },
+                                {
+                                    "trace_id": "trc-disposable",
+                                    "state": "captured",
+                                    "status": null,
+                                    "created_at_unix_ms": 6,
+                                    "provider": "openai",
+                                    "http_status": 200,
+                                    "prompt_preview": ""
+                                }
+                            ]
+                        }))
+                    },
+                ),
+            )
+            .route(
+                "/v1/traces/{trace_id}",
+                get(move |AxumPath(trace_id): AxumPath<String>| {
+                    let detail_requests = detail_requests_for_route.clone();
+                    async move {
+                        detail_requests.lock().unwrap().push(trace_id.clone());
+                        let output_preview = if trace_id == "trc-disposable" {
+                            format!("Exalto Capture ready. {MARKER}")
+                        } else {
+                            "Exalto Capture ready.".to_owned()
+                        };
+                        Json(json!({
+                            "trace_id": trace_id,
+                            "state": "notarized",
+                            "provider": "openai",
+                            "http_status": 200,
+                            "output_preview": output_preview
+                        }))
+                    }
+                }),
+            );
+        let (address, server) = serve(router).await;
+        let client = NotarydClient::new(address, None).unwrap();
+
+        let matched = client
+            .confirm_disposable_trace(&["trc-old".to_owned()], "openai", MARKER)
+            .await
+            .unwrap();
+
+        assert_eq!(matched.as_deref(), Some("trc-disposable"));
+        assert_eq!(
+            *detail_requests.lock().unwrap(),
+            vec!["trc-unrelated", "trc-disposable"]
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn disposable_trace_confirmation_rejects_invalid_inputs_before_network_access() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let client = NotarydClient::new(address, None).unwrap();
+
+        for (baseline, provider, marker) in [
+            (
+                vec!["../trace".to_owned()],
+                "openai",
+                "EXALTO-CAPTURE-TEST-0123456789ABCDEF01234567",
+            ),
+            (
+                Vec::new(),
+                "deepseek",
+                "EXALTO-CAPTURE-TEST-0123456789ABCDEF01234567",
+            ),
+            (Vec::new(), "openai", "not-a-valid-marker"),
+        ] {
+            let error = client
+                .confirm_disposable_trace(&baseline, provider, marker)
+                .await
+                .unwrap_err();
+            assert_eq!(error.exit_code(), EXIT_INVALID_INPUT);
+        }
     }
 
     #[test]

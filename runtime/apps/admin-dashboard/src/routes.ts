@@ -9,9 +9,12 @@ export type TraceRouteFilter = {
 
 export type ActivityRouteFilter = { traceId?: string };
 
+export type TraceRouteAction = 'export' | 'share' | 'first-proof';
+
 export type DashboardRoute = {
   view: DashboardView;
   id?: string;
+  action?: TraceRouteAction;
   filters?: TraceRouteFilter & ActivityRouteFilter;
 };
 
@@ -20,9 +23,15 @@ export function dashboardRouteFromHash(hash: string): DashboardRoute {
   const [candidate = 'overview', id] = path.split('/');
   const view = dashboardViews.find((value) => value === candidate);
   if (!view) return { view: 'overview' };
-  if (id) return { view, id };
 
   const params = new URLSearchParams(query);
+  if (id) {
+    const action = params.get('action');
+    return view === 'traces' &&
+      (action === 'export' || action === 'share' || action === 'first-proof')
+      ? { view, id, action }
+      : { view, id };
+  }
   if (view === 'activity') {
     const traceId = params.get('trace_id')?.trim();
     return traceId ? { view, filters: { traceId } } : { view };
@@ -38,7 +47,10 @@ export function dashboardRouteFromHash(hash: string): DashboardRoute {
 
 export function dashboardRouteHash(route: DashboardRoute) {
   const path = `/${route.view}${route.id ? `/${route.id}` : ''}`;
-  if (route.id || !route.filters) return path;
+  if (route.id) {
+    return route.view === 'traces' && route.action ? `${path}?action=${route.action}` : path;
+  }
+  if (!route.filters) return path;
   const query = new URLSearchParams();
   if (route.view === 'traces') {
     if (route.filters.state) query.set('state', route.filters.state);

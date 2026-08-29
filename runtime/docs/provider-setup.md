@@ -1,8 +1,10 @@
-# Provider and agent setup
+# Exalto Capture provider and client setup
 
-`notaryd` exposes provider-compatible HTTP/1.1 routes on one loopback
-listener. Keep credentials in the original SDK, agent, or secret manager and
-replace only the base URL.
+Exalto Capture launches `notaryd` when no compatible local service is already
+running. `notaryd` exposes provider-compatible HTTP/1.1 routes on one loopback
+listener. Codex CLI and Claude Code can keep their saved product sign-ins. API
+and SDK clients send their existing provider key. In every case, replace only
+the base URL.
 
 ## Route map
 
@@ -38,11 +40,35 @@ provider account rather than copying a time-sensitive model name.
 | Native Claude Desktop | Cannot currently be configured for the local route |
 | Browser, Slack, remote, or cloud sessions | Outside the loopback proxy and unsupported |
 
-The Notary macOS app can start and manage the local proxy for either
+The Exalto Capture macOS app can start and manage the local proxy for either
 supported CLI. It does not supply the provider login or configure the vendor
 client. Codex desktop may read the same local Codex configuration for local
 work, but that path remains unverified; do not rely on it as a supported
 integration yet.
+
+## API-key setup in Exalto Capture
+
+Choose **API or SDK** in the setup assistant, then select OpenAI, Anthropic, or
+OpenRouter. Each supported provider includes a fixed link to its official key
+page. The SDK, CLI, shell, or secret manager remains the credential owner and
+sends the real key in the provider's normal authentication header.
+
+For a quick disposable onboarding test, the developer may paste a provider key
+into setup. The webview keeps that value only in the current in-memory setup
+session and passes it to one native test command. The command sends the real key
+through the same fixed loopback route as any other client. The app does not
+write the key to Keychain, disk, app settings, or daemon configuration. It is
+cleared when setup finishes, is cancelled, or the setup window closes.
+
+If a compatible `notaryd` is already running outside the app, setup reuses it
+instead of starting another process. The app does not stop, restart, or change
+the capture setting of that process. A disposable test can use it when capture
+is already enabled.
+
+xAI and Grok are not capture routes in this build. Setup still links to the
+[official xAI API key quickstart](https://docs.x.ai/developers/quickstart) so a
+developer can prepare a key without mistaking that preparation for working
+capture support.
 
 ## OpenAI
 
@@ -82,7 +108,7 @@ claude auth status
 It must report `loggedIn: true` with the first-party provider. A login in the
 native Claude desktop app is separate and does not establish that Claude Code
 CLI state. If the CLI is logged out, run `claude login` directly without the
-Notary base URL, then check again. Notary does not perform the login or
+Exalto Capture base URL, then check again. Exalto Capture does not perform the login or
 refresh flow.
 
 Run Claude Code with only its Anthropic base URL changed:
@@ -98,7 +124,7 @@ not add a gateway API key or an `ANTHROPIC_AUTH_TOKEN`: without those
 overrides, Claude Code attaches its saved claude.ai authorization and includes
 the OAuth capability in `anthropic-beta`.
 
-Notary forwards `Authorization`, `anthropic-beta`, `anthropic-version`, the
+Exalto Capture forwards `Authorization`, `anthropic-beta`, `anthropic-version`, the
 `?beta=true` query, streaming events (including pings), tool definitions, tool
 calls, and other current Messages fields unchanged. It treats Anthropic header
 and body fields as open protocol lists rather than filtering them to a frozen
@@ -139,7 +165,7 @@ curl http://127.0.0.1:8787/openrouter/api/v1/chat/completions \
   -H "Authorization: Bearer $OPENROUTER_API_KEY" \
   -H 'Content-Type: application/json' \
   -H 'HTTP-Referer: https://example.test' \
-  -H 'X-Title: Notary example' \
+  -H 'X-Title: Exalto Capture example' \
   -d '{"model":"YOUR_MODEL","stream":true,"messages":[{"role":"user","content":"Reply with exactly: notary"}]}'
 ```
 
@@ -169,11 +195,11 @@ Add the following to `~/.codex/config.toml`, replacing the model with one
 available to the OpenAI API key:
 
 ```toml
-model_provider = "notary"
+model_provider = "capture"
 model = "YOUR_RESPONSES_MODEL"
 
-[model_providers.notary]
-name = "Notary local proxy"
+[model_providers.capture]
+name = "Exalto Capture local proxy"
 base_url = "http://127.0.0.1:8787/openai/v1"
 env_key = "OPENAI_API_KEY"
 wire_api = "responses"
@@ -211,10 +237,10 @@ Add this provider to `~/.codex/config.toml` and select it with
 `model_provider`. Keep your current model setting:
 
 ```toml
-model_provider = "notary-chatgpt"
+model_provider = "capture-chatgpt"
 
-[model_providers.notary-chatgpt]
-name = "Notary — ChatGPT plan"
+[model_providers.capture-chatgpt]
+name = "Exalto Capture, ChatGPT plan"
 base_url = "http://127.0.0.1:8787/codex"
 requires_openai_auth = true
 wire_api = "responses"
@@ -223,7 +249,7 @@ supports_websockets = false
 
 Do not add `env_key` to this provider. `requires_openai_auth = true` tells
 Codex to attach its saved ChatGPT authorization and account-routing headers.
-Notary forwards those values for the provider request, but does not read
+Exalto Capture forwards those values for the provider request, but does not read
 Codex's auth cache, collect browser cookies, refresh the login, or write the
 header values to logs or notarized packages.
 
@@ -235,7 +261,7 @@ codex exec --ephemeral --skip-git-repo-check \
 ```
 
 To stop using the proxy, restore your previous `model_provider` setting
-(normally `openai`) and remove the `model_providers.notary-chatgpt` block.
+(normally `openai`) and remove the `model_providers.capture-chatgpt` block.
 This does not sign you out of ChatGPT.
 
 A verified trace proves that the request reached `chatgpt.com` over the
@@ -272,6 +298,12 @@ Non-`2xx` provider responses—including subscription authentication and provide
 errors—are returned to the calling client and captured as encrypted local
 evidence, but current normalizers reject them for notarization with
 `unsupported_provider_http_status` before proof generation.
+
+The full `.llmcapture` checkpoint is vault-encrypted. When the configured
+preview limit is above zero, bounded prompt and response excerpts are stored
+separately in local metadata for browsing and are not protected by that vault.
+Set the preview limit to zero when local plaintext excerpts are unacceptable.
+Doing so also disables automatic marker confirmation in desktop onboarding.
 
 Real provider requests can incur cost. The ordinary test suite uses offline
 fixtures; run live requests only as an explicit integration check.

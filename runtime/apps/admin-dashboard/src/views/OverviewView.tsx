@@ -35,8 +35,8 @@ export function OverviewView({
   });
   const stats = [
     ['Captured', status.counts.captured, 'muted', { state: 'captured' }],
-    ['Notarizing', status.counts.notarizing, 'active', { status: 'notarizing' }],
-    ['Notarized', status.counts.notarized, 'ready', { state: 'notarized' }],
+    ['Sealing', status.counts.notarizing, 'active', { status: 'notarizing' }],
+    ['Sealed', status.counts.notarized, 'ready', { state: 'notarized' }],
     ['Needs attention', status.counts.needs_attention, 'danger', { status: 'needs_attention' }],
   ] as const;
   return (
@@ -62,11 +62,11 @@ export function OverviewView({
         <ServiceFact
           icon={ShieldCheck}
           label="New requests"
-          value={status.capture_enabled ? 'Notarized capture' : 'Direct passthrough'}
+          value={status.capture_enabled ? 'Private capture' : 'Direct passthrough'}
           detail={
             status.capture_enabled
               ? 'Provider connection delegated'
-              : 'No notary or evidence artifact'
+              : 'No seal or evidence artifact'
           }
         />
         <ServiceFact
@@ -93,7 +93,7 @@ export function OverviewView({
           <Text className="eyebrow">Next action</Text>
           <Title order={2}>
             {status.counts.captured
-              ? 'Notarize captured evidence'
+              ? 'Seal captured evidence'
               : status.capture_enabled
                 ? 'Send a provider request'
                 : 'Capture requests are off'}

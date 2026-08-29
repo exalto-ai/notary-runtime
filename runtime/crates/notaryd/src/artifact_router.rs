@@ -170,6 +170,18 @@ impl ArtifactStore for RoutedArtifactStore {
         }
         self.filesystem.read_verified(record, max_bytes).await
     }
+
+    async fn delete(&self, key: &ArtifactKey) -> ArtifactResult<()> {
+        let filesystem = self.filesystem.delete(key);
+        let Some(s3) = &self.s3 else {
+            return filesystem.await;
+        };
+        // Attempt both explicitly configured stores even if either one fails.
+        // A previous backend selection may still contain the Trace's bytes.
+        let (filesystem, s3) = tokio::join!(filesystem, s3.delete(key));
+        filesystem?;
+        s3
+    }
 }
 
 fn select_recovery_record(

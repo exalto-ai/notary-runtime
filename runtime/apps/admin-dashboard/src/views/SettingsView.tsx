@@ -16,7 +16,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CodeXml, Copy, Moon, PanelLeft, ShieldCheck, Sun } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,7 +42,6 @@ import {
   LoadingState,
   mutationError,
   QueryError,
-  requiredValue,
   StatusLabel,
 } from '../shared';
 
@@ -105,6 +104,7 @@ function accountPollRetryDelaySeconds(intervalSeconds: number, failures: number)
 
 export function useAccountConnection(api: LocalApi) {
   const queryClient = useQueryClient();
+  const operation = useRef(0);
   const account = useQuery({ queryKey: ['account'], queryFn: api.account, retry: false });
   const [started, setStarted] = useState<{
     flow: AccountConnectionStarted;
@@ -130,29 +130,45 @@ export function useAccountConnection(api: LocalApi) {
     });
   };
   const begin = useMutation({
-    mutationFn: api.startAccountConnection,
-    onSuccess: schedule,
-    onError: (error) => mutationError('Could not begin authorization', error),
+    mutationFn: async (generation: number) => ({
+      generation,
+      flow: await api.startAccountConnection(),
+    }),
+    onSuccess: ({ generation, flow }) => {
+      if (operation.current === generation) schedule(flow);
+    },
+    onError: (error, generation) => {
+      if (operation.current === generation) mutationError('Could not begin authorization', error);
+    },
   });
   const poll = useMutation({
-    mutationFn: () =>
-      api.pollAccountConnection(
-        requiredValue(started, 'started account connection').flow.request_id,
-      ),
-    onSuccess: (result) => {
+    mutationFn: async (attempt: {
+      requestId: string;
+      generation: number;
+      intervalSeconds: number;
+    }) => ({
+      attempt,
+      result: await api.pollAccountConnection(attempt.requestId),
+    }),
+    onSuccess: ({ attempt, result }) => {
+      if (operation.current !== attempt.generation) return;
       queryClient.setQueryData(['account'], result);
       if (result.signed_in || result.connection_state === 'connected') setStarted(null);
-      else if (started)
-        setStarted({
-          ...started,
-          nextPollAt: Date.now() + started.flow.poll_interval_seconds * 1000,
-          failures: 0,
+      else
+        setStarted((current) => {
+          if (!current || current.flow.request_id !== attempt.requestId) return current;
+          return {
+            ...current,
+            nextPollAt: Date.now() + attempt.intervalSeconds * 1000,
+            failures: 0,
+          };
         });
     },
-    onError: (error) => {
+    onError: (error, attempt) => {
+      if (operation.current !== attempt.generation) return;
       mutationError('Could not check authorization', error);
       setStarted((current) => {
-        if (!current) return current;
+        if (!current || current.flow.request_id !== attempt.requestId) return current;
         const failures = current.failures + 1;
         const delay = accountPollRetryDelaySeconds(current.flow.poll_interval_seconds, failures);
         return { ...current, failures, nextPollAt: Date.now() + delay * 1000 };
@@ -171,6 +187,28 @@ export function useAccountConnection(api: LocalApi) {
     started && now >= started.startedAt + started.flow.expires_in_seconds * 1000,
   );
   const pollReady = Boolean(started && !expired && now >= started.nextPollAt);
+  const startAuthorization = () => {
+    if (begin.isPending || poll.isPending || (started && !expired)) return;
+    const generation = operation.current + 1;
+    operation.current = generation;
+    setStarted(null);
+    poll.reset();
+    begin.mutate(generation);
+  };
+  const checkAuthorization = () => {
+    if (!started) return;
+    poll.mutate({
+      requestId: started.flow.request_id,
+      generation: operation.current,
+      intervalSeconds: started.flow.poll_interval_seconds,
+    });
+  };
+  const cancelAuthorization = () => {
+    operation.current += 1;
+    setStarted(null);
+    begin.reset();
+    poll.reset();
+  };
 
   useEffect(() => {
     // A zero interval is used by deterministic dashboard fixtures to require
@@ -184,7 +222,7 @@ export function useAccountConnection(api: LocalApi) {
       poll.isPending
     )
       return;
-    poll.mutate();
+    checkAuthorization();
   }, [expired, poll, pollReady, started]);
 
   return {
@@ -196,13 +234,15 @@ export function useAccountConnection(api: LocalApi) {
     begin,
     poll,
     disconnect,
-    cancel: () => setStarted(null),
+    startAuthorization,
+    checkAuthorization,
+    cancel: cancelAuthorization,
     refresh: () => account.refetch(),
   };
 }
 
 export function accountDisplayName(account: AccountConnection) {
-  return account.display_name || account.provider_display_name || 'Notary Account';
+  return account.display_name || account.provider_display_name || 'Exalto account';
 }
 
 function authProviderLabel(provider?: string | null) {
@@ -228,7 +268,18 @@ export function AccountConnectionCard({
   compact?: boolean;
   fixture?: boolean;
 }) {
-  const { account, started, expired, pollReady, begin, poll, cancel, refresh } = controller;
+  const {
+    account,
+    started,
+    expired,
+    pollReady,
+    begin,
+    poll,
+    startAuthorization,
+    checkAuthorization,
+    cancel,
+    refresh,
+  } = controller;
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const { disconnect } = controller;
   const api = controller.account.data;
@@ -294,7 +345,7 @@ export function AccountConnectionCard({
               )}
               {api.credits && (
                 <Fact
-                  label="Notarization"
+                  label="Sealing"
                   value={`${formatBytes(api.credits.notarization.total_used_bytes)} used · ${formatBytes(api.credits.notarization.total_remaining_bytes)} remaining`}
                 />
               )}
@@ -379,16 +430,23 @@ export function AccountConnectionCard({
             {api?.connection_state === 'reauthorization_required'
               ? 'The local authorization expired or was revoked. Reconnect to restore hosted credits and account-owned sharing.'
               : unavailable
-                ? 'The account service could not be reached. Local Traces and verification remain available.'
+                ? 'The account service could not be reached. Local traces and verification remain available.'
                 : 'Connect an account to see hosted credits and use account-owned sharing.'}
           </Text>
           <Group>
-            <Button variant="outline" loading={begin.isPending} onClick={() => begin.mutate()}>
-              {api?.connection_state === 'reauthorization_required'
-                ? 'Reconnect'
-                : compact
-                  ? 'Connect account'
-                  : 'Sign in or create account'}
+            <Button
+              variant="outline"
+              loading={begin.isPending}
+              disabled={Boolean(started) || begin.isPending || poll.isPending}
+              onClick={startAuthorization}
+            >
+              {started
+                ? 'Authorization in progress'
+                : api?.connection_state === 'reauthorization_required'
+                  ? 'Reconnect'
+                  : compact
+                    ? 'Connect account'
+                    : 'Sign in or create account'}
             </Button>
             {unavailable && (
               <Button variant="subtle" onClick={() => refresh()}>
@@ -422,7 +480,7 @@ export function AccountConnectionCard({
               variant="subtle"
               disabled={expired || !pollReady}
               loading={poll.isPending}
-              onClick={() => poll.mutate()}
+              onClick={checkAuthorization}
             >
               Check approval
             </Button>
@@ -434,7 +492,8 @@ export function AccountConnectionCard({
                 size="xs"
                 variant="subtle"
                 loading={begin.isPending}
-                onClick={() => begin.mutate()}
+                disabled={begin.isPending || poll.isPending}
+                onClick={startAuthorization}
               >
                 Try again
               </Button>
@@ -443,7 +502,7 @@ export function AccountConnectionCard({
         </div>
       )}
       <Text className="account-local-boundary">
-        Connecting an account does not upload or share local Traces.
+        Connecting an account does not upload or share local traces.
       </Text>
       <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
         <AlertDialogContent className="axis-local-dialog">
@@ -507,7 +566,7 @@ function LocalNotaryRecord({
   const copyKey = async () => {
     await navigator.clipboard.writeText(record.key_id);
     notifications.show({
-      title: 'Notary key ID copied',
+      title: 'Sealing key ID copied',
       message: 'The complete key ID is on the clipboard.',
     });
   };
@@ -535,10 +594,7 @@ function LocalNotaryRecord({
           })}
         />
         <Fact label="Capture cutoff" value={formatNotaryBoundary(record.valid_until_unix_ms)} />
-        <Fact
-          label="Notarization cutoff"
-          value={formatNotaryBoundary(record.notarize_until_unix_ms)}
-        />
+        <Fact label="Sealing cutoff" value={formatNotaryBoundary(record.notarize_until_unix_ms)} />
       </dl>
       <div className="local-notary-key">
         <span>Key ID / fingerprint</span>
@@ -563,7 +619,7 @@ function SettingsNotaries({ api }: { api: LocalApi }) {
     <Paper className="settings-panel settings-notaries">
       <div className="settings-notaries-heading">
         <div>
-          <Text className="eyebrow">Notaries</Text>
+          <Text className="eyebrow">Sealing services</Text>
           <Title order={2}>Configured trust</Title>
         </div>
         {notaries.data?.generation != null && (
@@ -575,7 +631,11 @@ function SettingsNotaries({ api }: { api: LocalApi }) {
         work, not endpoint health or availability.
       </Text>
       {notaries.isLoading ? (
-        <div className="local-notary-loading" role="status" aria-label="Loading local notary trust">
+        <div
+          className="local-notary-loading"
+          role="status"
+          aria-label="Loading local sealing trust"
+        >
           <i />
           <i />
           <i />
@@ -585,11 +645,11 @@ function SettingsNotaries({ api }: { api: LocalApi }) {
           <b>
             {errorCode === 'registry_state_invalid'
               ? 'Pinned trust state is malformed'
-              : 'Local notary trust is unavailable'}
+              : 'Local sealing trust is unavailable'}
           </b>
           <span>
             {errorCode === 'registry_state_invalid'
-              ? 'The cached Registry could not be validated. No notary is presented as usable.'
+              ? 'The cached Registry could not be validated. No sealing service is presented as usable.'
               : 'The local service could not return its configured trust metadata. No endpoint status can be inferred.'}
           </span>
           <Button variant="outline" onClick={() => notaries.refetch()}>
@@ -598,10 +658,10 @@ function SettingsNotaries({ api }: { api: LocalApi }) {
         </div>
       ) : !records.length ? (
         <div className="local-notary-state-panel">
-          <b>No pinned notary records</b>
+          <b>No pinned sealing records</b>
           <span>
-            The local service has not retained a Registry generation. No notary is presented as
-            available.
+            The local service has not retained a Registry generation. No sealing service is
+            presented as available.
           </span>
         </div>
       ) : (
@@ -664,21 +724,32 @@ function EmbeddedNotaries({ api }: { api: LocalApi }) {
   const records = orderNotaries(notaries.data?.notaries ?? [], notaries.data?.active_key_id);
   const active =
     records.find((record) => record.key_id === notaries.data?.active_key_id) ?? records[0];
+  const officialExaltoRegistry =
+    notaries.data?.source === 'registry' &&
+    ['https://notary.exalto.ai/api/registry', 'https://exalto.ai/api/registry'].includes(
+      notaries.data.registry_source ?? '',
+    );
+  const displayName = (record: Notary) => {
+    if (notaries.data?.source === 'explicit_configuration') return 'Configured sealing service';
+    const name = record.name.trim();
+    if (name) return name;
+    if (officialExaltoRegistry && record.operator.trim() === 'Exalto') return 'Exalto Seal';
+    return 'Registry sealing service';
+  };
   return (
     <Paper className="settings-panel embedded-notaries">
-      <Text className="eyebrow">Notaries</Text>
+      <Text className="eyebrow">Sealing service</Text>
       {notaries.isLoading ? (
-        <LoadingState label="Loading Notaries" />
+        <LoadingState label="Loading sealing service" />
       ) : notaries.error ? (
-        <QueryError error={notaries.error} title="Notaries are unavailable" />
+        <QueryError error={notaries.error} title="Sealing service is unavailable" />
       ) : !active ? (
-        <Text>No notary is configured.</Text>
+        <Text>No sealing service is configured.</Text>
       ) : (
         <>
           <Group justify="space-between" align="flex-start">
             <div>
-              <Title order={2}>{active.name}</Title>
-              <Text>Operated by {active.operator}</Text>
+              <Title order={2}>{displayName(active)}</Title>
             </div>
             <StatusLabel state={active.lifecycle} />
           </Group>
@@ -695,6 +766,7 @@ function EmbeddedNotaries({ api }: { api: LocalApi }) {
               label="Active verification key"
               value={abbreviatedKeyId(active.verification_key)}
             />
+            <Fact label="Operator" value={active.operator} />
             <Fact label="Status" value={notaryLifecycle(active.lifecycle).label} />
           </dl>
           <details className="notary-details">
@@ -703,12 +775,12 @@ function EmbeddedNotaries({ api }: { api: LocalApi }) {
               <article key={record.key_id} className="notary-detail-record">
                 <Group justify="space-between" align="flex-start">
                   <div>
-                    <Title order={3}>{record.name}</Title>
-                    <Text>Operated by {record.operator}</Text>
+                    <Title order={3}>{displayName(record)}</Title>
                   </div>
                   <StatusLabel state={record.lifecycle} />
                 </Group>
                 <dl className="receipt-list">
+                  <Fact label="Operator" value={record.operator} />
                   <Fact label="Endpoint" value={record.endpoint} />
                   <Fact label="Transport" value={record.transport.toUpperCase()} />
                   <Fact label="Verification key" value={record.verification_key} />
@@ -722,7 +794,7 @@ function EmbeddedNotaries({ api }: { api: LocalApi }) {
                     value={formatNotaryBoundary(record.valid_until_unix_ms)}
                   />
                   <Fact
-                    label="Notarization cutoff"
+                    label="Sealing cutoff"
                     value={formatNotaryBoundary(record.notarize_until_unix_ms)}
                   />
                 </dl>
@@ -731,45 +803,6 @@ function EmbeddedNotaries({ api }: { api: LocalApi }) {
           </details>
         </>
       )}
-    </Paper>
-  );
-}
-
-function EmbeddedCaptureSetting({ status, api }: { status: Status; api: LocalApi }) {
-  const queryClient = useQueryClient();
-  const [captureEnabled, setCaptureEnabled] = useState(status.capture_enabled);
-  const captureMode = useMutation({
-    mutationFn: (enabled: boolean) => api.updateCaptureSetting(enabled),
-    onSuccess: (setting) => {
-      setCaptureEnabled(setting.enabled);
-      queryClient.invalidateQueries({ queryKey: ['status'] });
-      queryClient.invalidateQueries({ queryKey: ['events'] });
-      notifications.show({
-        title: setting.enabled ? 'Capture new requests on' : 'Capture new requests off',
-        message: setting.enabled
-          ? 'Supported requests create private local Traces.'
-          : 'Requests pass through locally and create no Trace.',
-      });
-    },
-    onError: (error) => mutationError('Capture mode did not change', error),
-  });
-  useEffect(() => setCaptureEnabled(status.capture_enabled), [status.capture_enabled]);
-  return (
-    <Paper className="capture-mode-setting">
-      <div>
-        <Text fw={700}>Capture new requests</Text>
-        <Text>
-          {captureEnabled
-            ? 'On — supported requests use notarized capture and create private local Traces.'
-            : 'Off — requests pass through locally and create no Trace.'}
-        </Text>
-      </div>
-      <Switch
-        aria-label="Capture new requests"
-        checked={captureEnabled}
-        disabled={captureMode.isPending}
-        onChange={(event) => captureMode.mutate(event.currentTarget.checked)}
-      />
     </Paper>
   );
 }
@@ -801,57 +834,68 @@ export function EmbeddedSettingsView({
     ['checking', 'downloading', 'installing'].includes(update?.phase ?? '');
   return (
     <div className="view-page settings-page settings-page--embedded">
-      <SettingsGroup id="settings-general" title="General">
-        <div className="settings-flat-group">
-          <EmbeddedCaptureSetting status={status} api={api} />
-          <Paper className="capture-mode-setting">
-            <div>
-              <Text fw={700}>Open Notary at sign-in</Text>
-              <Text>
-                Closing the window leaves Notary available from the menu bar.
-                {desktopSettings?.vault_label === 'Passphrase vault'
-                  ? ' The app opens locked until you enter the vault passphrase.'
-                  : ''}
-              </Text>
-            </div>
-            <Switch
-              aria-label="Open Notary at sign-in"
-              checked={desktopSettings?.launch_at_login ?? false}
-              disabled={!desktopSettings?.launch_ready}
-              onChange={(event) =>
-                onDesktopAction({
-                  action: 'set_launch_at_login',
-                  enabled: event.currentTarget.checked,
-                })
-              }
-            />
-          </Paper>
-        </div>
-      </SettingsGroup>
-      <SettingsGroup id="settings-account" title="Account">
-        <AccountConnectionCard controller={accountConnection} />
-      </SettingsGroup>
-      <SettingsGroup id="settings-security" title="Security">
+      <SettingsGroup id="settings-connections" title="Connections">
         <div className="settings-subgroup-grid">
           <Paper className="settings-panel">
-            <Text className="eyebrow">Local data</Text>
-            <Title order={2}>{desktopSettings?.vault_label ?? status.vault}</Title>
-            <Text>{desktopSettings?.vault_detail ?? 'Private evidence is protected locally.'}</Text>
+            <Text className="eyebrow">AI tools</Text>
+            <Title order={2}>AI connections</Title>
             <Text>
-              {desktopSettings?.vault_label === 'Passphrase vault'
-                ? 'The passphrase is required after each app start. Changing protection requires a guided migration of existing private Traces.'
-                : 'Changing protection requires a guided migration so existing private Traces retain one authoritative key.'}
+              Connect Codex CLI, Claude Code, or an API client from the AI connections tab above.
+              Saved product sign-ins and model selection stay in the originating tool. API clients
+              send their own provider key. Exalto Capture does not store or substitute it; the
+              optional onboarding test keeps a pasted key only in memory for that setup session.
             </Text>
-            <dl className="receipt-list">
-              <Fact label="Metadata" value={status.metadata_backend} />
-              <Fact label="Artifacts" value={status.artifact_backend} />
-              <Fact label="Retained preview limit" value={`${status.preview_chars} characters`} />
-            </dl>
           </Paper>
           <EmbeddedNotaries api={api} />
         </div>
+        <AccountConnectionCard controller={accountConnection} />
       </SettingsGroup>
-      <SettingsGroup id="settings-updates" title="Updates">
+      <SettingsGroup id="settings-privacy" title="Privacy & storage">
+        <Paper className="settings-panel">
+          <Text className="eyebrow">Local data</Text>
+          <Title order={2}>{desktopSettings?.vault_label ?? status.vault}</Title>
+          <Text>{desktopSettings?.vault_detail ?? 'Private evidence is protected locally.'}</Text>
+          <Text>
+            {desktopSettings?.vault_label === 'Passphrase vault'
+              ? 'The passphrase is required after each app start. Changing protection requires a guided migration of existing private traces.'
+              : 'Changing protection requires a guided migration so existing private traces retain one authoritative key.'}
+          </Text>
+          <dl className="receipt-list">
+            <Fact label="Metadata" value={status.metadata_backend} />
+            <Fact label="Artifacts" value={status.artifact_backend} />
+            <Fact label="Retained preview limit" value={`${status.preview_chars} characters`} />
+          </dl>
+          {status.preview_chars > 0 && (
+            <Text className="safe-note preview-storage-note">
+              Bounded prompt and response previews are kept in local metadata for browsing. They
+              stay on this machine but are not protected by the private-capture vault.
+            </Text>
+          )}
+        </Paper>
+      </SettingsGroup>
+      <SettingsGroup id="settings-app" title="App">
+        <Paper className="capture-mode-setting">
+          <div>
+            <Text fw={700}>Open Exalto Capture at sign-in</Text>
+            <Text>
+              Closing the window leaves Exalto Capture available from the menu bar.
+              {desktopSettings?.vault_label === 'Passphrase vault'
+                ? ' The app opens locked until you enter the vault passphrase.'
+                : ''}
+            </Text>
+          </div>
+          <Switch
+            aria-label="Open Exalto Capture at sign-in"
+            checked={desktopSettings?.launch_at_login ?? false}
+            disabled={!desktopSettings?.launch_ready}
+            onChange={(event) =>
+              onDesktopAction({
+                action: 'set_launch_at_login',
+                enabled: event.currentTarget.checked,
+              })
+            }
+          />
+        </Paper>
         <Paper className="settings-panel embedded-update-settings">
           <dl className="receipt-list">
             <Fact label="Current version" value={desktopSettings?.app_version ?? status.version} />
@@ -900,7 +944,7 @@ export function EmbeddedSettingsView({
             )}
           </Group>
           <Text className="safe-note">
-            Release signatures are verified for the ai.exalto.notary application identity before
+            Release signatures are checked against this app's installed macOS identity before
             installation.
           </Text>
         </Paper>
@@ -970,7 +1014,7 @@ export function StandaloneSettingsView({ status, api }: { status: Status; api: L
       notifications.show({
         title: setting.enabled ? 'Capture requests on' : 'Capture requests off',
         message: setting.enabled
-          ? 'Later provider requests will use the remote notary and create private captures.'
+          ? 'Later provider requests will use the sealing service and create private captures.'
           : 'Later provider requests will go directly to the provider and create no evidence.',
       });
     },
@@ -1008,8 +1052,8 @@ export function StandaloneSettingsView({ status, api }: { status: Status; api: L
               <Text fw={700}>Capture requests</Text>
               <Text>
                 {captureEnabled
-                  ? 'On — requests use the remote notary and create private captures.'
-                  : 'Off — requests still pass through the local daemon, go directly to the provider, and create no evidence.'}
+                  ? 'On, requests use the sealing service and create private captures.'
+                  : 'Off, requests still pass through the local daemon, go directly to the provider, and create no evidence.'}
               </Text>
             </div>
             <Switch
@@ -1028,7 +1072,7 @@ export function StandaloneSettingsView({ status, api }: { status: Status; api: L
       <SettingsGroup id="settings-account" title="Account">
         <AccountConnectionCard controller={accountConnection} />
       </SettingsGroup>
-      <SettingsGroup id="settings-notarization" title="Notarization">
+      <SettingsGroup id="settings-notarization" title="Sealing">
         <SettingsNotaries api={api} />
       </SettingsGroup>
       <SettingsGroup id="settings-security" title="Security & storage">

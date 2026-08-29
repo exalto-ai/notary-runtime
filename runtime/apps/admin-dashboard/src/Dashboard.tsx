@@ -96,7 +96,7 @@ function AuthGate({ api, onAuthenticated }: { api: LocalApi; onAuthenticated: ()
     <main className="auth-shell">
       <section className="auth-document">
         <Brand />
-        <Text className="eyebrow">Notary administration</Text>
+        <Text className="eyebrow">Exalto Capture administration</Text>
         <Title order={1}>Sign in</Title>
         <Text className="auth-copy">
           This service requires the credentials configured under admin.auth.
@@ -145,7 +145,7 @@ function Brand() {
       <span className="local-mark" aria-hidden="true">
         <img src={logoUrl} alt="" width={30} height={30} />
       </span>
-      <span>Notary</span>
+      <span>Exalto Capture</span>
     </div>
   );
 }
@@ -251,6 +251,23 @@ export function Dashboard({
     desktopSettings,
     onDesktopSettingsAction,
   );
+  useEffect(() => {
+    if (!embedded) return;
+    const publishRoute = () => {
+      window.parent.postMessage(
+        { type: 'notary:desktop-route-change', payload: { view: route.view } },
+        '*',
+      );
+    };
+    const receiveReadyRequest = (event: MessageEvent) => {
+      if (event.source === window.parent && event.data?.type === 'notary:desktop-ready-request') {
+        publishRoute();
+      }
+    };
+    window.addEventListener('message', receiveReadyRequest);
+    publishRoute();
+    return () => window.removeEventListener('message', receiveReadyRequest);
+  }, [embedded, route.view]);
   const statusQuery = useQuery({
     queryKey: ['status'],
     queryFn: api.status,
@@ -260,6 +277,18 @@ export function Dashboard({
   const navigate = (next: Route) => {
     closeNav();
     goTo(next);
+  };
+  const consumeTraceAction = (traceId: string, action: 'first-proof') => {
+    if (embedded) {
+      window.parent.postMessage(
+        {
+          type: 'notary:desktop-trace-action-consumed',
+          payload: { traceId, action },
+        },
+        '*',
+      );
+    }
+    goTo({ view: 'traces', id: traceId });
   };
 
   if (statusQuery.isLoading) return <LoadingState label="Connecting to the local service" />;
@@ -284,6 +313,7 @@ export function Dashboard({
           navigate={navigate}
           fixture={fixture}
           embedded
+          onTraceActionConsumed={consumeTraceAction}
           desktopBridge={desktopBridge}
         />
       </main>
@@ -318,6 +348,7 @@ export function Dashboard({
           navigate={navigate}
           fixture={fixture}
           embedded={false}
+          onTraceActionConsumed={consumeTraceAction}
           desktopBridge={desktopBridge}
         />
       </AppShell.Main>
@@ -331,6 +362,7 @@ function View({
   api,
   navigate,
   embedded,
+  onTraceActionConsumed,
   desktopBridge,
 }: {
   route: Route;
@@ -339,6 +371,7 @@ function View({
   navigate: (route: Route) => void;
   fixture: boolean;
   embedded: boolean;
+  onTraceActionConsumed: (traceId: string, action: 'first-proof') => void;
   desktopBridge: {
     state: DesktopSettingsState | null;
     send: (action: DesktopSettingsAction) => void;
@@ -350,8 +383,10 @@ function View({
         <TracesView
           api={api}
           selectedId={route.id}
+          initialAction={route.action}
           initialFilters={route.filters}
           navigate={navigate}
+          onTraceActionConsumed={onTraceActionConsumed}
         />
       );
     case 'activity':

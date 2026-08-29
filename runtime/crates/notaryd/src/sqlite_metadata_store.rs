@@ -14,7 +14,8 @@ use crate::{
         TraceFilters, TraceShareRecord, TraceSummary,
     },
     metadata_store::{
-        MetadataResult, MetadataStore, MetadataStoreError, validate_operation_id, validate_trace_id,
+        MetadataResult, MetadataStore, MetadataStoreError, TraceDeletionOutcome,
+        TraceDeletionPreparation, validate_operation_id, validate_trace_id,
     },
     sqlite_metadata::SqliteMetadata,
 };
@@ -229,6 +230,23 @@ impl MetadataStore for SqliteMetadataStore {
         validate_trace_id(trace_id)?;
         let trace_id = trace_id.to_owned();
         self.blocking(move |metadata| metadata.artifact_records(&trace_id))
+            .await
+    }
+
+    async fn prepare_trace_deletion(
+        &self,
+        trace_id: &str,
+    ) -> MetadataResult<TraceDeletionPreparation> {
+        validate_trace_id(trace_id)?;
+        let trace_id = trace_id.to_owned();
+        self.blocking(move |metadata| metadata.prepare_trace_deletion(&trace_id))
+            .await
+    }
+
+    async fn delete_trace(&self, trace_id: &str) -> MetadataResult<TraceDeletionOutcome> {
+        validate_trace_id(trace_id)?;
+        let trace_id = trace_id.to_owned();
+        self.blocking(move |metadata| metadata.delete_trace(&trace_id))
             .await
     }
 

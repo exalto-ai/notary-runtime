@@ -1,40 +1,181 @@
-use std::{sync::Mutex, time::Duration};
+use std::{
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use notary_core::vault::CHILD_KEY_STDIN_ENV;
 use tauri::Manager;
 use tauri_plugin_shell::{ShellExt, process::CommandChild};
 
 use crate::service_client::daemon_is_healthy;
-use crate::vault::{VaultSession, local_vault_mode, vault_unlock_key_for_child};
+use crate::vault::{
+    VaultSession, local_vault_mode, temporary_capture_recovery_pending, vault_unlock_key_for_child,
+};
 
 const DESKTOP_CONTROL_STDIN_ENV: &str = "NOTARYD_DESKTOP_CONTROL_STDIN";
+const DESKTOP_FORCE_CAPTURE_DISABLED_ENV: &str = "NOTARYD_DESKTOP_FORCE_CAPTURE_DISABLED";
+
+pub(super) struct ManagedDaemon {
+    child: CommandChild,
+    generation: u64,
+}
 
 #[derive(Default)]
-pub(super) struct DaemonProcess(pub(super) Mutex<Option<CommandChild>>);
+pub(super) struct DaemonProcess {
+    pub(super) child: Mutex<Option<ManagedDaemon>>,
+    pub(super) lifecycle: tokio::sync::Mutex<()>,
+    generation: AtomicU64,
+    start_blocks: AtomicUsize,
+}
 
-pub(super) fn spawn_daemon(app: &tauri::AppHandle, process: &DaemonProcess) -> Result<(), String> {
+pub(super) struct DaemonStartBlock<'a> {
+    process: &'a DaemonProcess,
+}
+
+impl Drop for DaemonStartBlock<'_> {
+    fn drop(&mut self) {
+        self.process.resume_starts();
+    }
+}
+
+impl DaemonProcess {
+    pub(super) fn suspend_starts(&self) {
+        self.start_blocks.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(super) fn resume_starts(&self) {
+        let resumed =
+            self.start_blocks
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |blocks| {
+                    blocks.checked_sub(1)
+                });
+        debug_assert!(resumed.is_ok(), "daemon start gate underflowed");
+    }
+
+    pub(super) fn block_starts(&self) -> DaemonStartBlock<'_> {
+        self.suspend_starts();
+        DaemonStartBlock { process: self }
+    }
+
+    fn ensure_starts_allowed(&self) -> Result<(), String> {
+        if self.start_blocks.load(Ordering::Acquire) == 0 {
+            Ok(())
+        } else {
+            Err(
+                "Exalto Capture is preparing to quit or install an update. Try again after it finishes."
+                    .into(),
+            )
+        }
+    }
+}
+
+pub(super) fn owned_child_present(process: &DaemonProcess) -> Result<bool, String> {
+    process
+        .child
+        .lock()
+        .map(|child| child.is_some())
+        .map_err(|_| "daemon process state is unavailable".into())
+}
+
+pub(super) async fn healthy_managed_generation(process: &DaemonProcess) -> Option<u64> {
+    let generation = process
+        .child
+        .lock()
+        .ok()
+        .and_then(|child| child.as_ref().map(|child| child.generation))?;
+    if !daemon_is_healthy().await {
+        return None;
+    }
+    process.child.lock().ok().and_then(|child| {
+        child
+            .as_ref()
+            .filter(|child| child.generation == generation)
+            .map(|_| generation)
+    })
+}
+
+pub(super) async fn managed_daemon_is_healthy(process: &DaemonProcess) -> bool {
+    healthy_managed_generation(process).await.is_some()
+}
+
+pub(super) async fn same_managed_daemon_is_healthy(
+    process: &DaemonProcess,
+    expected_generation: u64,
+) -> bool {
+    healthy_managed_generation(process).await == Some(expected_generation)
+}
+
+async fn wait_for_managed_daemon(process: &DaemonProcess) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if managed_daemon_is_healthy(process).await {
+            return Ok(());
+        }
+        let still_running = process
+            .child
+            .lock()
+            .map_err(|_| "daemon process state is unavailable")?
+            .is_some();
+        if !still_running {
+            return Err("The bundled local service exited before becoming ready.".into());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            stop_managed_daemon_after_start_failure(process)?;
+            return Err(
+                "The bundled local service did not become ready. Another service may be using the capture ports."
+                    .into(),
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+async fn reject_external_listener() -> Result<(), String> {
+    if daemon_is_healthy().await {
+        return Err(
+            "A compatible local service started outside Exalto Capture is already using the capture ports. Stop it before starting the bundled service."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+fn spawn_daemon_inner(app: &tauri::AppHandle, process: &DaemonProcess) -> Result<(), String> {
     let vault_session = app.state::<VaultSession>();
-    let unlock_key = vault_unlock_key_for_child(&vault_session)?;
-    let (mut events, mut child) = app
+    let mut child_initialization = vault_unlock_key_for_child(&vault_session)?;
+    let command = app
         .shell()
         .sidecar("notaryd")
-        .map_err(|error| format!("Could not locate the bundled notaryd service: {error}"))?
+        .map_err(|error| format!("Could not locate the bundled local capture service: {error}"))?
         .env(CHILD_KEY_STDIN_ENV, "1")
-        .env(DESKTOP_CONTROL_STDIN_ENV, "1")
+        .env(DESKTOP_CONTROL_STDIN_ENV, "1");
+    let command = if temporary_capture_recovery_pending() {
+        command.env(DESKTOP_FORCE_CAPTURE_DISABLED_ENV, "1")
+    } else {
+        command
+    };
+    let (mut events, mut child) = command
         .spawn()
-        .map_err(|error| format!("Could not start the bundled notaryd service: {error}"))?;
+        .map_err(|error| format!("Could not start the bundled local capture service: {error}"))?;
 
-    if let Err(error) = child.write(&unlock_key) {
-        return Err(format!(
-            "Could not send the unlocked capture key to the local service: {error}"
-        ));
+    if child.write(&child_initialization).is_err() {
+        let _ = child.kill();
+        return Err("Could not initialize the bundled local capture service securely.".into());
     }
-    drop(unlock_key);
+    child_initialization.fill(0);
 
+    let generation = process
+        .generation
+        .fetch_add(1, Ordering::AcqRel)
+        .saturating_add(1);
     *process
-        .0
+        .child
         .lock()
-        .map_err(|_| "daemon process state is unavailable")? = Some(child);
+        .map_err(|_| "daemon process state is unavailable")? =
+        Some(ManagedDaemon { child, generation });
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -43,8 +184,11 @@ pub(super) fn spawn_daemon(app: &tauri::AppHandle, process: &DaemonProcess) -> R
                 event,
                 tauri_plugin_shell::process::CommandEvent::Terminated(_)
             ) {
-                if let Ok(mut guard) = app_handle.state::<DaemonProcess>().0.lock() {
-                    *guard = None;
+                let process = app_handle.state::<DaemonProcess>();
+                if let Ok(mut child) = process.child.lock()
+                    && process.generation.load(Ordering::Acquire) == generation
+                {
+                    *child = None;
                 }
                 break;
             }
@@ -53,24 +197,54 @@ pub(super) fn spawn_daemon(app: &tauri::AppHandle, process: &DaemonProcess) -> R
     Ok(())
 }
 
-pub(super) async fn request_managed_daemon_shutdown(
+pub(super) async fn spawn_daemon_locked(
+    app: &tauri::AppHandle,
+    process: &DaemonProcess,
+) -> Result<(), String> {
+    if process
+        .child
+        .lock()
+        .map_err(|_| "daemon process state is unavailable")?
+        .is_some()
+    {
+        return wait_for_managed_daemon(process).await;
+    }
+    reject_external_listener().await?;
+    spawn_daemon_inner(app, process)?;
+    wait_for_managed_daemon(process).await
+}
+
+fn stop_managed_daemon_after_start_failure(process: &DaemonProcess) -> Result<(), String> {
+    let child = process
+        .child
+        .lock()
+        .map_err(|_| "daemon process state is unavailable")?
+        .take();
+    if let Some(child) = child {
+        let _ = child.child.kill();
+    }
+    Ok(())
+}
+
+pub(super) async fn request_managed_daemon_shutdown_inner(
     process: &DaemonProcess,
 ) -> Result<bool, String> {
     {
         let mut guard = process
-            .0
+            .child
             .lock()
             .map_err(|_| "daemon process state is unavailable")?;
         let Some(child) = guard.as_mut() else {
             return Ok(false);
         };
         child
+            .child
             .write(b"shutdown\n")
             .map_err(|error| format!("Could not request a safe local-service shutdown: {error}"))?;
     }
     for _ in 0..6_000 {
         let stopped = process
-            .0
+            .child
             .lock()
             .map_err(|_| "daemon process state is unavailable")?
             .is_none();
@@ -85,40 +259,43 @@ pub(super) async fn request_managed_daemon_shutdown(
     )
 }
 
+pub(super) async fn request_managed_daemon_shutdown(
+    process: &DaemonProcess,
+) -> Result<bool, String> {
+    let _lifecycle = process.lifecycle.lock().await;
+    request_managed_daemon_shutdown_inner(process).await
+}
+
 #[tauri::command]
 pub(super) async fn start_daemon(
     app: tauri::AppHandle,
     process: tauri::State<'_, DaemonProcess>,
 ) -> Result<(), String> {
-    if daemon_is_healthy().await {
+    let _lifecycle = process.lifecycle.lock().await;
+    process.ensure_starts_allowed()?;
+    let managed_child = process
+        .child
+        .lock()
+        .map_err(|_| "daemon process state is unavailable")?
+        .is_some();
+    if managed_child && managed_daemon_is_healthy(&process).await {
+        return Ok(());
+    }
+    if !managed_child && daemon_is_healthy().await {
         return Ok(());
     }
     if !local_vault_mode().0 {
         return Err("Choose how to protect private captures before starting the service.".into());
     }
     let already_starting = process
-        .0
+        .child
         .lock()
         .map_err(|_| "daemon process state is unavailable")?
         .is_some();
     if !already_starting {
-        spawn_daemon(&app, &process)?;
+        spawn_daemon_inner(&app, &process)?;
     }
-    for _ in 0..50 {
-        if daemon_is_healthy().await {
-            return Ok(());
-        }
-        let still_running = process
-            .0
-            .lock()
-            .map_err(|_| "daemon process state is unavailable")?
-            .is_some();
-        if !still_running {
-            return Err("The bundled local service exited before becoming ready.".into());
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    Err("The bundled local service did not become ready within five seconds.".into())
+    wait_for_managed_daemon(&process).await
 }
 
 #[tauri::command]
@@ -138,12 +315,71 @@ pub(super) async fn restart_daemon(
     app: tauri::AppHandle,
     process: tauri::State<'_, DaemonProcess>,
 ) -> Result<(), String> {
-    let stopped = request_managed_daemon_shutdown(&process).await?;
+    let _lifecycle = process.lifecycle.lock().await;
+    process.ensure_starts_allowed()?;
+    let stopped = request_managed_daemon_shutdown_inner(&process).await?;
     if !stopped && daemon_is_healthy().await {
         return Err(
             "This service was started outside the desktop app. Restart it from the process that launched it."
                 .into(),
         );
     }
-    spawn_daemon(&app, &process)
+    reject_external_listener().await?;
+    spawn_daemon_inner(&app, &process)?;
+    wait_for_managed_daemon(&process).await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use tokio::sync::Notify;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn queued_starts_recheck_the_gate_after_waiting_for_lifecycle() {
+        let process = Arc::new(DaemonProcess::default());
+        let lifecycle = process.lifecycle.lock().await;
+        let queued = Arc::clone(&process);
+        let waiting = Arc::new(Notify::new());
+        let queued_waiting = Arc::clone(&waiting);
+        let task = tokio::spawn(async move {
+            queued_waiting.notify_one();
+            let _lifecycle = queued.lifecycle.lock().await;
+            queued.ensure_starts_allowed()
+        });
+
+        waiting.notified().await;
+        process.suspend_starts();
+        drop(lifecycle);
+        assert!(task.await.unwrap().is_err());
+        process.resume_starts();
+        assert!(process.ensure_starts_allowed().is_ok());
+    }
+
+    #[test]
+    fn overlapping_quit_and_update_blocks_do_not_reenable_starts_early() {
+        let process = DaemonProcess::default();
+        let update_block = process.block_starts();
+        process.suspend_starts();
+        drop(update_block);
+        assert!(process.ensure_starts_allowed().is_err());
+        process.resume_starts();
+        assert!(process.ensure_starts_allowed().is_ok());
+    }
+
+    #[tokio::test]
+    async fn update_start_block_outlives_the_lifecycle_lock() {
+        let process = DaemonProcess::default();
+        let update_block = process.block_starts();
+        let lifecycle = process.lifecycle.lock().await;
+
+        drop(lifecycle);
+        assert!(process.lifecycle.try_lock().is_ok());
+        assert!(process.ensure_starts_allowed().is_err());
+
+        drop(update_block);
+        assert!(process.ensure_starts_allowed().is_ok());
+    }
 }

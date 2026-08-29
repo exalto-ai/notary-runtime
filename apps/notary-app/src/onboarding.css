@@ -1,0 +1,1163 @@
+.exalto-onboarding {
+  --capture-paper: #f5f3ec;
+  --capture-paper-deep: #ebe8dd;
+  --capture-ink: #1a2233;
+  --capture-night: #0c1622;
+  --capture-blue: #1e4a73;
+  --capture-blue-hover: #173b5d;
+  --capture-blue-soft: #dce6ed;
+  --capture-green: #0e8f5d;
+  --capture-green-soft: #dcece4;
+  --capture-red: #b3402a;
+  --capture-rule: rgba(26, 34, 51, .14);
+  --capture-muted: #6d7482;
+  --capture-ink-soft: #465166;
+  --capture-display-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  --capture-body-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --capture-mono-font: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas, monospace;
+  --window: var(--capture-paper);
+  --sidebar: var(--capture-night);
+  --surface: #fffdf7;
+  --surface-secondary: var(--capture-paper-deep);
+  --surface-hover: #efece3;
+  --text: var(--capture-ink);
+  --secondary: var(--capture-muted);
+  --tertiary: #7e8588;
+  --separator: var(--capture-rule);
+  --separator-soft: rgba(26, 34, 51, .13);
+  --blue: var(--capture-blue);
+  --blue-hover: var(--capture-blue-hover);
+  --blue-soft: var(--capture-blue-soft);
+  --green: var(--capture-green);
+  --red: var(--capture-red);
+  color: var(--capture-ink);
+  color-scheme: light;
+  background: var(--capture-paper);
+  font-family: var(--capture-body-font);
+}
+
+.exalto-onboarding.onboarding-window {
+  grid-template-rows: 48px 3px minmax(0, 1fr);
+  background: var(--capture-paper);
+}
+
+.exalto-onboarding .onboarding-toolbar {
+  padding-right: 18px;
+  border-color: var(--capture-rule);
+  background: rgba(245, 243, 236, .96);
+}
+
+.exalto-onboarding .onboarding-brand {
+  position: absolute;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--capture-ink);
+  font-size: 13px;
+  font-weight: 650;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.exalto-onboarding .onboarding-brand img {
+  width: 19px;
+  height: 19px;
+  border-radius: 4px;
+}
+
+.exalto-onboarding .onboarding-window-context,
+.exalto-onboarding .wizard-kicker,
+.exalto-onboarding .aside-label,
+.exalto-onboarding .instruction-heading > span,
+.exalto-onboarding .choice-status,
+.exalto-onboarding .notary-boundary span,
+.exalto-onboarding .test-prompt-receipt > span {
+  font-family: var(--capture-body-font);
+  letter-spacing: .055em;
+}
+
+.exalto-onboarding .onboarding-window-context {
+  color: var(--capture-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.exalto-onboarding .onboarding-close {
+  margin-left: 10px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--capture-rule);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--capture-ink);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.exalto-onboarding .onboarding-close:hover {
+  border-color: var(--capture-blue);
+  background: var(--capture-blue-soft);
+}
+
+.exalto-onboarding .onboarding-close:disabled {
+  opacity: .48;
+}
+
+.exalto-onboarding .onboarding-progress {
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+  background: var(--capture-rule);
+}
+
+.exalto-onboarding .onboarding-progress span {
+  background: var(--capture-paper-deep);
+}
+
+.exalto-onboarding .onboarding-progress span.is-complete {
+  background: var(--capture-blue);
+}
+
+.exalto-onboarding .onboarding-body {
+  grid-template-columns: minmax(650px, 1.72fr) minmax(340px, .62fr);
+  background: var(--capture-paper);
+}
+
+.exalto-onboarding .onboarding-content {
+  padding: 34px 48px 30px;
+  background: var(--capture-paper);
+  scrollbar-color: var(--capture-rule) transparent;
+}
+
+.exalto-onboarding .back-button {
+  top: 14px;
+  left: 18px;
+  color: var(--capture-muted);
+}
+
+.exalto-onboarding .back-button:hover:not(:disabled) {
+  color: var(--capture-blue);
+}
+
+.exalto-onboarding .wizard-step {
+  width: min(740px, 100%);
+  justify-content: center;
+  padding: 18px 0 22px;
+}
+
+.exalto-onboarding .client-step {
+  justify-content: flex-start;
+}
+
+.exalto-onboarding .wizard-kicker {
+  color: var(--capture-blue);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.exalto-onboarding .wizard-step h1 {
+  max-width: 720px;
+  margin-top: 10px;
+  color: var(--capture-ink);
+  font-family: var(--capture-display-font);
+  font-size: clamp(31px, 3vw, 38px);
+  font-weight: 650;
+  letter-spacing: -.02em;
+  line-height: 1.08;
+}
+
+.exalto-onboarding .wizard-step > p {
+  max-width: 700px;
+  margin-top: 12px;
+  color: var(--capture-ink-soft);
+  font: 400 16px/1.55 var(--capture-body-font);
+}
+
+.exalto-onboarding p {
+  font-family: var(--capture-body-font);
+}
+
+.exalto-onboarding .wizard-actions {
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 0;
+}
+
+.exalto-onboarding .mac-button {
+  min-height: 40px;
+  border: 1px solid var(--capture-rule);
+  border-radius: 5px;
+  background: #fffdf7;
+  box-shadow: none;
+  color: var(--capture-ink);
+  font: 600 13px/1.2 var(--capture-body-font);
+}
+
+.exalto-onboarding .mac-button:hover:not(:disabled) {
+  border-color: var(--capture-blue);
+  background: #fffdf7;
+  color: var(--capture-blue);
+}
+
+.exalto-onboarding .mac-button.is-primary,
+.exalto-onboarding .mac-button.is-primary:hover:not(:disabled) {
+  border-color: var(--capture-blue);
+  background: var(--capture-blue);
+  color: #fff;
+}
+
+.exalto-onboarding .mac-button.is-primary:hover:not(:disabled) {
+  background: var(--capture-blue-hover);
+}
+
+.exalto-onboarding .capture-workflow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 26px;
+  border: 1px solid var(--capture-rule);
+  background: #fffdf7;
+}
+
+.exalto-onboarding .capture-workflow div {
+  display: grid;
+  min-height: 70px;
+  align-content: center;
+  gap: 5px;
+  padding: 12px 14px;
+}
+
+.exalto-onboarding .capture-workflow div + div {
+  border-left: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .capture-workflow span {
+  color: var(--capture-blue);
+  font: 600 11px var(--capture-body-font);
+}
+
+.exalto-onboarding .capture-workflow strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.exalto-onboarding .trace-receipt {
+  width: min(620px, 100%);
+  margin: 22px 0 0;
+  border: 1px solid var(--capture-ink);
+  background: #fffdf7;
+}
+
+.exalto-onboarding .trace-receipt figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--capture-ink);
+  font: 600 11px var(--capture-body-font);
+  letter-spacing: .04em;
+}
+
+.exalto-onboarding .trace-receipt figcaption span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--capture-red);
+}
+
+.exalto-onboarding .trace-receipt dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 0;
+}
+
+.exalto-onboarding .trace-receipt dl div {
+  display: grid;
+  gap: 5px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .trace-receipt dl div:nth-child(even) {
+  border-left: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .trace-receipt dt {
+  color: var(--capture-muted);
+  font: 600 11px var(--capture-body-font);
+  text-transform: uppercase;
+}
+
+.exalto-onboarding .trace-receipt dd {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.exalto-onboarding .trace-receipt > p {
+  margin: 0;
+  padding: 11px 14px;
+  color: var(--capture-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.exalto-onboarding .protection-options,
+.exalto-onboarding .client-picker {
+  display: grid;
+  gap: 0;
+  margin-top: 23px;
+  border: 1px solid var(--capture-rule);
+  background: #fffdf7;
+}
+
+.exalto-onboarding .protection-options > button,
+.exalto-onboarding .client-picker > button {
+  display: grid;
+  width: 100%;
+  min-height: 76px;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--capture-ink);
+  text-align: left;
+}
+
+.exalto-onboarding .protection-options > button {
+  grid-template-columns: 14px 22px minmax(0, 1fr);
+}
+
+.exalto-onboarding .client-picker > button {
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+}
+
+.exalto-onboarding .protection-options > button + button,
+.exalto-onboarding .client-picker > button + button {
+  border-top: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .protection-options > button:hover,
+.exalto-onboarding .client-picker > button:hover,
+.exalto-onboarding .protection-options > button.is-selected,
+.exalto-onboarding .client-picker > button.is-selected {
+  background: var(--capture-blue-soft);
+}
+
+.exalto-onboarding .radio-mark {
+  display: grid;
+  width: 13px;
+  height: 13px;
+  place-items: center;
+  border: 1px solid var(--capture-muted);
+  border-radius: 50%;
+}
+
+.exalto-onboarding .radio-mark > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--capture-blue);
+}
+
+.exalto-onboarding .protection-options strong,
+.exalto-onboarding .client-picker strong {
+  font-size: 13px;
+}
+
+.exalto-onboarding .protection-options p,
+.exalto-onboarding .client-picker p {
+  margin-top: 4px;
+  color: var(--capture-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.exalto-onboarding .client-picker > button > small {
+  color: var(--capture-blue);
+  font: 600 11px/1.3 var(--capture-body-font);
+  text-transform: uppercase;
+}
+
+.exalto-onboarding .advanced-options-toggle {
+  margin-top: 13px;
+  color: var(--capture-blue);
+  font-size: 12px;
+}
+
+.exalto-onboarding .passphrase-fields {
+  border-color: var(--capture-rule);
+}
+
+.exalto-onboarding .passphrase-fields input {
+  border-radius: 2px;
+  background: #fffdf7;
+  color: var(--capture-ink);
+}
+
+.exalto-onboarding .passphrase-fields label span {
+  font-size: 12px;
+}
+
+.exalto-onboarding .passphrase-mismatch {
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.exalto-onboarding .configured-protection {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid var(--capture-green);
+  border-radius: 0;
+  background: var(--capture-green-soft);
+  color: var(--capture-green);
+}
+
+.exalto-onboarding .wizard-warning {
+  border: 1px solid #d5a366;
+  border-radius: 0;
+  background: #f7ead7;
+  color: #8d551e;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.exalto-onboarding .notary-choice {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid var(--capture-blue);
+  background: var(--capture-blue-soft);
+}
+
+.exalto-onboarding .notary-choice-mark {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  background: var(--capture-blue);
+  color: #fff;
+}
+
+.exalto-onboarding .notary-choice strong {
+  font-size: 13px;
+}
+
+.exalto-onboarding .notary-choice p {
+  margin-top: 5px;
+  color: var(--capture-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.exalto-onboarding .choice-status {
+  color: var(--capture-blue);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.exalto-onboarding .advanced-notaries {
+  margin-top: 8px;
+  border: 1px solid var(--capture-rule);
+  background: #fffdf7;
+}
+
+.exalto-onboarding .advanced-notaries > div {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 62px;
+  padding: 11px 14px;
+}
+
+.exalto-onboarding .advanced-notaries > div + div {
+  border-top: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .advanced-notaries strong,
+.exalto-onboarding .advanced-notaries small {
+  display: block;
+}
+
+.exalto-onboarding .advanced-notaries strong {
+  font-size: 12px;
+}
+
+.exalto-onboarding .advanced-notaries small {
+  margin-top: 3px;
+  color: var(--capture-muted);
+  font-size: 11px;
+}
+
+.exalto-onboarding .advanced-notaries em {
+  color: var(--capture-muted);
+  font: 600 11px var(--capture-body-font);
+  font-style: normal;
+  text-transform: uppercase;
+}
+
+.exalto-onboarding .advanced-notaries > p {
+  margin: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--capture-rule);
+  color: var(--capture-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.exalto-onboarding .notary-boundary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 18px;
+  border: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .notary-boundary div {
+  display: grid;
+  min-height: 68px;
+  gap: 6px;
+  padding: 13px 14px;
+}
+
+.exalto-onboarding .notary-boundary div + div {
+  border-left: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .notary-boundary span {
+  color: var(--capture-blue);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.exalto-onboarding .notary-boundary strong {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.exalto-onboarding .connection-instructions {
+  margin-top: 16px;
+  border: 1px solid var(--capture-rule);
+  border-radius: 3px;
+  background: #fffdf7;
+  overflow: hidden;
+}
+
+.exalto-onboarding .instruction-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .instruction-heading > span {
+  color: var(--capture-blue);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.exalto-onboarding .instruction-heading > strong {
+  color: var(--capture-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.exalto-onboarding .connection-instructions pre {
+  max-width: 100%;
+  margin: 0;
+  padding: 11px 13px;
+  overflow: auto;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 0;
+  background: var(--capture-night);
+  color: #f5f3ec;
+  white-space: pre-wrap;
+}
+
+.exalto-onboarding .connection-instructions pre code {
+  color: inherit;
+  font: 500 11px/1.55 var(--capture-mono-font);
+}
+
+.exalto-onboarding .connection-instructions > p {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--capture-ink-soft);
+  font-size: 12.5px;
+  line-height: 1.52;
+}
+
+.exalto-onboarding .connection-instructions > p + pre,
+.exalto-onboarding .connection-instructions > pre + p {
+  border-top: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .connection-instructions p code,
+.exalto-onboarding .api-key-instructions dd code {
+  color: var(--capture-ink);
+  font: 600 11px var(--capture-mono-font);
+}
+
+.exalto-onboarding .api-provider-picker {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 16px;
+  border: 1px solid var(--capture-rule);
+  border-radius: 3px 3px 0 0;
+  overflow: hidden;
+}
+
+.exalto-onboarding .api-provider-picker button {
+  min-height: 42px;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 0;
+  background: #fffdf7;
+  color: var(--capture-ink);
+  font-size: 11.5px;
+}
+
+.exalto-onboarding .api-provider-picker button + button {
+  border-left: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .api-provider-picker button.is-selected {
+  background: var(--capture-blue);
+  color: #fff;
+}
+
+.exalto-onboarding .api-provider-picker button.is-unsupported {
+  display: grid;
+  gap: 1px;
+  opacity: 1;
+  background: var(--capture-paper-deep);
+  color: var(--capture-muted);
+}
+
+.exalto-onboarding .api-provider-picker button.is-unsupported small {
+  font: 600 11px var(--capture-body-font);
+  text-transform: uppercase;
+}
+
+.exalto-onboarding .unsupported-provider-guide {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 12px;
+  border: 1px solid var(--capture-rule);
+  border-top: 0;
+  border-radius: 0 0 3px 3px;
+  background: var(--capture-paper-deep);
+}
+
+.exalto-onboarding .unsupported-provider-guide span,
+.exalto-onboarding .unsupported-provider-guide strong,
+.exalto-onboarding .unsupported-provider-guide small {
+  display: block;
+}
+
+.exalto-onboarding .unsupported-provider-guide strong {
+  font-size: 11px;
+}
+
+.exalto-onboarding .unsupported-provider-guide small {
+  margin-top: 2px;
+  color: var(--capture-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.exalto-onboarding .unsupported-provider-guide a {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--capture-blue);
+  font: 600 11px/1.35 var(--capture-body-font);
+  text-decoration: none;
+}
+
+.exalto-onboarding .api-key-instructions dl {
+  display: grid;
+  grid-template-columns: 1fr 1.25fr;
+  margin: 0;
+  border-bottom: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .api-key-instructions dl div {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+}
+
+.exalto-onboarding .api-key-instructions dl div + div {
+  border-left: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .api-key-instructions dt {
+  color: var(--capture-muted);
+  font-size: 11px;
+}
+
+.exalto-onboarding .api-key-instructions dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.exalto-onboarding .api-key-instructions > a {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--capture-rule);
+  color: var(--capture-blue);
+  font-size: 11.5px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.exalto-onboarding .credential-import {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .credential-import > label {
+  color: var(--capture-muted);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.exalto-onboarding .credential-import > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.exalto-onboarding .credential-import input {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--capture-rule);
+  border-radius: 2px;
+  background: #fffdf7;
+  color: var(--capture-ink);
+  font: 500 11px var(--capture-mono-font);
+}
+
+.exalto-onboarding .credential-import input:focus {
+  border-color: var(--capture-blue);
+  outline: 2px solid rgba(30, 74, 115, .16);
+}
+
+.exalto-onboarding .managed-test-runner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.exalto-onboarding .managed-test-runner .instruction-heading,
+.exalto-onboarding .managed-test-runner > p {
+  grid-column: 1 / -1;
+}
+
+.exalto-onboarding .managed-test-runner > label {
+  display: grid;
+  gap: 6px;
+  padding: 0 0 0 12px;
+}
+
+.exalto-onboarding .managed-test-runner > label > span {
+  color: var(--capture-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.exalto-onboarding .managed-test-runner input {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--capture-rule);
+  border-radius: 2px;
+  background: #fffdf7;
+  color: var(--capture-ink);
+  font: 500 12px var(--capture-mono-font);
+}
+
+.exalto-onboarding .managed-test-runner > button {
+  min-height: 38px;
+  margin-right: 12px;
+}
+
+.exalto-onboarding .test-prompt-receipt {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+  padding: 16px 18px;
+  border: 1px solid var(--capture-ink);
+  border-radius: 3px;
+  background: #fffdf7;
+}
+
+.exalto-onboarding .test-prompt-receipt > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--capture-red);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.exalto-onboarding .test-prompt-receipt > strong {
+  font-family: var(--capture-display-font);
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -.015em;
+}
+
+.exalto-onboarding .test-prompt-receipt > small {
+  color: var(--capture-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.exalto-onboarding .test-result {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  min-height: 58px;
+  gap: 10px;
+  margin-top: 15px;
+  padding: 11px 13px;
+  border: 1px solid var(--capture-rule);
+  border-radius: 3px;
+  background: #fffdf7;
+}
+
+.exalto-onboarding .test-result > span {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+}
+
+.exalto-onboarding .test-result strong,
+.exalto-onboarding .test-result small {
+  display: block;
+}
+
+.exalto-onboarding .test-result strong {
+  font-size: 11.5px;
+}
+
+.exalto-onboarding .test-result small {
+  margin-top: 2px;
+  color: var(--capture-muted);
+  font-size: 11px;
+}
+
+.exalto-onboarding .test-result.is-captured {
+  border-color: var(--capture-green);
+  background: var(--capture-green-soft);
+  color: var(--capture-green);
+}
+
+.exalto-onboarding .test-result.is-unconfirmed {
+  border-color: #bb8a3b;
+  background: #fff4dd;
+  color: #785116;
+}
+
+.exalto-onboarding .test-result.is-not-found {
+  border-color: #d5a366;
+  background: #f7ead7;
+}
+
+.exalto-onboarding .ready-check {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  margin-bottom: 14px;
+  border-radius: 50%;
+  background: var(--capture-green);
+  color: #fff;
+}
+
+.exalto-onboarding .ready-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 21px;
+  border: 1px solid var(--capture-rule);
+  border-radius: 3px;
+  background: #fffdf7;
+  overflow: hidden;
+}
+
+.exalto-onboarding .ready-summary > div {
+  display: grid;
+  min-height: 66px;
+  grid-template-columns: 21px minmax(0, 1fr);
+  align-content: center;
+  column-gap: 9px;
+  padding: 11px 13px;
+}
+
+.exalto-onboarding .ready-summary > div:nth-child(even) {
+  border-left: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .ready-summary > div:nth-child(n + 3) {
+  border-top: 1px solid var(--capture-rule);
+}
+
+.exalto-onboarding .ready-summary > div > span {
+  display: grid;
+  grid-row: span 2;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  color: var(--capture-blue);
+}
+
+.exalto-onboarding .ready-summary strong {
+  font-size: 11px;
+}
+
+.exalto-onboarding .ready-summary small {
+  margin-top: 2px;
+  color: var(--capture-muted);
+  font-size: 11px;
+}
+
+.exalto-onboarding .first-proof-ready {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 13px;
+  border: 1px solid var(--capture-green);
+  border-radius: 3px;
+  background: var(--capture-green-soft);
+}
+
+.exalto-onboarding .first-proof-ready > span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  color: var(--capture-green);
+}
+
+.exalto-onboarding .first-proof-ready strong,
+.exalto-onboarding .first-proof-ready small {
+  display: block;
+}
+
+.exalto-onboarding .first-proof-ready strong {
+  font-size: 11.5px;
+}
+
+.exalto-onboarding .first-proof-ready small {
+  margin-top: 3px;
+  color: var(--capture-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.exalto-onboarding .first-proof-ready.is-blocked {
+  border-color: #bb8a3b;
+  background: #fff4dd;
+}
+
+.exalto-onboarding .first-proof-ready.is-blocked > span {
+  color: #785116;
+}
+
+.exalto-onboarding .account-step .native-account-card {
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--capture-rule);
+  border-radius: 3px;
+  background: #fffdf7;
+  box-shadow: none;
+}
+
+.exalto-onboarding .account-step .section-label,
+.exalto-onboarding .account-step .account-state {
+  font: 600 11px/1.25 var(--capture-body-font);
+}
+
+.exalto-onboarding .account-step .native-account-card p {
+  font-size: 12px;
+}
+
+.exalto-onboarding .account-step .native-account-card .wizard-actions {
+  margin-top: 0;
+  padding-top: 4px;
+}
+
+.exalto-onboarding .account-step .native-account-card .mac-button.is-large {
+  min-height: 36px;
+  font-size: 12px;
+}
+
+.exalto-onboarding .final-actions {
+  margin-top: 24px;
+  padding-top: 0;
+}
+
+.exalto-onboarding .onboarding-error {
+  border: 1px solid var(--capture-red);
+  border-radius: 0;
+  background: #f2e1dc;
+  color: var(--capture-red);
+}
+
+.exalto-onboarding .onboarding-aside {
+  padding: 44px 30px 30px;
+  border-color: #31404d;
+  background: var(--capture-night);
+  color: var(--capture-paper);
+}
+
+.exalto-onboarding .aside-label {
+  color: #8cb4d0;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.exalto-onboarding .onboarding-aside h2 {
+  max-width: 310px;
+  margin-top: 12px;
+  color: var(--capture-paper);
+  font-family: var(--capture-display-font);
+  font-size: 25px;
+  font-weight: 650;
+  letter-spacing: -.015em;
+  line-height: 1.12;
+}
+
+.exalto-onboarding .onboarding-aside > p {
+  margin-top: 12px;
+  color: #aebbc3;
+  font: 400 15px/1.52 var(--capture-body-font);
+}
+
+.exalto-onboarding .aside-flow {
+  display: grid;
+  margin-top: 32px;
+  border: 1px solid #31404d;
+}
+
+.exalto-onboarding .aside-flow > div {
+  display: grid;
+  min-height: 64px;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-content: center;
+  column-gap: 9px;
+  padding: 10px 12px;
+  transition: background 140ms ease;
+}
+
+.exalto-onboarding .aside-flow > div + div {
+  border-top: 1px solid #31404d;
+}
+
+.exalto-onboarding .aside-flow > div.is-active {
+  background: rgba(30, 74, 115, .72);
+}
+
+.exalto-onboarding .aside-flow > div.is-local:not(.is-active) {
+  box-shadow: inset 3px 0 var(--capture-green);
+}
+
+.exalto-onboarding .aside-flow span {
+  grid-row: span 2;
+  color: #8cb4d0;
+  font: 600 11px var(--capture-body-font);
+}
+
+.exalto-onboarding .aside-flow strong {
+  color: var(--capture-paper);
+  font-size: 11.5px;
+}
+
+.exalto-onboarding .aside-flow small {
+  margin-top: 2px;
+  color: #8797a2;
+  font-size: 11px;
+}
+
+.exalto-onboarding .credential-capture-warning {
+  color: #7c4b16;
+}
+
+.exalto-onboarding .credential-capture-warning code {
+  color: inherit;
+  font-family: var(--capture-mono-font);
+  font-size: .95em;
+}
+
+.exalto-onboarding .aside-privacy {
+  border-color: #31404d;
+  color: #aebbc3;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.exalto-onboarding .aside-privacy svg {
+  color: #8cb4d0;
+}
+
+@media (max-width: 1020px) {
+  .exalto-onboarding .onboarding-body {
+    grid-template-columns: minmax(570px, 1fr) 285px;
+  }
+
+  .exalto-onboarding .onboarding-content {
+    padding-inline: 34px;
+  }
+
+  .exalto-onboarding .onboarding-aside {
+    padding-inline: 22px;
+  }
+}
+
+@media (max-width: 860px) {
+  .exalto-onboarding .onboarding-body {
+    grid-template-columns: 1fr;
+  }
+
+  .exalto-onboarding .onboarding-aside {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exalto-onboarding *,
+  .exalto-onboarding *::before,
+  .exalto-onboarding *::after {
+    transition: none !important;
+  }
+}

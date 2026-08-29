@@ -25,8 +25,8 @@ use crate::{
     },
     metadata_store::{
         CaptureClaim, CaptureRecoveryClaim, MetadataResult, MetadataStore, MetadataStoreError,
-        NotarizationClaim, ReplicaIdentity, ServerMetadataStore, validate_operation_id,
-        validate_trace_id,
+        NotarizationClaim, ReplicaIdentity, ServerMetadataStore, TraceDeletionOutcome,
+        TraceDeletionPreparation, validate_operation_id, validate_trace_id,
     },
     registry::Registry,
 };
@@ -1304,6 +1304,175 @@ impl MetadataStore for PostgresMetadataStore {
             })
             .collect::<anyhow::Result<Vec<_>>>()
             .map_err(db)
+    }
+
+    async fn prepare_trace_deletion(
+        &self,
+        trace_id: &str,
+    ) -> MetadataResult<TraceDeletionPreparation> {
+        self.require_local_mutation()?;
+        validate_trace_id(trace_id)?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|error| db(anyhow!(error).context("starting Trace deletion preflight")))?;
+        let row = sqlx::query(
+            "SELECT capture_status, notarization_status
+             FROM notaryd.traces WHERE trace_id = $1 FOR UPDATE",
+        )
+        .bind(trace_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|error| db(anyhow!(error).context("locking Trace for deletion preflight")))?;
+        let Some(row) = row else {
+            return Ok(TraceDeletionPreparation::NotFound);
+        };
+        let capture_status: String = row
+            .try_get("capture_status")
+            .map_err(|error| db(anyhow!(error).context("reading Trace capture state")))?;
+        let notarization_status: String = row
+            .try_get("notarization_status")
+            .map_err(|error| db(anyhow!(error).context("reading Trace notarization state")))?;
+        if capture_status == "capturing" {
+            return Ok(TraceDeletionPreparation::CaptureActive);
+        }
+        let active_operation: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM notaryd.operations
+                WHERE trace_id = $1 AND state IN ('queued', 'running')
+             )",
+        )
+        .bind(trace_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|error| db(anyhow!(error).context("checking active Trace operations")))?;
+        if matches!(notarization_status.as_str(), "queued" | "running") || active_operation {
+            return Ok(TraceDeletionPreparation::NotarizationActive);
+        }
+        let active_share: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM notaryd.trace_shares
+                WHERE trace_id = $1
+                  AND (progress = 'verifying' OR access_enabled = TRUE)
+             )",
+        )
+        .bind(trace_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|error| db(anyhow!(error).context("checking active Trace sharing")))?;
+        if active_share {
+            return Ok(TraceDeletionPreparation::ShareActive);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|error| db(anyhow!(error).context("committing Trace deletion preflight")))?;
+        Ok(TraceDeletionPreparation::Ready)
+    }
+
+    async fn delete_trace(&self, trace_id: &str) -> MetadataResult<TraceDeletionOutcome> {
+        self.require_local_mutation()?;
+        validate_trace_id(trace_id)?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|error| db(anyhow!(error).context("starting Trace deletion")))?;
+        let row = sqlx::query(
+            "SELECT capture_status, notarization_status
+             FROM notaryd.traces WHERE trace_id = $1 FOR UPDATE",
+        )
+        .bind(trace_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|error| db(anyhow!(error).context("locking Trace for deletion")))?;
+        let Some(row) = row else {
+            return Ok(TraceDeletionOutcome::NotFound);
+        };
+        let capture_status: String = row
+            .try_get("capture_status")
+            .map_err(|error| db(anyhow!(error).context("reading Trace capture state")))?;
+        let notarization_status: String = row
+            .try_get("notarization_status")
+            .map_err(|error| db(anyhow!(error).context("reading Trace notarization state")))?;
+        if capture_status == "capturing" {
+            return Ok(TraceDeletionOutcome::CaptureActive);
+        }
+        let active_operation: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM notaryd.operations
+                WHERE trace_id = $1 AND state IN ('queued', 'running')
+             )",
+        )
+        .bind(trace_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|error| db(anyhow!(error).context("checking active Trace operations")))?;
+        if matches!(notarization_status.as_str(), "queued" | "running") || active_operation {
+            return Ok(TraceDeletionOutcome::NotarizationActive);
+        }
+        let active_share: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM notaryd.trace_shares
+                WHERE trace_id = $1
+                  AND (progress = 'verifying' OR access_enabled = TRUE)
+             )",
+        )
+        .bind(trace_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|error| db(anyhow!(error).context("checking active Trace sharing")))?;
+        if active_share {
+            return Ok(TraceDeletionOutcome::ShareActive);
+        }
+
+        sqlx::query(
+            "DELETE FROM notaryd.events
+             WHERE trace_id = $1 OR operation_id IN (
+                 SELECT operation_id FROM notaryd.operations WHERE trace_id = $1
+             )",
+        )
+        .bind(trace_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| db(anyhow!(error).context("deleting Trace events")))?;
+        sqlx::query(
+            "DELETE FROM notaryd.operation_attempts
+             WHERE operation_id IN (
+                 SELECT operation_id FROM notaryd.operations WHERE trace_id = $1
+             )",
+        )
+        .bind(trace_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| db(anyhow!(error).context("deleting Trace operation attempts")))?;
+        for (table, context) in [
+            ("operations", "deleting Trace operations"),
+            ("artifacts", "deleting Trace artifact metadata"),
+            ("trace_shares", "deleting stopped Trace sharing metadata"),
+            ("trace_search", "deleting Trace search metadata"),
+        ] {
+            let statement = format!("DELETE FROM notaryd.{table} WHERE trace_id = $1");
+            sqlx::query(&statement)
+                .bind(trace_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| db(anyhow!(error).context(context)))?;
+        }
+        let deleted = sqlx::query("DELETE FROM notaryd.traces WHERE trace_id = $1")
+            .bind(trace_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| db(anyhow!(error).context("deleting Trace metadata")))?;
+        if deleted.rows_affected() != 1 {
+            return Err(db(anyhow!("Trace deletion lost its metadata row")));
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|error| db(anyhow!(error).context("committing Trace deletion")))?;
+        Ok(TraceDeletionOutcome::Deleted)
     }
 
     async fn counts(&self) -> MetadataResult<MetadataCounts> {

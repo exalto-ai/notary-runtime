@@ -24,7 +24,10 @@ use crate::{
     },
 };
 
-use super::{MetadataResult, MetadataStore, MetadataStoreError};
+use super::{
+    MetadataResult, MetadataStore, MetadataStoreError, TraceDeletionOutcome,
+    TraceDeletionPreparation,
+};
 
 /// Runs the complete metadata contract against isolated stores from `make_store`.
 pub(crate) async fn run<F, Fut>(make_store: F, full_text_search: bool)
@@ -36,6 +39,7 @@ where
     capture_mode_is_durable_and_evented(make_store()).await;
     capture_lifecycle(make_store().await).await;
     canonical_trace_share_is_durable(make_store().await).await;
+    terminal_trace_deletion_is_atomic_and_safe(make_store().await).await;
     preview_search(make_store().await, full_text_search).await;
     capture_filters_pagination_and_counts(make_store().await).await;
     operation_filters_and_pagination(make_store().await).await;
@@ -44,6 +48,208 @@ where
     concurrent_retry_is_deduplicated(make_store().await).await;
     event_page_and_high_water_are_atomic(make_store().await).await;
     invalid_limits_and_ranges(make_store().await).await;
+}
+
+async fn terminal_trace_deletion_is_atomic_and_safe(store: Arc<dyn MetadataStore>) {
+    assert_eq!(
+        store
+            .prepare_trace_deletion("trc-delete-missing")
+            .await
+            .unwrap(),
+        TraceDeletionPreparation::NotFound
+    );
+    assert_eq!(
+        store.delete_trace("trc-delete-missing").await.unwrap(),
+        TraceDeletionOutcome::NotFound
+    );
+
+    store
+        .begin_capture(new_capture("trc-delete-capturing", 1))
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .prepare_trace_deletion("trc-delete-capturing")
+            .await
+            .unwrap(),
+        TraceDeletionPreparation::CaptureActive
+    );
+    assert_eq!(
+        store.delete_trace("trc-delete-capturing").await.unwrap(),
+        TraceDeletionOutcome::CaptureActive
+    );
+    assert!(store.trace("trc-delete-capturing").await.unwrap().is_some());
+
+    insert_completed(&store, new_capture("trc-delete-notarization", 10), 200).await;
+    let (queued, _) = store
+        .enqueue_notarization("trc-delete-notarization", 12)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        store
+            .prepare_trace_deletion("trc-delete-notarization")
+            .await
+            .unwrap(),
+        TraceDeletionPreparation::NotarizationActive
+    );
+    assert_eq!(
+        store.delete_trace("trc-delete-notarization").await.unwrap(),
+        TraceDeletionOutcome::NotarizationActive
+    );
+    let running = store.claim_next_notarization(13).await.unwrap().unwrap();
+    assert_eq!(running.operation_id, queued.operation_id);
+    assert_eq!(
+        store
+            .prepare_trace_deletion("trc-delete-notarization")
+            .await
+            .unwrap(),
+        TraceDeletionPreparation::NotarizationActive
+    );
+    assert_eq!(
+        store.delete_trace("trc-delete-notarization").await.unwrap(),
+        TraceDeletionOutcome::NotarizationActive
+    );
+    store
+        .fail_operation(&running.operation_id, 14, "notary_error")
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .prepare_trace_deletion("trc-delete-notarization")
+            .await
+            .unwrap(),
+        TraceDeletionPreparation::Ready
+    );
+    assert!(
+        store
+            .trace("trc-delete-notarization")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        store.delete_trace("trc-delete-notarization").await.unwrap(),
+        TraceDeletionOutcome::Deleted
+    );
+    assert!(
+        store
+            .trace("trc-delete-notarization")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        store
+            .artifacts("trc-delete-notarization")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        store
+            .operation(&running.operation_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        store
+            .operation_attempts(&running.operation_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        store.delete_trace("trc-delete-notarization").await.unwrap(),
+        TraceDeletionOutcome::NotFound
+    );
+
+    insert_completed(&store, new_capture("trc-delete-share", 20), 200).await;
+    let active_share = TraceShareRecord {
+        trace_id: "trc-delete-share".into(),
+        hosted_trace_id: "trc-delete-share-hosted".into(),
+        progress: "verifying".into(),
+        visibility: "unlisted".into(),
+        access_enabled: true,
+        password_protected: false,
+        expires_at_unix_ms: None,
+        failure_code: None,
+        share_url: None,
+        package_url: None,
+        updated_at_unix_ms: 21,
+    };
+    store.put_trace_share(active_share.clone()).await.unwrap();
+    assert_eq!(
+        store
+            .prepare_trace_deletion("trc-delete-share")
+            .await
+            .unwrap(),
+        TraceDeletionPreparation::ShareActive
+    );
+    assert_eq!(
+        store.delete_trace("trc-delete-share").await.unwrap(),
+        TraceDeletionOutcome::ShareActive
+    );
+    store
+        .put_trace_share(TraceShareRecord {
+            progress: "stopped".into(),
+            access_enabled: false,
+            updated_at_unix_ms: 22,
+            ..active_share
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .prepare_trace_deletion("trc-delete-share")
+            .await
+            .unwrap(),
+        TraceDeletionPreparation::Ready
+    );
+    assert_eq!(
+        store.delete_trace("trc-delete-share").await.unwrap(),
+        TraceDeletionOutcome::Deleted
+    );
+    assert!(
+        store
+            .trace_share("trc-delete-share")
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    insert_completed(&store, new_capture("trc-delete-expired-share", 30), 200).await;
+    store
+        .put_trace_share(TraceShareRecord {
+            trace_id: "trc-delete-expired-share".into(),
+            hosted_trace_id: "trc-delete-expired-share-hosted".into(),
+            progress: "shared".into(),
+            visibility: "unlisted".into(),
+            access_enabled: false,
+            password_protected: false,
+            expires_at_unix_ms: Some(29),
+            failure_code: None,
+            share_url: None,
+            package_url: None,
+            updated_at_unix_ms: 30,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .prepare_trace_deletion("trc-delete-expired-share")
+            .await
+            .unwrap(),
+        TraceDeletionPreparation::Ready
+    );
+    assert_eq!(
+        store
+            .delete_trace("trc-delete-expired-share")
+            .await
+            .unwrap(),
+        TraceDeletionOutcome::Deleted
+    );
 }
 
 async fn canonical_trace_share_is_durable(store: Arc<dyn MetadataStore>) {

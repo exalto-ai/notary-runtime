@@ -149,6 +149,34 @@ pub struct NotarizationClaim {
     pub(crate) commit_id: String,
 }
 
+/// Result of atomically removing one terminal local Trace from metadata.
+///
+/// Artifact bytes live in a separate backend and are removed only after a
+/// successful metadata transition. Active work is represented explicitly so
+/// callers cannot mistake a safety refusal for a missing Trace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TraceDeletionOutcome {
+    Deleted,
+    NotFound,
+    CaptureActive,
+    NotarizationActive,
+    ShareActive,
+}
+
+/// Result of atomically checking a Trace for local deletion.
+///
+/// This preflight does not remove metadata. It lets callers clean up the
+/// separately stored artifact bytes while retaining the durable Trace row for
+/// retry if either backend is temporarily unavailable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TraceDeletionPreparation {
+    Ready,
+    NotFound,
+    CaptureActive,
+    NotarizationActive,
+    ShareActive,
+}
+
 /// Complete metadata behavior required by every local-daemon backend.
 #[async_trait]
 pub trait MetadataStore: Send + Sync {
@@ -186,6 +214,22 @@ pub trait MetadataStore: Send + Sync {
     async fn traces(&self, filters: TraceFilters) -> MetadataResult<Vec<TraceSummary>>;
     async fn trace(&self, trace_id: &str) -> MetadataResult<Option<TraceSummary>>;
     async fn artifacts(&self, trace_id: &str) -> MetadataResult<Vec<ArtifactRecord>>;
+    /// Checks that one Trace has no active capture, notarization, or share.
+    ///
+    /// The caller must serialize this preflight with every local operation
+    /// which can activate sealing or sharing until [`Self::delete_trace`]
+    /// finishes.
+    async fn prepare_trace_deletion(
+        &self,
+        trace_id: &str,
+    ) -> MetadataResult<TraceDeletionPreparation>;
+    /// Atomically removes all metadata owned by one terminal Trace.
+    ///
+    /// Implementations must refuse both an in-progress capture and a queued or
+    /// running notarization. A successful deletion also removes dependent
+    /// operations, attempts, events, search documents, artifacts, and sharing
+    /// metadata.
+    async fn delete_trace(&self, trace_id: &str) -> MetadataResult<TraceDeletionOutcome>;
     async fn counts(&self) -> MetadataResult<MetadataCounts>;
 
     async fn trace_share(&self, trace_id: &str) -> MetadataResult<Option<TraceShareRecord>>;

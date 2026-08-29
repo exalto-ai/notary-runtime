@@ -2300,6 +2300,36 @@ async fn connect_notary(
     }
 }
 
+/// Check that a trusted notary endpoint accepts its configured transport.
+///
+/// This opens only the TCP connection and, for `tls://` endpoints, completes
+/// public-CA certificate and hostname validation. It deliberately sends no
+/// notary protocol prelude, admission credential, capture, or sealing request.
+/// A successful probe therefore establishes transport reachability only. The
+/// notary still performs admission when a real capture or sealing session
+/// begins.
+pub async fn probe_notary_transport(notary: &NotaryEndpoint, timeout: Duration) -> Result<()> {
+    if timeout.is_zero() || timeout > Duration::from_secs(10) {
+        bail!("notary transport probe timeout must be between 1ns and 10s");
+    }
+
+    tokio::time::timeout(timeout, async {
+        let socket = TcpStream::connect((notary.host.as_str(), notary.port))
+            .await
+            .with_context(|| format!("connecting to notary at {notary}"))?;
+        socket.set_nodelay(true)?;
+
+        if notary.transport == NotaryTransport::Tls {
+            connect_notary_tls(&notary.host, socket, default_notary_tls_config())
+                .await
+                .with_context(|| format!("validating TLS for notary at {notary}"))?;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("notary transport probe timed out")?
+}
+
 fn default_notary_tls_config() -> Arc<ClientConfig> {
     let roots = OuterRootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     Arc::new(
@@ -2655,6 +2685,76 @@ mod tests {
         let socket = TcpStream::connect(address).await.unwrap();
         assert!(
             connect_notary_tls("notary.example", socket, fixture_notary_tls_config())
+                .await
+                .is_err()
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn transport_probe_sends_no_notary_or_admission_bytes() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let endpoint = NotaryEndpoint::new(
+            address.ip().to_string(),
+            address.port(),
+            NotaryTransport::Tcp,
+        )
+        .unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut byte = [0_u8; 1];
+            assert_eq!(socket.read(&mut byte).await.unwrap(), 0);
+        });
+
+        probe_notary_transport(&endpoint, Duration::from_secs(1))
+            .await
+            .unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn transport_probe_is_bounded_and_reports_an_unreachable_endpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let endpoint = NotaryEndpoint::new(
+            address.ip().to_string(),
+            address.port(),
+            NotaryTransport::Tcp,
+        )
+        .unwrap();
+
+        assert!(
+            probe_notary_transport(&endpoint, Duration::from_millis(250))
+                .await
+                .is_err()
+        );
+        assert!(
+            probe_notary_transport(&endpoint, Duration::ZERO)
+                .await
+                .is_err()
+        );
+        assert!(
+            probe_notary_transport(&endpoint, Duration::from_secs(11))
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn transport_probe_requires_valid_tls_before_reporting_reachable() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let endpoint =
+            NotaryEndpoint::new("localhost".into(), address.port(), NotaryTransport::Tls).unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            assert!(fixture_notary_tls_acceptor().accept(socket).await.is_err());
+        });
+
+        assert!(
+            probe_notary_transport(&endpoint, Duration::from_secs(1))
                 .await
                 .is_err()
         );

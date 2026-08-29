@@ -49,6 +49,9 @@ use crate::{
     vault::Vault,
 };
 
+const DESKTOP_CONTROL_STDIN_ENV: &str = "NOTARYD_DESKTOP_CONTROL_STDIN";
+const DESKTOP_FORCE_CAPTURE_DISABLED_ENV: &str = "NOTARYD_DESKTOP_FORCE_CAPTURE_DISABLED";
+
 #[cfg(test)]
 use crate::{
     DEFAULT_MAX_ATTESTABLE_HTTP_BYTES, DEFAULT_NOTARY_MAX_FRAME_BYTES,
@@ -63,6 +66,17 @@ enum Provider {
     Anthropic,
     Deepseek,
     Openrouter,
+}
+
+fn desktop_force_capture_disabled(force: bool, desktop_control: bool) -> bool {
+    force && desktop_control
+}
+
+fn desktop_force_capture_disabled_from_environment() -> bool {
+    desktop_force_capture_disabled(
+        std::env::var_os(DESKTOP_FORCE_CAPTURE_DISABLED_ENV).is_some(),
+        std::env::var_os(DESKTOP_CONTROL_STDIN_ENV).is_some(),
+    )
 }
 
 impl Provider {
@@ -222,6 +236,12 @@ impl CaptureMode {
         Ok(notary)
     }
 
+    /// Resolve the same trusted endpoint used by capture and sealing without
+    /// changing the durable capture setting.
+    pub(crate) async fn trusted_notary(&self) -> Result<NotaryEndpoint> {
+        self.ensure_notary().await
+    }
+
     pub(crate) async fn set_enabled(&self, enabled: bool) -> Result<bool> {
         let _transition = self.transition.lock().await;
         let persisted = self.persistence.metadata.capture_enabled().await?;
@@ -360,10 +380,19 @@ pub async fn run(args: ProxyArgs) -> Result<()> {
             "hosted notary discovery requires NOTARYD_PLATFORM_API_KEY or NOTARYD_PLATFORM_API_KEY_FILE"
         );
     }
-    if cluster_runtime.is_some() && std::env::var_os("NOTARYD_DESKTOP_CONTROL_STDIN").is_some() {
+    if cluster_runtime.is_some() && std::env::var_os(DESKTOP_CONTROL_STDIN_ENV).is_some() {
         bail!("desktop child-process control is unavailable in cluster mode");
     }
     let persistence = Persistence::open(&config).await?;
+    if desktop_force_capture_disabled_from_environment() {
+        // A desktop recovery marker means the app may have crashed while it
+        // temporarily borrowed capture. Persist OFF before either listener is
+        // bound, so no retrying client can enter the proxy during recovery.
+        persistence
+            .metadata
+            .set_capture_enabled(false, current_unix_ms()?)
+            .await?;
+    }
     let vault = if cluster_runtime.is_some() {
         Vault::open_cluster().context("opening the shared cluster vault")?
     } else {
@@ -2183,6 +2212,13 @@ fn hop_by_hop_header_names(headers: &HeaderMap) -> HashSet<HeaderName> {
 mod tests {
     use super::*;
     use std::sync::Mutex as StdMutex;
+
+    #[test]
+    fn forced_capture_off_is_private_to_a_supervised_desktop_child() {
+        assert!(desktop_force_capture_disabled(true, true));
+        assert!(!desktop_force_capture_disabled(false, true));
+        assert!(!desktop_force_capture_disabled(true, false));
+    }
 
     #[derive(Clone)]
     struct DirectObservation {

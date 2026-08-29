@@ -167,6 +167,19 @@ pub(crate) async fn run(store: Arc<dyn ArtifactStore>) {
         concurrent_content
     );
 
+    let delete_key = key("trc-conformance-delete", ArtifactKind::CaptureCheckpoint);
+    store
+        .put(
+            &delete_key,
+            ArtifactSource::from_bytes(b"delete me".to_vec()),
+            9,
+        )
+        .await
+        .unwrap();
+    store.delete(&delete_key).await.unwrap();
+    store.delete(&delete_key).await.unwrap();
+    assert_eq!(store.find(&delete_key, 9).await.unwrap(), None);
+
     let racing_key = key(
         "trc-conformance-racing-collision",
         ArtifactKind::TracePackage,

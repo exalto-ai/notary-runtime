@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Notary",
+  "productName": "Exalto Capture",
   "version": "0.1.4",
   "identifier": "ai.exalto.notary",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Notary",
+        "title": "Exalto Capture",
         "width": 1280,
         "height": 820,
         "minWidth": 980,
@@ -43,7 +43,14 @@
       "icons/icon.ico"
     ],
     "macOS": {
+      "bundleName": "Exalto Capture",
+      "infoPlist": "Info.plist",
       "minimumSystemVersion": "12.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQzQzE5QTdBQ0I3MzA3RUIKUldUckIzUExlcHJCMDFEV2o4ZU5vbWZ4VEU5RmxPWFlOMTdWa21YWU1JN1JtRDNMRkRsVnhYdkcK"
     }
   }
 }

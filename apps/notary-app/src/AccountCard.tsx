@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import {
   disconnectAccount,
@@ -13,12 +13,12 @@ import {
 import { formatBytes } from './product';
 
 function formatDate(seconds?: number | null) {
-  if (!seconds) return '—';
+  if (!seconds) return 'Not available';
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(seconds * 1000));
 }
 
 function accountName(account: AccountConnection) {
-  return account.display_name || account.provider_display_name || 'Notary account';
+  return account.display_name || account.provider_display_name || 'Exalto account';
 }
 
 function accountProvider(account: AccountConnection) {
@@ -42,17 +42,27 @@ export function DesktopAccountCard({
   const [busy, setBusy] = useState(false);
   const [polling, setPolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const operation = useRef(0);
 
-  const refresh = async () => {
+  const refresh = async (generation = operation.current) => {
     try {
-      setAccount(await getAccountConnection());
+      const next = await getAccountConnection();
+      if (operation.current !== generation) return;
+      setAccount(next);
       setError(null);
     } catch (caught) {
+      if (operation.current !== generation) return;
       setError(errorMessage(caught));
     }
   };
 
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    const generation = operation.current;
+    void refresh(generation);
+    return () => {
+      operation.current += 1;
+    };
+  }, []);
   useEffect(() => {
     if (!flow) return;
     const timer = window.setInterval(() => setNow(Date.now()), 250);
@@ -64,23 +74,27 @@ export function DesktopAccountCard({
 
   const poll = async () => {
     if (!flow || !pollReady || polling) return;
+    const currentFlow = flow;
+    const generation = operation.current;
     setPolling(true);
     try {
-      const next = await pollAccountConnection(flow.value.request_id);
+      const next = await pollAccountConnection(currentFlow.value.request_id);
+      if (operation.current !== generation) return;
       setAccount(next);
       if (next.signed_in || next.connection_state === 'connected') setFlow(null);
-      else setFlow({ ...flow, nextPollAt: Date.now() + flow.value.poll_interval_seconds * 1000, failures: 0 });
+      else setFlow({ ...currentFlow, nextPollAt: Date.now() + currentFlow.value.poll_interval_seconds * 1000, failures: 0 });
       setError(null);
     } catch (caught) {
+      if (operation.current !== generation) return;
       setError(errorMessage(caught));
       setFlow((current) => {
-        if (!current) return current;
+        if (!current || current.value.request_id !== currentFlow.value.request_id) return current;
         const failures = current.failures + 1;
         const delay = Math.min(30, Math.max(1, current.value.poll_interval_seconds) * 2 ** Math.min(Math.max(0, failures - 1), 4));
         return { ...current, failures, nextPollAt: Date.now() + delay * 1000 };
       });
     } finally {
-      setPolling(false);
+      if (operation.current === generation) setPolling(false);
     }
   };
 
@@ -90,31 +104,42 @@ export function DesktopAccountCard({
   }, [expired, flow, pollReady, polling]);
 
   const start = async () => {
+    const generation = operation.current + 1;
+    operation.current = generation;
+    setFlow(null);
+    setPolling(false);
     setBusy(true);
     setError(null);
     try {
       const value = await startAccountConnection();
+      if (operation.current !== generation) return;
       const startedAt = Date.now();
       setFlow({ value, startedAt, nextPollAt: startedAt + value.poll_interval_seconds * 1000, failures: 0 });
       await openAccountLink(value.verification_uri_complete);
     } catch (caught) {
+      if (operation.current !== generation) return;
       setError(errorMessage(caught));
     } finally {
-      setBusy(false);
+      if (operation.current === generation) setBusy(false);
     }
   };
 
   const disconnect = async () => {
     if (!account?.signed_in || account.credential_kind === 'api_key') return;
     if (!window.confirm('Disconnect this device? This revokes only the local browser-approved session.')) return;
+    const generation = operation.current + 1;
+    operation.current = generation;
+    setFlow(null);
+    setPolling(false);
     setBusy(true);
     try {
       await disconnectAccount();
-      await refresh();
+      await refresh(generation);
     } catch (caught) {
+      if (operation.current !== generation) return;
       setError(errorMessage(caught));
     } finally {
-      setBusy(false);
+      if (operation.current === generation) setBusy(false);
     }
   };
 
@@ -128,15 +153,15 @@ export function DesktopAccountCard({
     <div className="native-account-heading"><div><span className="section-label">Account</span>{!compact && <h2>Hosted account</h2>}</div><span className={`account-state account-state--${state}`}>{state === 'connected' ? 'Connected' : state === 'reauthorization_required' ? 'Reconnect required' : state === 'unavailable' ? 'Temporarily unavailable' : 'Not connected'}</span></div>
     {account && connected ? <>
       <div className="native-account-identity"><div><strong>{accountName(account)}</strong><span>{accountProvider(account)} · {account.credential_name || account.device_name || 'Connected service'}</span></div>{account.credential_kind === 'api_key' && <small>API key</small>}</div>
-      {account.billing && <div className="native-account-facts"><div><span>Plan</span><strong>{account.billing.plan}</strong></div><div><span>Billing</span><strong>{account.billing.billing_status}{account.billing.purchase_mode ? ` · ${account.billing.purchase_mode}` : ''}</strong></div>{account.credits && <div><span>Notarization used</span><strong>{formatBytes(account.credits.notarization.total_used_bytes)}</strong></div>}{account.credits && <div><span>Notarization remaining</span><strong>{formatBytes(account.credits.notarization.total_remaining_bytes)}</strong></div>}{account.credits && <div><span>Capture used</span><strong>{formatBytes(account.credits.capture.total_used_bytes)}</strong></div>}{account.credits && <div><span>Capture remaining</span><strong>{formatBytes(account.credits.capture.total_remaining_bytes)}</strong></div>}{account.credits && <div><span>Included monthly</span><strong>{formatBytes(account.credits.notarization.included_monthly_remaining_bytes)}</strong></div>}{account.credits && <div><span>Supplemental</span><strong>{formatBytes(account.credits.notarization.supplemental_remaining_bytes)}</strong></div>}{account.credits && <div><span>Reset</span><strong>{formatDate(account.credits.reset_at)}</strong></div>}{account.credits?.notarization.next_grant_expiration && <div><span>Next expiration</span><strong>{formatDate(account.credits.notarization.next_grant_expiration)}</strong></div>}</div>}
+      {account.billing && <div className="native-account-facts"><div><span>Plan</span><strong>{account.billing.plan}</strong></div><div><span>Billing</span><strong>{account.billing.billing_status}{account.billing.purchase_mode ? ` · ${account.billing.purchase_mode}` : ''}</strong></div>{account.credits && <div><span>Sealing used</span><strong>{formatBytes(account.credits.notarization.total_used_bytes)}</strong></div>}{account.credits && <div><span>Sealing remaining</span><strong>{formatBytes(account.credits.notarization.total_remaining_bytes)}</strong></div>}{account.credits && <div><span>Capture used</span><strong>{formatBytes(account.credits.capture.total_used_bytes)}</strong></div>}{account.credits && <div><span>Capture remaining</span><strong>{formatBytes(account.credits.capture.total_remaining_bytes)}</strong></div>}{account.credits && <div><span>Included monthly</span><strong>{formatBytes(account.credits.notarization.included_monthly_remaining_bytes)}</strong></div>}{account.credits && <div><span>Supplemental</span><strong>{formatBytes(account.credits.notarization.supplemental_remaining_bytes)}</strong></div>}{account.credits && <div><span>Reset</span><strong>{formatDate(account.credits.reset_at)}</strong></div>}{account.credits?.notarization.next_grant_expiration && <div><span>Next expiration</span><strong>{formatDate(account.credits.notarization.next_grant_expiration)}</strong></div>}</div>}
       {account.links && <div className="native-account-links"><button type="button" onClick={() => void action(account.links!.account)}>Open account</button><button type="button" onClick={() => void action(account.links!.usage)}>Usage and credits</button><button type="button" onClick={() => void action(account.links!.plans)}>Plans and pricing</button><button type="button" onClick={() => void action(account.links!.settings)}>{account.credential_kind === 'api_key' ? 'Manage API keys' : 'Account settings'}</button></div>}
       {account.credential_kind !== 'api_key' && <button className="mac-button is-small" type="button" onClick={() => void disconnect()} disabled={busy}>Disconnect this device</button>}
       {onContinue && <button className="mac-button is-primary is-large" type="button" onClick={onContinue}>Continue setup <ChevronRight size={15} /></button>}
     </> : <>
-      <p>{state === 'reauthorization_required' ? 'This local authorization expired or was revoked. Reconnect to restore hosted credits and account-owned sharing.' : state === 'unavailable' ? 'The account service is temporarily unavailable. Local Traces and verification remain available.' : 'Sign in to see hosted credits, usage, and account-owned sharing. Signing in does not upload or publish local Traces.'}</p>
-      <div className="wizard-actions"><button className="mac-button is-primary is-large" type="button" onClick={() => void start()} disabled={busy}>{busy ? 'Opening browser…' : state === 'reauthorization_required' ? 'Reconnect' : 'Sign in or create account'} <ChevronRight size={15} /></button>{onSkip && <button className="mac-button is-large" type="button" onClick={onSkip} disabled={busy}>Not now</button>}</div>
+      <p>{state === 'reauthorization_required' ? 'This local authorization expired or was revoked. Reconnect to restore hosted credits and account-owned sharing.' : state === 'unavailable' ? 'The account service is temporarily unavailable. Local traces and verification remain available.' : 'Sign in to see hosted credits, usage, and account-owned sharing. Signing in does not upload or publish local traces.'}</p>
+      <div className="wizard-actions"><button className="mac-button is-primary is-large" type="button" onClick={() => void start()} disabled={busy || Boolean(flow)}>{busy ? 'Opening browser…' : flow ? 'Authorization in progress' : state === 'reauthorization_required' ? 'Reconnect' : 'Sign in or create account'} <ChevronRight size={15} /></button>{onSkip && <button className="mac-button is-large" type="button" onClick={onSkip} disabled={busy}>Not now</button>}</div>
     </>}
     {error && <div className="onboarding-error" role="alert">{error}</div>}
-    {flow && <div className="native-account-authorization"><span className="section-label">Approval code</span><strong>{flow.value.user_code}</strong>{expired ? <span>Authorization expired. Start again for a fresh request.</span> : <span>{pollReady ? 'Ready to check.' : `Next check in ${Math.max(1, Math.ceil((flow.nextPollAt - now) / 1000))}s.`}</span>}<div><button className="mac-button is-small" type="button" onClick={() => void poll()} disabled={expired || !pollReady || polling}>{polling ? 'Checking…' : 'Check approval'}</button><button className="mac-button is-small" type="button" onClick={() => setFlow(null)}>Cancel</button>{expired && <button className="mac-button is-small" type="button" onClick={() => void start()} disabled={busy}>Try again</button>}</div></div>}
+    {flow && <div className="native-account-authorization"><span className="section-label">Approval code</span><strong>{flow.value.user_code}</strong>{expired ? <span>Authorization expired. Start again for a fresh request.</span> : <span>{pollReady ? 'Ready to check.' : `Next check in ${Math.max(1, Math.ceil((flow.nextPollAt - now) / 1000))}s.`}</span>}<div><button className="mac-button is-small" type="button" onClick={() => void poll()} disabled={expired || !pollReady || polling}>{polling ? 'Checking…' : 'Check approval'}</button><button className="mac-button is-small" type="button" onClick={() => { operation.current += 1; setFlow(null); setPolling(false); setBusy(false); }}>Cancel</button>{expired && <button className="mac-button is-small" type="button" onClick={() => void start()} disabled={busy}>Try again</button>}</div></div>}
   </section>;
 }
