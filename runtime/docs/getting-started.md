@@ -16,7 +16,7 @@ x86-64 or ARM64 Linux systems. It requires `curl`, `tar`, and either
 `sha256sum` or `shasum`.
 
 ```bash
-curl -fsSL https://notary.exalto.ai/install.sh | sh
+curl -fsSL https://seal.exalto.ai/install.sh | sh
 ```
 
 The installer selects the current complete `latest` build, verifies the selected

@@ -39,7 +39,7 @@ contribution import automation is intentionally not part of the first export.
 Stable source releases use `vX.Y.Z` tags. Each tag and GitHub Release maps to
 the exact canonical private source SHA recorded in `.notary-source.json`;
 installable clients are published separately through the signed `latest`
-channel at `notary.exalto.ai`.
+channel at `seal.exalto.ai`.
 
 The source is licensed under MIT or Apache-2.0 at your option. Vendored
 components retain their own notices and licences.

@@ -29,7 +29,10 @@ const INITIAL_WINDOW_GENERATION: u64 = 1;
 const DISPOSABLE_TEST_CANCELLED: &str = "The disposable capture test is no longer active.";
 const DISPOSABLE_TEST_SETUP_CANCELLED: &str =
     "Setup closed before the disposable test could start.";
-const OFFICIAL_EXALTO_REGISTRY_SOURCES: [&str; 2] = [
+const OFFICIAL_EXALTO_REGISTRY_SOURCES: [&str; 3] = [
+    "https://seal.exalto.ai/api/registry",
+    // Keep the retired hostname trusted for installed clients that have not
+    // yet refreshed their hosted service configuration.
     "https://notary.exalto.ai/api/registry",
     "https://exalto.ai/api/registry",
 ];
@@ -963,7 +966,7 @@ mod tests {
     fn sealing_service_brand_requires_an_exact_official_registry() {
         let official = trust(
             "registry",
-            Some("https://notary.exalto.ai/api/registry"),
+            Some("https://seal.exalto.ai/api/registry"),
             Some("key-1"),
             &[("Legacy hosted name", "key-1")],
         );
