@@ -380,7 +380,7 @@ export const fixtureNotaries: Notaries = {
   active_key_id: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   notaries: [
     {
-      name: 'Exalto Seal',
+      name: 'Seal',
       operator: 'Exalto',
       endpoint: 'tls://seal.exalto.ai:443',
       transport: 'tls',
@@ -392,7 +392,7 @@ export const fixtureNotaries: Notaries = {
       notarize_until_unix_ms: null,
     },
     {
-      name: 'Exalto Seal (retiring key)',
+      name: 'seal1',
       operator: 'Exalto',
       endpoint: 'tls://notary-old.exalto.ai:7047',
       transport: 'tls',
@@ -404,7 +404,7 @@ export const fixtureNotaries: Notaries = {
       notarize_until_unix_ms: fixtureNow + hour * 24 * 14,
     },
     {
-      name: 'Exalto Seal (historical key)',
+      name: 'seal2',
       operator: 'Exalto',
       endpoint: 'tls://notary-history.exalto.ai:7047',
       transport: 'tls',
@@ -416,7 +416,7 @@ export const fixtureNotaries: Notaries = {
       notarize_until_unix_ms: fixtureNow - hour * 24 * 90,
     },
     {
-      name: 'Revoked sealing service',
+      name: 'seal3',
       operator: 'Exalto',
       endpoint: 'tls://notary-revoked.exalto.ai:7047',
       transport: 'tls',

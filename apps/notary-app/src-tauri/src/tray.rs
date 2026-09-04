@@ -17,7 +17,7 @@ pub(super) enum AppMenuAction {
     Hide,
     Settings,
     HelpGuide,
-    HelpCatalogue,
+    HelpPublicTraces,
     HelpReport,
 }
 
@@ -26,7 +26,7 @@ pub(super) fn app_menu_action(id: &str) -> Option<AppMenuAction> {
         SAFE_HIDE_MENU_ID => Some(AppMenuAction::Hide),
         "app_settings" => Some(AppMenuAction::Settings),
         "help_guide" => Some(AppMenuAction::HelpGuide),
-        "help_catalogue" => Some(AppMenuAction::HelpCatalogue),
+        "help_public_traces" => Some(AppMenuAction::HelpPublicTraces),
         "help_report" => Some(AppMenuAction::HelpReport),
         _ => None,
     }
@@ -127,15 +127,15 @@ pub(super) fn create_app_menu(app: &tauri::App) -> tauri::Result<()> {
             true,
             None::<&str>,
         )?;
-        let catalogue = MenuItem::with_id(
+        let public_traces = MenuItem::with_id(
             app,
-            "help_catalogue",
-            "View Trace Catalogue",
+            "help_public_traces",
+            "View Public Traces",
             true,
             None::<&str>,
         )?;
         let report = MenuItem::with_id(app, "help_report", "Report a problem", true, None::<&str>)?;
-        help.append_items(&[&guide, &catalogue, &report])?;
+        help.append_items(&[&guide, &public_traces, &report])?;
     }
 
     app.set_menu(menu)?;

@@ -139,7 +139,7 @@ pub enum NotaryKeyStatus {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RegistryRecord {
-    /// Proper name of this notary, for example `Alice`.
+    /// Server-supplied signer identity, for example `Seal` or `seal1`.
     pub name: String,
     /// Organization responsible for operating the notary.
     pub operator: String,

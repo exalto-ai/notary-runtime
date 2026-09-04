@@ -43,7 +43,7 @@ export function persistPendingFirstProof(target: TraceTarget | null) {
 }
 
 export const DISPLAY_NAME = 'Exalto Capture';
-export const TRACE_CATALOGUE_URL = 'https://llm-notary.exalto.ai/traces';
+export const PUBLIC_TRACES_URL = 'https://seal.exalto.ai/traces';
 
 export const viewMeta: Record<View, { title: string; subtitle: string }> = {
   home: { title: 'Capture', subtitle: 'Private traces on this Mac' },

@@ -14,7 +14,7 @@ so existing evidence remains verifiable when a deployment changes keys.
   "active_key_id": "sha256:...",
   "notaries": [
     {
-      "name": "Alice",
+      "name": "Seal",
       "operator": "Exalto",
       "host": "203.0.113.10",
       "port": 7047,
@@ -29,6 +29,12 @@ so existing evidence remains verifiable when a deployment changes keys.
   ]
 }
 ```
+
+`name` is the server-supplied signer identity recorded with its signatures. The
+first Exalto Seal server uses `Seal`; deployments with multiple signing servers
+may publish identities such as `seal1` and `seal2`. This evidence identity is
+separate from the Exalto Seal product name and from the organization in
+`operator`.
 
 The key ID is `sha256:` followed by the SHA-256 of the compressed SEC1 public
 key. The API rejects malformed keys, duplicate IDs, inverted validity windows,

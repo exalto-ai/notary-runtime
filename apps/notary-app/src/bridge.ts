@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { TRACE_CATALOGUE_URL } from './product';
+import { PUBLIC_TRACES_URL } from './product';
 
 let browserOnboardingFinishFailureConsumed = false;
 
@@ -560,7 +560,7 @@ export async function openAccountLink(url: string): Promise<void> {
 }
 
 export type ProductLinkDestination =
-  | 'catalogue'
+  | 'public_traces'
   | 'guide'
   | 'report'
   | 'openai_key'
@@ -571,7 +571,7 @@ export type ProductLinkDestination =
 export async function openProductLink(destination: ProductLinkDestination): Promise<void> {
   if (!isTauri()) {
     const routes = {
-      catalogue: TRACE_CATALOGUE_URL,
+      public_traces: PUBLIC_TRACES_URL,
       guide: 'https://exalto.ai/docs/',
       report: 'https://github.com/exalto-ai/notary/issues/new',
       openai_key: 'https://platform.openai.com/api-keys',

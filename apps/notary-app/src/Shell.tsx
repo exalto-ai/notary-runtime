@@ -11,11 +11,11 @@ import {
   type WorkspaceView,
 } from './product';
 
-export function Sidebar({ state, view, onNavigate, onOpenCatalogue }: {
+export function Sidebar({ state, view, onNavigate, onOpenPublicTraces }: {
   state: DesktopState;
   view: View;
   onNavigate: (view: View) => void;
-  onOpenCatalogue: () => void;
+  onOpenPublicTraces: () => void;
 }) {
   const traceCount = state.counts.captured + state.counts.notarized + state.counts.capturing + state.counts.capture_failed;
   const items: Array<{ view: View; label: string; icon: typeof Radio; count?: number }> = [
@@ -48,9 +48,9 @@ export function Sidebar({ state, view, onNavigate, onOpenCatalogue }: {
           {count ? <b>{count}</b> : null}
         </button>)}
       </div>
-      <button type="button" className="catalogue-link" onClick={onOpenCatalogue}>
+      <button type="button" className="public-traces-link" onClick={onOpenPublicTraces}>
         <ExternalLink size={15} strokeWidth={1.7} aria-hidden="true" />
-        <span>Trace Catalogue</span>
+        <span>Public Traces</span>
       </button>
     </nav>
     <div className="sidebar-footer">

@@ -392,7 +392,7 @@ h1, h2, p { margin: 0; }
   background: rgba(255, 255, 255, .1);
   color: #fff;
 }
-.native-window .catalogue-link {
+.native-window .public-traces-link {
   display: grid;
   width: 100%;
   min-height: 42px;
@@ -407,8 +407,8 @@ h1, h2, p { margin: 0; }
   font: 500 12.5px/1.25 var(--body-font);
   text-align: left;
 }
-.native-window .catalogue-link:hover { color: var(--sidebar-text); }
-.native-window .catalogue-link svg { justify-self: center; }
+.native-window .public-traces-link:hover { color: var(--sidebar-text); }
+.native-window .public-traces-link svg { justify-self: center; }
 .native-window .sidebar-footer {
   gap: 9px;
   padding: 15px 18px 17px;

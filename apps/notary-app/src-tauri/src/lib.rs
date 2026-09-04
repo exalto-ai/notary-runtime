@@ -3,8 +3,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use notaryctl::client::TraceCounts;
 use serde::Serialize;
 use tauri::{Emitter, Manager};
-#[cfg(target_os = "macos")]
-use tauri_plugin_autostart::ManagerExt;
 
 mod daemon;
 mod provider_test;
@@ -175,174 +173,6 @@ fn autostart_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     builder.build()
 }
 
-#[cfg(target_os = "macos")]
-const LEGACY_AUTOSTART_NAME: &str = "Notary";
-
-#[cfg(target_os = "macos")]
-fn capture_bundle_executable(path: &std::path::Path) -> bool {
-    let Some(macos) = path.parent() else {
-        return false;
-    };
-    let Some(contents) = macos.parent() else {
-        return false;
-    };
-    let Some(bundle) = contents.parent() else {
-        return false;
-    };
-    path.is_absolute()
-        && path.file_name().is_some_and(|name| name == "notary-app")
-        && macos.file_name().is_some_and(|name| name == "MacOS")
-        && contents.file_name().is_some_and(|name| name == "Contents")
-        && bundle
-            .file_name()
-            .is_some_and(|name| name == "Notary.app" || name == "Exalto Capture.app")
-}
-
-#[cfg(target_os = "macos")]
-fn durable_capture_install(path: &std::path::Path, home: &std::path::Path) -> bool {
-    let Some(bundle) = path
-        .parent()
-        .and_then(std::path::Path::parent)
-        .and_then(std::path::Path::parent)
-    else {
-        return false;
-    };
-    let user_applications = home.join("Applications");
-    capture_bundle_executable(path)
-        && (bundle.parent() == Some(std::path::Path::new("/Applications"))
-            || bundle.parent() == Some(user_applications.as_path()))
-}
-
-#[cfg(target_os = "macos")]
-fn launch_agent_executable(
-    path: &std::path::Path,
-    expected_label: &str,
-) -> Result<Option<std::path::PathBuf>, String> {
-    let value = plist::Value::from_file(path)
-        .map_err(|error| format!("could not read {}: {error}", path.display()))?;
-    let Some(dictionary) = value.as_dictionary() else {
-        return Ok(None);
-    };
-    if dictionary.get("Label").and_then(plist::Value::as_string) != Some(expected_label) {
-        return Ok(None);
-    }
-    let executable = dictionary
-        .get("ProgramArguments")
-        .and_then(plist::Value::as_array)
-        .and_then(|arguments| arguments.first())
-        .and_then(plist::Value::as_string)
-        .map(std::path::PathBuf::from);
-    Ok(executable.filter(|path| capture_bundle_executable(path)))
-}
-
-#[cfg(target_os = "macos")]
-fn restore_autostart_entry(path: &std::path::Path, original: Option<&[u8]>) -> Result<(), String> {
-    match original {
-        Some(bytes) => std::fs::write(path, bytes),
-        None if path.exists() => std::fs::remove_file(path),
-        None => return Ok(()),
-    }
-    .map_err(|error| format!("could not restore {}: {error}", path.display()))
-}
-
-#[cfg(target_os = "macos")]
-fn migrate_legacy_launch_agent(
-    launch_agents: &std::path::Path,
-    current_executable: &std::path::Path,
-    enable_current: impl FnOnce() -> Result<(), String>,
-) -> Result<bool, String> {
-    let legacy = launch_agents.join(format!("{LEGACY_AUTOSTART_NAME}.plist"));
-    if !legacy.exists() {
-        return Ok(false);
-    }
-    if launch_agent_executable(&legacy, LEGACY_AUTOSTART_NAME)?.is_none() {
-        return Err(format!(
-            "left the unrecognized legacy launch agent untouched at {}",
-            legacy.display()
-        ));
-    }
-
-    let current = launch_agents.join(format!("{AUTOSTART_NAME}.plist"));
-    let original_current = if current.exists() {
-        if launch_agent_executable(&current, AUTOSTART_NAME)?.is_none() {
-            return Err(format!(
-                "left the legacy launch agent enabled because {} is not an Exalto Capture entry",
-                current.display()
-            ));
-        }
-        Some(
-            std::fs::read(&current)
-                .map_err(|error| format!("could not back up {}: {error}", current.display()))?,
-        )
-    } else {
-        None
-    };
-
-    if let Err(error) = enable_current() {
-        let rollback = restore_autostart_entry(&current, original_current.as_deref());
-        return Err(match rollback {
-            Ok(()) => format!(
-                "could not enable the Exalto Capture launch agent; preserved the legacy entry: {error}"
-            ),
-            Err(rollback_error) => format!(
-                "could not enable the Exalto Capture launch agent ({error}) or restore the previous entry ({rollback_error})"
-            ),
-        });
-    }
-    let installed_executable = match launch_agent_executable(&current, AUTOSTART_NAME) {
-        Ok(executable) => executable,
-        Err(error) => {
-            let rollback = restore_autostart_entry(&current, original_current.as_deref());
-            return Err(match rollback {
-                Ok(()) => format!(
-                    "could not validate the Exalto Capture launch agent; preserved the legacy entry: {error}"
-                ),
-                Err(rollback_error) => format!(
-                    "could not validate the Exalto Capture launch agent ({error}) or restore the previous entry ({rollback_error})"
-                ),
-            });
-        }
-    };
-    if installed_executable.as_deref() != Some(current_executable) {
-        restore_autostart_entry(&current, original_current.as_deref())?;
-        return Err(
-            "the Exalto Capture launch agent did not point to the running application; the legacy entry remains enabled"
-                .into(),
-        );
-    }
-
-    if let Err(error) = std::fs::remove_file(&legacy) {
-        let rollback = restore_autostart_entry(&current, original_current.as_deref());
-        return Err(match rollback {
-            Ok(()) => format!(
-                "could not remove the legacy launch agent; restored the previous launch-at-login state: {error}"
-            ),
-            Err(rollback_error) => format!(
-                "could not remove the legacy launch agent ({error}) or roll back the new entry ({rollback_error})"
-            ),
-        });
-    }
-    Ok(true)
-}
-
-#[cfg(target_os = "macos")]
-fn migrate_legacy_autostart<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<bool, String> {
-    let home = app
-        .path()
-        .home_dir()
-        .map_err(|error| format!("could not resolve the home directory: {error}"))?;
-    let current_executable = std::env::current_exe()
-        .and_then(|path| path.canonicalize())
-        .map_err(|error| format!("could not resolve the running application: {error}"))?;
-    if !durable_capture_install(&current_executable, &home) {
-        return Ok(false);
-    }
-    let launch_agents = home.join("Library").join("LaunchAgents");
-    migrate_legacy_launch_agent(&launch_agents, &current_executable, || {
-        app.autolaunch().enable().map_err(|error| error.to_string())
-    })
-}
-
 #[tauri::command]
 async fn get_desktop_state(
     process: tauri::State<'_, DaemonProcess>,
@@ -491,8 +321,8 @@ pub fn run() {
             Some(AppMenuAction::HelpGuide) => {
                 let _ = open_product_link("guide".into());
             }
-            Some(AppMenuAction::HelpCatalogue) => {
-                let _ = open_product_link("catalogue".into());
+            Some(AppMenuAction::HelpPublicTraces) => {
+                let _ = open_product_link("public_traces".into());
             }
             Some(AppMenuAction::HelpReport) => {
                 let _ = open_product_link("report".into());
@@ -500,10 +330,6 @@ pub fn run() {
             None => {}
         })
         .setup(|app| {
-            #[cfg(target_os = "macos")]
-            if let Err(error) = migrate_legacy_autostart(app) {
-                eprintln!("Could not migrate the launch-at-login entry: {error}");
-            }
             create_app_menu(app)?;
             let capture_requests = create_tray(app)?;
             schedule_capture_menu_updates(capture_requests);
@@ -907,8 +733,8 @@ mod tests {
     #[test]
     fn product_links_are_an_explicit_allowlist() {
         assert_eq!(
-            product_link("catalogue"),
-            Some("https://llm-notary.exalto.ai/traces")
+            product_link("public_traces"),
+            Some("https://seal.exalto.ai/traces")
         );
         assert_eq!(product_link("guide"), Some("https://exalto.ai/docs/"));
         assert_eq!(
@@ -932,229 +758,5 @@ mod tests {
             Some("https://docs.x.ai/developers/quickstart")
         );
         assert_eq!(product_link("https://example.com"), None);
-    }
-
-    #[cfg(target_os = "macos")]
-    fn launch_agent_fixture(label: &str, executable: &std::path::Path) -> String {
-        format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>{label}</string>
-  <key>ProgramArguments</key>
-  <array><string>{}</string></array>
-  <key>RunAtLoad</key>
-  <true/>
-</dict>
-</plist>
-"#,
-            executable.display()
-        )
-    }
-
-    #[cfg(target_os = "macos")]
-    fn temporary_launch_agents() -> std::path::PathBuf {
-        let directory = std::env::temp_dir().join(format!(
-            "exalto-capture-autostart-{}-{}",
-            std::process::id(),
-            rand::random::<u64>()
-        ));
-        std::fs::create_dir(&directory).unwrap();
-        directory
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn automatic_autostart_migration_requires_a_durable_install_location() {
-        let home = std::path::Path::new("/Users/capture-user");
-        assert!(durable_capture_install(
-            std::path::Path::new("/Applications/Exalto Capture.app/Contents/MacOS/notary-app"),
-            home,
-        ));
-        assert!(durable_capture_install(
-            std::path::Path::new(
-                "/Users/capture-user/Applications/Exalto Capture.app/Contents/MacOS/notary-app"
-            ),
-            home,
-        ));
-        assert!(!durable_capture_install(
-            std::path::Path::new(
-                "/Users/capture-user/project/target/debug/bundle/macos/Exalto Capture.app/Contents/MacOS/notary-app"
-            ),
-            home,
-        ));
-        assert!(!durable_capture_install(
-            std::path::Path::new(
-                "/Volumes/Exalto Capture/Exalto Capture.app/Contents/MacOS/notary-app"
-            ),
-            home,
-        ));
-        assert!(!durable_capture_install(
-            std::path::Path::new(
-                "/Applications-backup/Exalto Capture.app/Contents/MacOS/notary-app"
-            ),
-            home,
-        ));
-        assert!(!durable_capture_install(
-            std::path::Path::new(
-                "/Users/capture-user/Applications-backup/Exalto Capture.app/Contents/MacOS/notary-app"
-            ),
-            home,
-        ));
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn legacy_autostart_is_replaced_without_losing_enabled_state() {
-        let directory = temporary_launch_agents();
-        let legacy = directory.join("Notary.plist");
-        let current = directory.join("Exalto Capture.plist");
-        let old_executable =
-            std::path::Path::new("/Applications/Notary.app/Contents/MacOS/notary-app");
-        let current_executable =
-            std::path::Path::new("/Applications/Exalto Capture.app/Contents/MacOS/notary-app");
-        std::fs::write(
-            &legacy,
-            launch_agent_fixture(LEGACY_AUTOSTART_NAME, old_executable),
-        )
-        .unwrap();
-
-        assert!(
-            migrate_legacy_launch_agent(&directory, current_executable, || {
-                std::fs::write(
-                    &current,
-                    launch_agent_fixture(AUTOSTART_NAME, current_executable),
-                )
-                .map_err(|error| error.to_string())
-            })
-            .unwrap()
-        );
-        assert!(!legacy.exists());
-        assert_eq!(
-            launch_agent_executable(&current, AUTOSTART_NAME).unwrap(),
-            Some(current_executable.into())
-        );
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn legacy_autostart_migration_removes_an_existing_duplicate() {
-        let directory = temporary_launch_agents();
-        let legacy = directory.join("Notary.plist");
-        let current = directory.join("Exalto Capture.plist");
-        let old_executable =
-            std::path::Path::new("/Applications/Notary.app/Contents/MacOS/notary-app");
-        let current_executable =
-            std::path::Path::new("/Applications/Exalto Capture.app/Contents/MacOS/notary-app");
-        std::fs::write(
-            &legacy,
-            launch_agent_fixture(LEGACY_AUTOSTART_NAME, old_executable),
-        )
-        .unwrap();
-        std::fs::write(
-            &current,
-            launch_agent_fixture(AUTOSTART_NAME, old_executable),
-        )
-        .unwrap();
-
-        migrate_legacy_launch_agent(&directory, current_executable, || {
-            std::fs::write(
-                &current,
-                launch_agent_fixture(AUTOSTART_NAME, current_executable),
-            )
-            .map_err(|error| error.to_string())
-        })
-        .unwrap();
-        assert!(!legacy.exists());
-        assert_eq!(
-            launch_agent_executable(&current, AUTOSTART_NAME).unwrap(),
-            Some(current_executable.into())
-        );
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn autostart_migration_never_deletes_an_unrecognized_legacy_entry() {
-        let directory = temporary_launch_agents();
-        let legacy = directory.join("Notary.plist");
-        let current = directory.join("Exalto Capture.plist");
-        let current_executable =
-            std::path::Path::new("/Applications/Exalto Capture.app/Contents/MacOS/notary-app");
-        std::fs::write(
-            &legacy,
-            launch_agent_fixture(
-                LEGACY_AUTOSTART_NAME,
-                std::path::Path::new("/Applications/Other.app/Contents/MacOS/notary-app"),
-            ),
-        )
-        .unwrap();
-
-        let result = migrate_legacy_launch_agent(&directory, current_executable, || {
-            panic!("an unrecognized legacy entry must not be replaced")
-        });
-        assert!(result.is_err());
-        assert!(legacy.exists());
-        assert!(!current.exists());
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn autostart_migration_never_overwrites_an_unrecognized_current_entry() {
-        let directory = temporary_launch_agents();
-        let legacy = directory.join("Notary.plist");
-        let current = directory.join("Exalto Capture.plist");
-        let old_executable =
-            std::path::Path::new("/Applications/Notary.app/Contents/MacOS/notary-app");
-        let current_executable =
-            std::path::Path::new("/Applications/Exalto Capture.app/Contents/MacOS/notary-app");
-        std::fs::write(
-            &legacy,
-            launch_agent_fixture(LEGACY_AUTOSTART_NAME, old_executable),
-        )
-        .unwrap();
-        let unrelated = launch_agent_fixture(
-            "Another application",
-            std::path::Path::new("/Applications/Other.app/Contents/MacOS/notary-app"),
-        );
-        std::fs::write(&current, &unrelated).unwrap();
-
-        let result = migrate_legacy_launch_agent(&directory, current_executable, || {
-            panic!("an unrecognized current entry must not be overwritten")
-        });
-        assert!(result.is_err());
-        assert!(legacy.exists());
-        assert_eq!(std::fs::read_to_string(&current).unwrap(), unrelated);
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn autostart_migration_rolls_back_a_failed_new_entry() {
-        let directory = temporary_launch_agents();
-        let legacy = directory.join("Notary.plist");
-        let current = directory.join("Exalto Capture.plist");
-        let old_executable =
-            std::path::Path::new("/Applications/Notary.app/Contents/MacOS/notary-app");
-        let current_executable =
-            std::path::Path::new("/Applications/Exalto Capture.app/Contents/MacOS/notary-app");
-        std::fs::write(
-            &legacy,
-            launch_agent_fixture(LEGACY_AUTOSTART_NAME, old_executable),
-        )
-        .unwrap();
-
-        let result = migrate_legacy_launch_agent(&directory, current_executable, || {
-            std::fs::write(&current, "incomplete launch agent").unwrap();
-            Err("simulated write failure".into())
-        });
-        assert!(result.is_err());
-        assert!(legacy.exists());
-        assert!(!current.exists());
-        std::fs::remove_dir_all(directory).unwrap();
     }
 }

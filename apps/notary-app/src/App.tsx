@@ -319,7 +319,7 @@ function App() {
         state={state}
         view={view}
         onNavigate={navigate}
-        onOpenCatalogue={() => void openProductLink('catalogue')}
+        onOpenPublicTraces={() => void openProductLink('public_traces')}
       />
       <section className="window-content">
         <header className="native-toolbar" data-tauri-drag-region="deep">

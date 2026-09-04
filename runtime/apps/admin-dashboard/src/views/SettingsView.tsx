@@ -731,11 +731,12 @@ function EmbeddedNotaries({ api }: { api: LocalApi }) {
       'https://notary.exalto.ai/api/registry',
       'https://exalto.ai/api/registry',
     ].includes(notaries.data.registry_source ?? '');
-  const displayName = (record: Notary) => {
+  const signerName = (record: Notary) => record.name.trim() || 'Not reported';
+  const serviceName = (record: Notary) => {
     if (notaries.data?.source === 'explicit_configuration') return 'Configured sealing service';
-    const name = record.name.trim();
-    if (name) return name;
-    if (officialExaltoRegistry && record.operator.trim() === 'Exalto') return 'Exalto Seal';
+    if (officialExaltoRegistry) return 'Exalto Seal';
+    const name = signerName(record);
+    if (name !== 'Not reported') return name;
     return 'Registry sealing service';
   };
   return (
@@ -751,7 +752,7 @@ function EmbeddedNotaries({ api }: { api: LocalApi }) {
         <>
           <Group justify="space-between" align="flex-start">
             <div>
-              <Title order={2}>{displayName(active)}</Title>
+              <Title order={2}>{serviceName(active)}</Title>
             </div>
             <StatusLabel state={active.lifecycle} />
           </Group>
@@ -768,6 +769,7 @@ function EmbeddedNotaries({ api }: { api: LocalApi }) {
               label="Active verification key"
               value={abbreviatedKeyId(active.verification_key)}
             />
+            <Fact label="Signer" value={signerName(active)} />
             <Fact label="Operator" value={active.operator} />
             <Fact label="Status" value={notaryLifecycle(active.lifecycle).label} />
           </dl>
@@ -777,7 +779,7 @@ function EmbeddedNotaries({ api }: { api: LocalApi }) {
               <article key={record.key_id} className="notary-detail-record">
                 <Group justify="space-between" align="flex-start">
                   <div>
-                    <Title order={3}>{displayName(record)}</Title>
+                    <Title order={3}>{signerName(record)}</Title>
                   </div>
                   <StatusLabel state={record.lifecycle} />
                 </Group>

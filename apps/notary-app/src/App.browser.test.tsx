@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe('Exalto Capture desktop shell', () => {
-  test('exposes three product destinations and the Trace Catalogue', async () => {
+  test('exposes three product destinations and Public Traces', async () => {
     renderApp('?screen=capture-on');
     await expect
       .poll(() =>
@@ -33,8 +33,8 @@ describe('Exalto Capture desktop shell', () => {
     await expect.element(page.getByText('Captures', { exact: true })).not.toBeInTheDocument();
     await expect.element(page.getByText('Finalizations', { exact: true })).not.toBeInTheDocument();
     await expect.element(page.getByText('Share', { exact: true })).not.toBeInTheDocument();
-    await expect.element(page.getByRole('button', { name: /Traces/ })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: /Trace Catalogue/ })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: /^Traces/ })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Public Traces' })).toBeVisible();
   });
 
   test('formats an empty byte balance consistently', () => {
@@ -209,7 +209,7 @@ describe('Exalto Capture desktop shell', () => {
     expect(document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')).toBe(frame);
     expect(frame.getAttribute('src')).toBe(initialSource);
 
-    await userEvent.click(page.getByRole('button', { name: /Traces/ }));
+    await userEvent.click(page.getByRole('button', { name: /^Traces/ }));
     await expect
       .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe'))
       .not.toBe(frame);
@@ -237,7 +237,7 @@ describe('Exalto Capture desktop shell', () => {
       }),
     );
 
-    await userEvent.click(page.getByRole('button', { name: /Traces/ }));
+    await userEvent.click(page.getByRole('button', { name: /^Traces/ }));
     await expect
       .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe'))
       .not.toBe(frame);
@@ -265,7 +265,7 @@ describe('Exalto Capture desktop shell', () => {
         },
       }),
     );
-    await userEvent.click(page.getByRole('button', { name: /Traces/ }));
+    await userEvent.click(page.getByRole('button', { name: /^Traces/ }));
 
     await expect
       .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')?.src)

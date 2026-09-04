@@ -173,12 +173,12 @@ pub(crate) fn validate_manifest(manifest: &ReleaseManifest) -> Result<()> {
     validate_artifact(
         &desktop.dmg,
         &manifest.build_id,
-        Some("Notary-macos-arm64.dmg"),
+        Some("Exalto-Capture-macos-arm64.dmg"),
     )?;
     validate_artifact(
         &desktop.updater.artifact,
         &manifest.build_id,
-        Some("Notary-macos-arm64.app.tar.gz"),
+        Some("Exalto-Capture-macos-arm64.app.tar.gz"),
     )?;
     decode_wrapped_text(&desktop.updater.signature, "desktop updater signature")?;
     let tauri = manifest

@@ -1840,7 +1840,7 @@ function NotarizedTraceInspector({
                 <Text className="share-access-warning">
                   {shareVisibility === 'unlisted'
                     ? 'Unlisted is not private. Anyone with the URL can access an unprotected, unexpired Trace.'
-                    : 'Listed traces can appear in the Trace Catalogue after verification.'}
+                    : 'Listed traces can appear in Public Traces after verification.'}
                 </Text>
                 {shareDialogMode !== 'create' && (
                   <AxisSelect
