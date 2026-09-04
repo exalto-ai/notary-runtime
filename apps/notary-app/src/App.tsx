@@ -57,6 +57,7 @@ function App() {
   const [updateState, setUpdateState] = useState<DesktopUpdateState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [serviceStartError, setServiceStartError] = useState<string | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [workspaceNavigationRevision, setWorkspaceNavigationRevision] = useState(0);
   const [sensitiveInputGeneration, setSensitiveInputGeneration] = useState(0);
@@ -77,6 +78,10 @@ function App() {
     const timer = window.setInterval(() => void refresh(), 5000);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    if (state?.running) setServiceStartError(null);
+  }, [state?.running]);
 
   useEffect(() => {
     if (!state?.onboarding_complete || setupOpen || pendingFirstProofApplied.current) return;
@@ -166,7 +171,12 @@ function App() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const runAction = async (name: string, action: () => Promise<void>, success: string) => {
+  const runAction = async (
+    name: string,
+    action: () => Promise<void>,
+    success: string,
+    onError: (message: string) => void = setNotice,
+  ) => {
     setBusy(name);
     setNotice(null);
     try {
@@ -175,7 +185,7 @@ function App() {
       await refresh();
       setNotice(success);
     } catch (error) {
-      setNotice(errorMessage(error));
+      onError(errorMessage(error));
     } finally {
       setBusy(null);
     }
@@ -256,6 +266,16 @@ function App() {
       }
     }
     throw lastError ?? new Error('The local service did not become ready.');
+  };
+
+  const startLocalServiceFromWorkspace = () => {
+    setServiceStartError(null);
+    void runAction(
+      'service-start',
+      startLocalService,
+      'Local service is running. Capture remains off.',
+      setServiceStartError,
+    );
   };
 
   if (!state) return <LoadingWindow />;
@@ -386,9 +406,10 @@ function App() {
             updateState={updateState}
             busy={busy}
             notice={notice}
+            serviceError={serviceStartError ?? state.message}
             onCheckUpdate={() => void checkForDesktopUpdate()}
             onRestartToUpdate={() => void restartToUpdate()}
-            onStartService={() => void runAction('service-start', startLocalService, 'Local service is running. Capture remains off.')}
+            onStartService={startLocalServiceFromWorkspace}
             onNavigate={syncWorkspaceRoute}
             allowLegacyWorkspace={allowLegacyWorkspace}
           />}
@@ -399,7 +420,8 @@ function App() {
               constraint={route === 'traces' ? traceConstraint : null}
               traceTarget={route === 'traces' ? traceTarget : null}
               running={state.running}
-              onStartService={() => void runAction('service-start', startLocalService, 'Local service is running. Capture remains off.')}
+              serviceError={serviceStartError ?? state.message}
+              onStartService={startLocalServiceFromWorkspace}
               serviceStarting={busy === 'service-start'}
               onRouteChange={syncWorkspaceRoute}
               onTraceActionConsumed={(traceId, action) => {

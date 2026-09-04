@@ -65,6 +65,7 @@ export function WorkspaceFrame({
   constraint = null,
   traceTarget = null,
   running,
+  serviceError = null,
   desktopSettings,
   onDesktopSettingsAction,
   onRouteChange,
@@ -79,6 +80,7 @@ export function WorkspaceFrame({
   constraint?: TraceConstraint | null;
   traceTarget?: TraceTarget | null;
   running: boolean;
+  serviceError?: string | null;
   desktopSettings?: DesktopSettingsPayload;
   onDesktopSettingsAction?: (action: DesktopSettingsAction) => void;
   onRouteChange?: (view: View) => void;
@@ -189,6 +191,7 @@ export function WorkspaceFrame({
       icon={<Square size={26} />}
       title="Local service is off"
       copy="Start the local service to inspect private traces and connections. Capture remains off."
+      notice={serviceError}
       action={onStartService && <button className="mac-button is-primary" type="button" onClick={onStartService} disabled={serviceStarting}>
         {serviceStarting ? 'Starting local service…' : 'Start local service'}
       </button>}
@@ -287,6 +290,12 @@ function isConsumedTraceAction(
     && payload.action === 'first-proof';
 }
 
-function EmptyPanel({ icon, title, copy, action }: { icon: ReactNode; title: string; copy: string; action?: ReactNode }) {
-  return <div className="empty-panel"><span>{icon}</span><h2>{title}</h2><p>{copy}</p>{action}</div>;
+function EmptyPanel({ icon, title, copy, notice, action }: { icon: ReactNode; title: string; copy: string; notice?: string | null; action?: ReactNode }) {
+  return <div className="empty-panel">
+    <span>{icon}</span>
+    <h2>{title}</h2>
+    <p>{copy}</p>
+    {notice && <div className="native-notice service-start-notice" role="alert">{notice}</div>}
+    {action}
+  </div>;
 }

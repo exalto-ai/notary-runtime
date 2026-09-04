@@ -18,6 +18,7 @@ export function SettingsView({
   updateState,
   busy,
   notice,
+  serviceError,
   onCheckUpdate,
   onRestartToUpdate,
   onStartService,
@@ -28,6 +29,7 @@ export function SettingsView({
   updateState: DesktopUpdateState | null;
   busy: string | null;
   notice: string | null;
+  serviceError: string | null;
   onCheckUpdate: () => void;
   onRestartToUpdate: () => void;
   onStartService: () => void;
@@ -94,6 +96,7 @@ export function SettingsView({
               </button>
             </div>
             <p className="preference-note">Connecting an account never uploads or shares a local trace automatically.</p>
+            {serviceError && <p className="preference-note native-notice service-start-notice" role="alert">{serviceError}</p>}
           </div>
         </section>
         <section className="preference-section">

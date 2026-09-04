@@ -285,6 +285,29 @@ describe('Exalto Capture desktop shell', () => {
     await expect.element(page.getByRole('button', { name: 'Start capturing' })).toBeVisible();
   });
 
+  test('shows start failures beside the retry action on every offline workspace', async () => {
+    for (const view of ['traces', 'providers', 'activity'] as const) {
+      renderApp(`?screen=service-off&view=${view}&service-start=fail`);
+      await userEvent.click(page.getByRole('button', { name: 'Start local service' }));
+      await expect.element(page.getByRole('alert')).toHaveTextContent('could not start');
+      await expect.element(page.getByRole('button', { name: 'Start local service' })).toBeEnabled();
+      cleanup();
+    }
+  });
+
+  test('shows start failures beside the Preferences retry action', async () => {
+    renderApp('?screen=service-off&view=settings&service-start=fail');
+    await userEvent.click(page.getByRole('button', { name: 'Start local service' }));
+    await expect.element(page.getByRole('alert')).toHaveTextContent('could not start');
+    const alert = document.querySelector('[role="alert"]');
+    const advanced = Array.from(document.querySelectorAll('h2')).find(
+      (heading) => heading.textContent === 'Advanced',
+    );
+    expect(alert).not.toBeNull();
+    expect(advanced).not.toBeUndefined();
+    expect(alert!.compareDocumentPosition(advanced!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   test('shows a neutral startup state instead of a false sealing failure', async () => {
     renderApp('?screen=service-off');
     await expect.element(page.getByRole('heading', { name: 'Capture is off' })).toBeVisible();

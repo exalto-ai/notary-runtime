@@ -400,7 +400,12 @@ export async function completeOnboarding(): Promise<void> {
 }
 
 export async function startDaemon(): Promise<void> {
-  if (!isTauri()) return;
+  if (!isTauri()) {
+    if (new URLSearchParams(window.location.search).get('service-start') === 'fail') {
+      throw new Error('The local service could not start.');
+    }
+    return;
+  }
   await invoke('start_daemon');
 }
 
