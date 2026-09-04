@@ -8,10 +8,14 @@ import App, {
 import { createDisposableTestMarker } from './Onboarding';
 import { formatBytes, pendingFirstProofTarget, persistPendingFirstProof } from './product';
 import { WorkspaceFrame } from './Shell';
+import './styles.css';
 
 function renderApp(query: string) {
   window.history.replaceState({}, '', `/${query}`);
-  return render(<App />);
+  const result = render(<App />);
+  result.container.style.width = '100vw';
+  result.container.style.height = '100vh';
+  return result;
 }
 
 afterEach(() => {
@@ -494,6 +498,37 @@ describe('Exalto Capture desktop shell', () => {
     await userEvent.fill(page.getByLabelText('OpenAI model ID'), 'gpt-4.1-mini');
     await userEvent.click(page.getByRole('button', { name: 'Run in-app test' }));
     await expect.element(page.getByText('Test trace captured')).toBeVisible();
+  });
+
+  test('keeps the connection setup action visible at the minimum desktop size', async () => {
+    await page.viewport(980, 680);
+    try {
+      renderApp('?screen=onboarding');
+      await userEvent.click(page.getByRole('button', { name: /Begin setup/ }));
+      await userEvent.click(page.getByRole('button', { name: /Protect traces/ }));
+      await userEvent.click(page.getByRole('button', { name: /Continue with Exalto Seal/ }));
+
+      const continueButton = page.getByRole('button', { name: /Start service and prepare test/ });
+      const bounds = continueButton.element().getBoundingClientRect();
+      const content = document.querySelector<HTMLElement>('.onboarding-content.is-client-step');
+      const actions = document.querySelector<HTMLElement>('.client-step-actions');
+      expect(content).not.toBeNull();
+      expect(actions).not.toBeNull();
+      expect(bounds.top).toBeGreaterThanOrEqual(0);
+      expect(bounds.bottom).toBeLessThanOrEqual(window.innerHeight);
+      expect(bounds.bottom).toBeLessThanOrEqual(content!.getBoundingClientRect().bottom);
+      expect(window.getComputedStyle(actions!).marginTop).toBe('0px');
+
+      await userEvent.click(page.getByRole('radio', { name: /API or SDK/ }));
+      const scrollRegion = document.querySelector<HTMLElement>('.client-step-scroll');
+      expect(scrollRegion).not.toBeNull();
+      expect(scrollRegion!.scrollHeight).toBeGreaterThan(scrollRegion!.clientHeight);
+      const apiBounds = continueButton.element().getBoundingClientRect();
+      expect(apiBounds.bottom).toBeLessThanOrEqual(window.innerHeight);
+      expect(apiBounds.bottom).toBeLessThanOrEqual(content!.getBoundingClientRect().bottom);
+    } finally {
+      await page.viewport(1280, 900);
+    }
   });
 
   test('does not create an unprotected passphrase vault', async () => {

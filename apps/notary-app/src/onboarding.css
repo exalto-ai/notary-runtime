@@ -120,6 +120,7 @@
 
 .exalto-onboarding .onboarding-body {
   grid-template-columns: minmax(650px, 1.72fr) minmax(340px, .62fr);
+  grid-template-rows: minmax(0, 1fr);
   background: var(--capture-paper);
 }
 
@@ -127,6 +128,14 @@
   padding: 34px 48px 30px;
   background: var(--capture-paper);
   scrollbar-color: var(--capture-rule) transparent;
+}
+
+.exalto-onboarding .onboarding-content.is-client-step {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  overflow: hidden;
+  padding-bottom: 0;
 }
 
 .exalto-onboarding .back-button {
@@ -146,7 +155,29 @@
 }
 
 .exalto-onboarding .client-step {
-  justify-content: flex-start;
+  display: contents;
+}
+
+.exalto-onboarding .client-step-scroll {
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  padding: 18px 8px 20px 0;
+  overflow: auto;
+  scrollbar-color: var(--capture-rule) transparent;
+}
+
+.exalto-onboarding .client-step-scroll > p {
+  max-width: 700px;
+  margin-top: 12px;
+  color: var(--capture-ink-soft);
+  font: 400 16px/1.55 var(--capture-body-font);
+}
+
+.exalto-onboarding .client-step-error {
+  width: min(740px, 100%);
+  margin: 0;
+  border-bottom: 0;
 }
 
 .exalto-onboarding .wizard-kicker {
@@ -181,6 +212,14 @@
   gap: 10px;
   margin-top: 24px;
   padding-top: 0;
+}
+
+.exalto-onboarding .wizard-actions.client-step-actions {
+  width: min(740px, 100%);
+  margin: 0 auto;
+  padding: 14px 0 18px;
+  border-top: 1px solid var(--capture-rule);
+  background: var(--capture-paper);
 }
 
 .exalto-onboarding .mac-button {

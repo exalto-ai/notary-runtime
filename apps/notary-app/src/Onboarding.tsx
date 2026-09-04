@@ -644,7 +644,7 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
       {onboardingSteps.map((item, index) => <span key={item} className={index <= stepIndex ? 'is-complete' : ''} />)}
     </div>
     <main className="onboarding-body">
-      <section className="onboarding-content">
+      <section className={`onboarding-content${step === 'client' ? ' is-client-step' : ''}`}>
         {step !== 'welcome' && <button className="back-button" type="button" onClick={() => void goBack()} disabled={navigationBusy}>
           <ChevronLeft size={14} /> Back
         </button>}
@@ -669,6 +669,7 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
           onboardingApiKey={onboardingApiKey}
           setOnboardingApiKey={setOnboardingApiKey}
           busy={busy}
+          error={error}
           running={state.running}
           externallyManagedService={state.running && !state.managed_by_desktop}
           onContinue={() => void startService()}
@@ -694,7 +695,7 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
           busy={busy}
           onFinish={finish}
         />}
-        {error && <div className="onboarding-error" role="alert">{error}</div>}
+        {error && step !== 'client' && <div className="onboarding-error" role="alert">{error}</div>}
       </section>
       <OnboardingAside
         step={step}
@@ -844,6 +845,7 @@ function ClientStep({
   onboardingApiKey,
   setOnboardingApiKey,
   busy,
+  error,
   running,
   externallyManagedService,
   onContinue,
@@ -855,11 +857,13 @@ function ClientStep({
   onboardingApiKey: string;
   setOnboardingApiKey: (apiKey: string) => void;
   busy: boolean;
+  error: string | null;
   running: boolean;
   externallyManagedService: boolean;
   onContinue: () => void;
 }) {
-  return <div className="wizard-step client-step">
+  return <div className="client-step">
+    <div className="wizard-step client-step-scroll">
     <span className="wizard-kicker">Connect an AI tool</span>
     <h1>Which local tool will you use first?</h1>
     <p>Codex CLI and Claude Code keep their saved sign-ins. API clients keep their provider keys in the client or secret manager.</p>
@@ -897,7 +901,9 @@ function ClientStep({
         ? 'This compatible service was started outside Exalto Capture. Setup will reuse it without taking ownership or changing its capture setting. The disposable test requires capture to already be on.'
         : <>An encrypted private <code>.llmcapture</code> can reconstruct the authenticated provider request, including credential-bearing header bytes. Treat private captures as secrets and never share them.</>}</span>
     </div>
-    <div className="wizard-actions"><button
+    </div>
+    {error && <div className="onboarding-error client-step-error" role="alert">{error}</div>}
+    <div className="wizard-actions client-step-actions"><button
       className="mac-button is-primary is-large"
       type="button"
       onClick={onContinue}
