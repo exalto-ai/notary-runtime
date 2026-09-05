@@ -736,7 +736,7 @@ mod tests {
             product_link("public_traces"),
             Some("https://seal.exalto.ai/traces")
         );
-        assert_eq!(product_link("guide"), Some("https://exalto.ai/docs/"));
+        assert_eq!(product_link("guide"), Some("https://seal.exalto.ai/docs"));
         assert_eq!(
             product_link("report"),
             Some("https://github.com/exalto-ai/notary/issues/new")

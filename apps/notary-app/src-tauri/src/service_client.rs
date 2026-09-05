@@ -464,7 +464,7 @@ pub(super) fn open_account_link(url: String) -> Result<(), String> {
 pub(super) fn product_link(destination: &str) -> Option<&'static str> {
     match destination {
         "public_traces" => Some("https://seal.exalto.ai/traces"),
-        "guide" => Some("https://exalto.ai/docs/"),
+        "guide" => Some("https://seal.exalto.ai/docs"),
         "report" => Some("https://github.com/exalto-ai/notary/issues/new"),
         "openai_key" => Some("https://platform.openai.com/api-keys"),
         "anthropic_key" => Some("https://console.anthropic.com/settings/keys"),

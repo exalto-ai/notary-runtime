@@ -577,7 +577,7 @@ export async function openProductLink(destination: ProductLinkDestination): Prom
   if (!isTauri()) {
     const routes = {
       public_traces: PUBLIC_TRACES_URL,
-      guide: 'https://exalto.ai/docs/',
+      guide: 'https://seal.exalto.ai/docs',
       report: 'https://github.com/exalto-ai/notary/issues/new',
       openai_key: 'https://platform.openai.com/api-keys',
       anthropic_key: 'https://console.anthropic.com/settings/keys',
