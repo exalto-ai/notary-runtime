@@ -188,6 +188,13 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
   min-height: 100dvh;
 }
 .dashboard-shell--embedded .view-page { max-width: none; padding-top: 24px; }
+.dashboard-shell--embedded .capture-page {
+  display: flex;
+  height: 100dvh;
+  min-height: 0;
+  flex-direction: column;
+  padding: 0;
+}
 .dashboard-shell--embedded .view-page.share-flow {
   min-height: 100%;
   margin-top: 0;
@@ -239,7 +246,12 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
   font-family: var(--ui-font);
   font-size: 12px;
 }
-.axis-select-content [data-slot='select-item']:focus { background: var(--subtle); color: var(--ink); }
+.axis-select-content [data-slot='select-item']:is(:focus, :focus-visible, [data-highlighted]) {
+  background: var(--subtle);
+  color: var(--ink);
+  outline: none;
+  box-shadow: none;
+}
 [data-slot='alert-dialog-overlay'] { background: rgba(0, 0, 0, .52); backdrop-filter: none; }
 .axis-local-dialog {
   max-width: 430px;
@@ -601,7 +613,31 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
 }
 
 .dashboard-shell--embedded .mantine-Button-root { padding-inline: 14px; }
-.dashboard-shell--embedded .trace-filters { min-height: 66px; padding-block: 13px; }
+.dashboard-shell--embedded .trace-filters {
+  min-height: 66px;
+  flex: 0 0 auto;
+  padding: 13px 20px;
+}
+.dashboard-shell--embedded .trace-empty-workspace {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  place-items: center;
+}
+.dashboard-shell--embedded .trace-empty-workspace .empty-state {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 24px;
+  border: 0;
+  background: transparent;
+}
+.dashboard-shell--embedded .capture-page > .master-detail {
+  height: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding-top: 0;
+}
 .dashboard-shell--embedded .trace-state-filter button {
   min-height: 38px;
   padding-inline: 14px;

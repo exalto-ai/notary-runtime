@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { Download, RefreshCw } from 'lucide-react';
 import {
   checkForUpdates,
   errorMessage,
@@ -8,7 +7,6 @@ import {
   getUpdateState,
   installUpdateAndRestart,
   isTauri,
-  openProductLink,
   setCaptureEnabled,
   startDaemon,
   type DesktopState,
@@ -18,7 +16,6 @@ import { HomeView } from './HomeView';
 import { LoadingWindow, VaultUnlock } from './LockedState';
 import { Onboarding } from './Onboarding';
 import {
-  StatusDot,
   pendingFirstProofTarget,
   persistPendingFirstProof,
   viewMeta,
@@ -31,21 +28,8 @@ import { Sidebar, WorkspaceFrame } from './Shell';
 import { SettingsView } from './SettingsView';
 
 export const SENSITIVE_INPUT_RESET_EVENT = 'exalto:sensitive-input-reset';
+export const CAPTURE_STATE_CHANGED_EVENT = 'exalto:capture-state-changed';
 export const DISPOSABLE_TEST_STOPPED_MESSAGE = 'The disposable test stopped when setup closed. Prepare it again when you are ready.';
-
-function updateChipLabel(update: DesktopUpdateState) {
-  if (update.phase === 'checking') return 'Checking for updates';
-  if (update.phase === 'downloading') {
-    const percent = update.total_bytes
-      ? Math.min(100, Math.round((update.downloaded_bytes / update.total_bytes) * 100))
-      : 0;
-    return `Downloading update${percent ? ` ${percent}%` : ''}`;
-  }
-  if (update.phase === 'ready') return 'Update ready';
-  if (update.phase === 'installing') return 'Installing update';
-  if (update.phase === 'error') return 'Update check failed';
-  return null;
-}
 
 function App() {
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
@@ -126,6 +110,26 @@ function App() {
       unlisten?.();
     };
   }, [setupOpen, state?.onboarding_complete]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: UnlistenFn | null = null;
+    void listen<boolean>(CAPTURE_STATE_CHANGED_EVENT, (event) => {
+      setState((current) => current ? {
+        ...current,
+        running: current.running || event.payload,
+        capture_enabled: event.payload,
+      } : current);
+    }).then((stopListening) => {
+      if (disposed) stopListening();
+      else unlisten = stopListening;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -308,7 +312,6 @@ function App() {
   }
 
   const route = workspaceRoutes[view];
-  const meta = viewMeta[view];
   const navigate = (next: View) => {
     setTraceConstraint(null);
     setTraceTarget(null);
@@ -339,30 +342,8 @@ function App() {
         state={state}
         view={view}
         onNavigate={navigate}
-        onOpenPublicTraces={() => void openProductLink('public_traces')}
       />
       <section className="window-content">
-        <header className="native-toolbar" data-tauri-drag-region="deep">
-          <div className="toolbar-title" data-tauri-drag-region="deep">
-            <strong>{meta.title}</strong>
-            <span>{meta.subtitle}</span>
-          </div>
-          <div className="toolbar-spacer" data-tauri-drag-region />
-          {updateState && updateChipLabel(updateState) && <button
-            type="button"
-            className={`update-chip is-${updateState.phase}`}
-            onClick={() => setView('settings')}
-          >
-            {updateState.phase === 'downloading' ? <RefreshCw size={11} className="is-spinning" /> : <Download size={11} />}
-            {updateChipLabel(updateState)}
-          </button>}
-          {view === 'providers' && <button className="mac-button is-small toolbar-setup-button" type="button" onClick={() => setSetupOpen(true)}>Connection setup</button>}
-          <div className={`service-chip ${state.running && state.capture_enabled ? 'is-recording' : ''}`}>
-            <StatusDot running={state.running && state.capture_enabled} />
-            {state.running && state.capture_enabled ? 'REC · Capturing' : 'Capture off'}
-          </div>
-        </header>
-
         <main className={`native-content ${route ? 'has-workspace' : ''} ${(view === 'settings' || view === 'providers' || view === 'activity') ? 'has-settings-subnav' : ''}`}>
           {(view === 'settings' || view === 'providers' || view === 'activity') && (
             <nav className="settings-subnav" aria-label="Settings sections">
@@ -387,6 +368,8 @@ function App() {
               >
                 Activity log
               </button>
+              <span className="settings-subnav-spacer" />
+              {view === 'providers' && <button className="settings-subnav-action" type="button" onClick={() => setSetupOpen(true)}>Connection setup</button>}
             </nav>
           )}
           {view === 'home' && (

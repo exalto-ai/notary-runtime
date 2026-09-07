@@ -11,13 +11,35 @@ use crate::daemon::{DaemonProcess, start_daemon};
 use crate::service_client::{TemporaryCaptureState, read_admin_status, write_capture_setting};
 
 pub(super) const SAFE_HIDE_MENU_ID: &str = "app_hide";
+pub(super) const CAPTURE_STATE_CHANGED_EVENT: &str = "exalto:capture-state-changed";
+const CAPTURE_MENU_LABEL: &str = "Capture";
+const OPEN_APP_MENU_LABEL: &str = "Open";
+const QUIT_MENU_LABEL: &str = "Quit";
+
+#[derive(Clone)]
+pub(super) struct CaptureMenuState {
+    item: CheckMenuItem<tauri::Wry>,
+}
+
+impl CaptureMenuState {
+    fn set(&self, enabled: bool) {
+        let _ = self.item.set_checked(enabled);
+        let _ = self.item.set_enabled(true);
+    }
+}
+
+pub(super) fn publish_capture_state(app: &tauri::AppHandle, enabled: bool) {
+    if let Some(menu) = app.try_state::<CaptureMenuState>() {
+        menu.set(enabled);
+    }
+    let _ = app.emit(CAPTURE_STATE_CHANGED_EVENT, enabled);
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AppMenuAction {
     Hide,
     Settings,
     HelpGuide,
-    HelpPublicTraces,
     HelpReport,
 }
 
@@ -26,7 +48,6 @@ pub(super) fn app_menu_action(id: &str) -> Option<AppMenuAction> {
         SAFE_HIDE_MENU_ID => Some(AppMenuAction::Hide),
         "app_settings" => Some(AppMenuAction::Settings),
         "help_guide" => Some(AppMenuAction::HelpGuide),
-        "help_public_traces" => Some(AppMenuAction::HelpPublicTraces),
         "help_report" => Some(AppMenuAction::HelpReport),
         _ => None,
     }
@@ -127,38 +148,27 @@ pub(super) fn create_app_menu(app: &tauri::App) -> tauri::Result<()> {
             true,
             None::<&str>,
         )?;
-        let public_traces = MenuItem::with_id(
-            app,
-            "help_public_traces",
-            "View Public Traces",
-            true,
-            None::<&str>,
-        )?;
         let report = MenuItem::with_id(app, "help_report", "Report a problem", true, None::<&str>)?;
-        help.append_items(&[&guide, &public_traces, &report])?;
+        help.append_items(&[&guide, &report])?;
     }
 
     app.set_menu(menu)?;
     Ok(())
 }
 
-pub(super) fn create_tray(app: &tauri::App) -> tauri::Result<CheckMenuItem<tauri::Wry>> {
-    let open_app = MenuItem::with_id(app, "open_app", "Open Exalto Capture", true, None::<&str>)?;
+pub(super) fn create_tray(app: &tauri::App) -> tauri::Result<CaptureMenuState> {
+    let open_app = MenuItem::with_id(app, "open_app", OPEN_APP_MENU_LABEL, true, None::<&str>)?;
     let capture_requests = CheckMenuItem::with_id(
         app,
         "capture_requests",
-        "Start capturing",
+        CAPTURE_MENU_LABEL,
         true,
         false,
         None::<&str>,
     )?;
-    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Exalto Capture", true, None::<&str>)?;
-    let menu = Menu::with_items(
-        app,
-        &[&open_app, &capture_requests, &settings, &separator, &quit],
-    )?;
+    let quit = MenuItem::with_id(app, "quit", QUIT_MENU_LABEL, true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&capture_requests, &separator, &open_app, &quit])?;
 
     #[cfg(target_os = "macos")]
     let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
@@ -175,39 +185,24 @@ pub(super) fn create_tray(app: &tauri::App) -> tauri::Result<CheckMenuItem<tauri
             let capture_requests = capture_requests.clone();
             move |app, event| match event.id().as_ref() {
                 "open_app" => show_main_window(app),
-                "settings" => show_settings_window(app),
                 "capture_requests" => {
                     let requested = capture_requests.is_checked().unwrap_or(false);
-                    let capture_requests = capture_requests.clone();
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
                         if requested && read_admin_status().await.is_err() {
                             let process = app_handle.state::<DaemonProcess>();
                             if start_daemon(app_handle.clone(), process).await.is_err() {
-                                let _ = capture_requests.set_checked(false);
-                                let _ = capture_requests.set_text("Start capturing (unavailable)");
+                                publish_capture_state(&app_handle, false);
                                 return;
                             }
                         }
                         let temporary_capture = app_handle.state::<TemporaryCaptureState>();
                         match write_capture_setting(requested, &temporary_capture).await {
                             Ok(enabled) => {
-                                let _ = capture_requests.set_checked(enabled);
-                                let _ = capture_requests.set_text(if enabled {
-                                    "Stop capturing"
-                                } else {
-                                    "Start capturing"
-                                });
-                                let _ = capture_requests.set_enabled(true);
+                                publish_capture_state(&app_handle, enabled);
                             }
                             Err(_) => {
-                                let _ = capture_requests.set_checked(!requested);
-                                let _ = capture_requests.set_text(if requested {
-                                    "Start capturing (unavailable)"
-                                } else {
-                                    "Stop capturing (unavailable)"
-                                });
-                                let _ = capture_requests.set_enabled(true);
+                                publish_capture_state(&app_handle, !requested);
                             }
                         }
                     });
@@ -217,27 +212,22 @@ pub(super) fn create_tray(app: &tauri::App) -> tauri::Result<CheckMenuItem<tauri
             }
         })
         .build(app)?;
-    Ok(capture_requests)
+    Ok(CaptureMenuState {
+        item: capture_requests,
+    })
 }
 
-pub(super) fn schedule_capture_menu_updates(capture_requests: CheckMenuItem<tauri::Wry>) {
+pub(super) fn schedule_capture_menu_updates(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
+        let mut last_published = None;
         loop {
-            match read_admin_status().await {
-                Ok(status) => {
-                    let _ = capture_requests.set_checked(status.capture_enabled);
-                    let _ = capture_requests.set_text(if status.capture_enabled {
-                        "Stop capturing"
-                    } else {
-                        "Start capturing"
-                    });
-                    let _ = capture_requests.set_enabled(true);
-                }
-                Err(_) => {
-                    let _ = capture_requests.set_checked(false);
-                    let _ = capture_requests.set_text("Start capturing");
-                    let _ = capture_requests.set_enabled(true);
-                }
+            let enabled = read_admin_status()
+                .await
+                .map(|status| status.capture_enabled)
+                .unwrap_or(false);
+            if last_published != Some(enabled) {
+                publish_capture_state(&app, enabled);
+                last_published = Some(enabled);
             }
             tokio::time::sleep(Duration::from_secs(3)).await;
         }
@@ -255,5 +245,13 @@ mod tests {
             Some(AppMenuAction::Hide)
         );
         assert_eq!(app_menu_action("hide"), None);
+    }
+
+    #[test]
+    fn capture_menu_uses_a_stable_toggle_label() {
+        assert_eq!(
+            [CAPTURE_MENU_LABEL, OPEN_APP_MENU_LABEL, QUIT_MENU_LABEL],
+            ["Capture", "Open", "Quit"]
+        );
     }
 }

@@ -760,10 +760,14 @@ describe('Notary admin dashboard', () => {
       ...fixture,
       traces: async () => ({ items: [], next_cursor: null }),
     };
-    renderDashboard('/traces', emptyApi);
+    renderDashboard('/traces', emptyApi, true);
     await expect
       .element(page.getByRole('heading', { name: 'No traces have been captured yet.' }))
       .toBeVisible();
+    expect(document.querySelector('.capture-page')?.firstElementChild).toHaveClass('trace-filters');
+    expect(document.querySelector('.empty-state')?.parentElement).toHaveClass(
+      'trace-empty-workspace',
+    );
     await page.getByRole('button', { name: 'Captured', exact: true }).click();
     await expect
       .element(

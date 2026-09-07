@@ -321,9 +321,6 @@ pub fn run() {
             Some(AppMenuAction::HelpGuide) => {
                 let _ = open_product_link("guide".into());
             }
-            Some(AppMenuAction::HelpPublicTraces) => {
-                let _ = open_product_link("public_traces".into());
-            }
             Some(AppMenuAction::HelpReport) => {
                 let _ = open_product_link("report".into());
             }
@@ -331,8 +328,9 @@ pub fn run() {
         })
         .setup(|app| {
             create_app_menu(app)?;
-            let capture_requests = create_tray(app)?;
-            schedule_capture_menu_updates(capture_requests);
+            let capture_menu = create_tray(app)?;
+            app.manage(capture_menu);
+            schedule_capture_menu_updates(app.handle().clone());
             schedule_update_checks(app.handle().clone());
             let (vault_configured, vault_mode) = local_vault_mode();
             let onboarding_complete = onboarding_marker_path().is_ok_and(|path| path.exists());

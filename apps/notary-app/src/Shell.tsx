@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ExternalLink, FileCheck2, Radio, RefreshCw, Settings, Square } from 'lucide-react';
+import { FileCheck2, Radio, RefreshCw, Settings, Square } from 'lucide-react';
 import type { DesktopState } from './bridge';
 import notaryMark from './notary-mark.svg';
 import {
@@ -11,15 +11,14 @@ import {
   type WorkspaceView,
 } from './product';
 
-export function Sidebar({ state, view, onNavigate, onOpenPublicTraces }: {
+export function Sidebar({ state, view, onNavigate }: {
   state: DesktopState;
   view: View;
   onNavigate: (view: View) => void;
-  onOpenPublicTraces: () => void;
 }) {
   const traceCount = state.counts.captured + state.counts.notarized + state.counts.capturing + state.counts.capture_failed;
   const items: Array<{ view: View; label: string; icon: typeof Radio; count?: number }> = [
-    { view: 'home', label: 'Capture', icon: Radio },
+    { view: 'home', label: 'Overview', icon: Radio },
     {
       view: 'traces',
       label: 'Traces',
@@ -33,7 +32,7 @@ export function Sidebar({ state, view, onNavigate, onOpenPublicTraces }: {
     <div className="sidebar-drag-region" data-tauri-drag-region />
     <div className="sidebar-brand">
       <img src={notaryMark} alt="" />
-      <span><strong>Exalto</strong><small>Capture</small></span>
+      <strong>Capture</strong>
     </div>
     <nav aria-label={DISPLAY_NAME}>
       <div className="sidebar-group">
@@ -48,15 +47,7 @@ export function Sidebar({ state, view, onNavigate, onOpenPublicTraces }: {
           {count ? <b>{count}</b> : null}
         </button>)}
       </div>
-      <button type="button" className="public-traces-link" onClick={onOpenPublicTraces}>
-        <ExternalLink size={15} strokeWidth={1.7} aria-hidden="true" />
-        <span>Public Traces</span>
-      </button>
     </nav>
-    <div className="sidebar-footer">
-      <span className={`rec-indicator ${state.running && state.capture_enabled ? 'is-recording' : ''}`} aria-hidden="true" />
-      <span>{state.running && state.capture_enabled ? 'REC · Capturing' : 'Capture off'}</span>
-    </div>
   </aside>;
 }
 

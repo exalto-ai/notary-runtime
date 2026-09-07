@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 describe('Exalto Capture desktop shell', () => {
-  test('exposes three product destinations and Public Traces', async () => {
+  test('exposes only the three primary product destinations', async () => {
     renderApp('?screen=capture-on');
     await expect
       .poll(() =>
@@ -33,12 +33,16 @@ describe('Exalto Capture desktop shell', () => {
           node.textContent?.replace(/\d+$/, ''),
         ),
       )
-      .toEqual(['Capture', 'Traces', 'Settings']);
+      .toEqual(['Overview', 'Traces', 'Settings']);
     await expect.element(page.getByText('Captures', { exact: true })).not.toBeInTheDocument();
     await expect.element(page.getByText('Finalizations', { exact: true })).not.toBeInTheDocument();
     await expect.element(page.getByText('Share', { exact: true })).not.toBeInTheDocument();
     await expect.element(page.getByRole('button', { name: /^Traces/ })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Public Traces' })).toBeVisible();
+    await expect.element(page.getByText('Public Traces', { exact: true })).not.toBeInTheDocument();
+    expect(document.querySelector('.sidebar-brand')?.textContent).toBe('Capture');
+    expect(document.querySelector('.native-toolbar')).toBeNull();
+    expect(document.querySelector('.sidebar-footer')).toBeNull();
+    expect(document.body.textContent).not.toContain('REC · Capturing');
   });
 
   test('formats an empty byte balance consistently', () => {
@@ -67,7 +71,7 @@ describe('Exalto Capture desktop shell', () => {
       await expect
         .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')?.src)
         .toContain(`#/traces?${constraint}`);
-      await userEvent.click(page.getByRole('button', { name: 'Capture' }));
+      await userEvent.click(page.getByRole('button', { name: 'Overview' }));
     }
   });
 
@@ -209,7 +213,7 @@ describe('Exalto Capture desktop shell', () => {
     );
 
     await expect.element(page.getByRole('button', { name: 'Activity log' })).toHaveClass('is-selected');
-    await expect.element(page.getByText('Local capture, sealing, and sharing events')).toBeVisible();
+    expect(document.querySelector('.native-toolbar')).toBeNull();
     expect(document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')).toBe(frame);
     expect(frame.getAttribute('src')).toBe(initialSource);
 
@@ -281,7 +285,7 @@ describe('Exalto Capture desktop shell', () => {
     await expect.element(page.getByText('Start the local service to inspect private traces and connections. Capture remains off.')).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Start local service' })).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Start capturing' })).not.toBeInTheDocument();
-    await userEvent.click(page.getByRole('button', { name: 'Capture' }));
+    await userEvent.click(page.getByRole('button', { name: 'Overview' }));
     await expect.element(page.getByRole('button', { name: 'Start capturing' })).toBeVisible();
   });
 

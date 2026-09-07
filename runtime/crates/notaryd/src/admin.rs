@@ -81,7 +81,10 @@ const NOTARY_TRANSPORT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const NOTARY_READINESS_CACHE_TTL: Duration = Duration::from_secs(15);
 const DASHBOARD_HEADER: &str = "x-notary-request";
 const DASHBOARD_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+#[cfg(not(debug_assertions))]
 const DESKTOP_DASHBOARD_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'self' tauri://localhost http://tauri.localhost https://tauri.localhost";
+#[cfg(debug_assertions)]
+const DESKTOP_DASHBOARD_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'self' tauri://localhost http://tauri.localhost https://tauri.localhost http://127.0.0.1:1420";
 
 #[derive(RustEmbed)]
 #[folder = "dashboard/"]
@@ -5601,6 +5604,11 @@ mod tests {
                 .get(header::CONTENT_SECURITY_POLICY)
                 .unwrap(),
             DESKTOP_DASHBOARD_CSP
+        );
+        assert!(
+            DESKTOP_DASHBOARD_CSP
+                .split_ascii_whitespace()
+                .any(|origin| origin == "http://127.0.0.1:1420")
         );
     }
 }

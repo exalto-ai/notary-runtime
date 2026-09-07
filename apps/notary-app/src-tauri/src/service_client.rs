@@ -503,9 +503,12 @@ async fn set_capture_enabled_unchecked(enabled: bool) -> Result<bool, String> {
 #[tauri::command]
 pub(super) async fn set_capture_enabled(
     enabled: bool,
+    app: tauri::AppHandle,
     temporary_capture: tauri::State<'_, TemporaryCaptureState>,
 ) -> Result<bool, String> {
-    write_capture_setting(enabled, &temporary_capture).await
+    let enabled = write_capture_setting(enabled, &temporary_capture).await?;
+    crate::tray::publish_capture_state(&app, enabled);
+    Ok(enabled)
 }
 
 pub(super) async fn restore_temporary_capture(

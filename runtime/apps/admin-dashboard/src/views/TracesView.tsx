@@ -585,7 +585,12 @@ export function TracesView({
       ) : selectedDetail.error ? (
         <QueryError error={selectedDetail.error} title="Trace detail is unavailable" />
       ) : !visible.length && !active ? (
-        <EmptyState title={emptyCopy} copy="Send a request through a configured provider route." />
+        <div className="trace-empty-workspace">
+          <EmptyState
+            title={emptyCopy}
+            copy="Send a request through a configured provider route."
+          />
+        </div>
       ) : (
         <ResizableSplit className={`master-detail ${showDetail ? 'show-detail' : ''}`}>
           {!showDetail ? (
