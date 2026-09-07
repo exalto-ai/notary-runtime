@@ -117,7 +117,12 @@ default model is `openrouter/cohere/north-mini-code:free`; changing it starts a
 new observational timing series. The workflow installs
 the current published `latest` Runtime instead of rebuilding the checkout, and
 records that build ID plus the hosted rollout ID when the deployment exposes
-one. Configure these repository secrets:
+one. It sets `NOTARYD_PLATFORM_API_ORIGIN` from the `NOTARY_PUBLIC_ORIGIN`
+repository variable (default `https://seal.exalto.ai`) so older published
+clients connect directly to the current API host. Cross-host redirects remove
+authorization and cannot migrate authenticated API requests.
+
+Configure these repository secrets:
 
 - `OPENROUTER_FREE_TIER_API_KEY`
 - `NOTARY_E2E_API_KEY`
