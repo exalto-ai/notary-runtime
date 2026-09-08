@@ -510,6 +510,10 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
 .trace-state-filter { border-radius: 4px; overflow: hidden; }
 .trace-state-filter button { background: var(--raised); }
 .trace-state-filter button.is-active { background: var(--action-fill); color: var(--action-contrast); }
+.trace-more-filters.mantine-Button-root {
+  --button-color: var(--action-contrast);
+  --button-hover-color: var(--action-contrast);
+}
 
 .capture-row:hover,
 .operation-row:hover { background: var(--subtle); }

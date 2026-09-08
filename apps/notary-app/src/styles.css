@@ -435,6 +435,39 @@ h1, h2, p { margin: 0; }
 .native-window .capture-button.is-stop { border-color: rgba(255, 255, 255, .24); background: transparent; color: #f5f3ec; }
 .native-window .capture-button.is-stop:hover:not(:disabled) { border-color: rgba(255, 255, 255, .42); background: rgba(255, 255, 255, .07); }
 
+.native-window .capture-toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 1000;
+  display: flex;
+  min-width: 180px;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid var(--separator);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  color: var(--text);
+  box-shadow: 0 12px 34px rgba(12, 22, 34, .18);
+  font: 600 12px/1.35 var(--body-font);
+  backdrop-filter: blur(14px);
+  animation: capture-toast-in 180ms ease-out, capture-toast-out 180ms ease-in 3.2s forwards;
+}
+.native-window .capture-toast > span {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--green);
+}
+@keyframes capture-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+@keyframes capture-toast-out {
+  to { opacity: 0; transform: translateY(5px); }
+}
+
 .native-window .native-notice,
 .native-window .capture-warning {
   margin-top: 12px;
@@ -894,6 +927,7 @@ h1, h2, p { margin: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition: none !important; }
+  .native-window .capture-toast { animation: none !important; }
   .setup-notary-node code, .setup-local-outputs > div { animation: none !important; }
   .setup-local-outputs > div { opacity: 1; transform: none; }
   .setup-encrypted-track i, .setup-local-path i { display: none; }

@@ -41,6 +41,7 @@ function App() {
   const [updateState, setUpdateState] = useState<DesktopUpdateState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [captureToast, setCaptureToast] = useState<string | null>(null);
   const [serviceStartError, setServiceStartError] = useState<string | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [workspaceNavigationRevision, setWorkspaceNavigationRevision] = useState(0);
@@ -66,6 +67,12 @@ function App() {
   useEffect(() => {
     if (state?.running) setServiceStartError(null);
   }, [state?.running]);
+
+  useEffect(() => {
+    if (!captureToast) return;
+    const timer = window.setTimeout(() => setCaptureToast(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [captureToast]);
 
   useEffect(() => {
     if (!state?.onboarding_complete || setupOpen || pendingFirstProofApplied.current) return;
@@ -179,7 +186,10 @@ function App() {
     name: string,
     action: () => Promise<void>,
     success: string,
-    onError: (message: string) => void = setNotice,
+    handlers: {
+      onError?: (message: string) => void;
+      onSuccess?: (message: string) => void;
+    } = {},
   ) => {
     setBusy(name);
     setNotice(null);
@@ -187,9 +197,9 @@ function App() {
       await action();
       await new Promise((resolve) => window.setTimeout(resolve, 500));
       await refresh();
-      setNotice(success);
+      (handlers.onSuccess ?? setNotice)(success);
     } catch (error) {
-      onError(errorMessage(error));
+      (handlers.onError ?? setNotice)(errorMessage(error));
     } finally {
       setBusy(null);
     }
@@ -278,7 +288,7 @@ function App() {
       'service-start',
       startLocalService,
       'Local service is running. Capture remains off.',
-      setServiceStartError,
+      { onError: setServiceStartError },
     );
   };
 
@@ -377,10 +387,11 @@ function App() {
               state={state}
               busy={busy}
               notice={notice}
+              captureToast={captureToast}
               onNavigate={navigate}
               onOpenTraces={openTraces}
-              onStartCapture={() => void runAction('capture-start', startCapturing, 'Capture is on.')}
-              onStopCapture={() => void runAction('capture-stop', async () => { await setCaptureEnabled(false); }, 'Capture is off.')}
+              onStartCapture={() => void runAction('capture-start', startCapturing, 'Capture is on.', { onSuccess: setCaptureToast })}
+              onStopCapture={() => void runAction('capture-stop', async () => { await setCaptureEnabled(false); }, 'Capture is off.', { onSuccess: setCaptureToast })}
               onRetryConnections={() => void refresh(true)}
             />
           )}

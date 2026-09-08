@@ -535,6 +535,7 @@ export function TracesView({
               onChange={setTime}
             />
             <Button
+              className="trace-more-filters"
               variant={moreOpen || operationalStatus || model || streaming ? 'light' : 'default'}
               onClick={() => setMoreOpen((open) => !open)}
               aria-expanded={moreOpen}

@@ -10,6 +10,7 @@ export function HomeView({
   state,
   busy,
   notice,
+  captureToast,
   onNavigate,
   onOpenTraces,
   onStartCapture,
@@ -19,6 +20,7 @@ export function HomeView({
   state: DesktopState;
   busy: string | null;
   notice: string | null;
+  captureToast: string | null;
   onNavigate: (view: View) => void;
   onOpenTraces: (constraint: TraceConstraint) => void;
   onStartCapture: () => void;
@@ -79,6 +81,11 @@ export function HomeView({
           <Play size={14} /> {busy === 'capture-start' ? 'Starting…' : 'Start capturing'}
         </button>}
     </section>
+
+    {captureToast && <div key={captureToast} className="capture-toast" role="status" aria-live="polite">
+      <span aria-hidden="true" />
+      {captureToast}
+    </div>}
 
     {(notice || state.message) && <div className="native-notice">{notice ?? state.message}</div>}
 

@@ -333,6 +333,18 @@ describe('Exalto Capture desktop shell', () => {
     await expect.element(page.getByText(/Exalto Seal account is not required/)).toBeVisible();
   });
 
+  test('shows capture changes as a temporary corner toast', async () => {
+    renderApp('?screen=capture-on');
+    await userEvent.click(page.getByRole('button', { name: 'Stop capturing' }));
+    await expect
+      .poll(() => document.querySelector<HTMLElement>('.capture-toast')?.textContent)
+      .toBe('Capture is off.');
+    const toast = document.querySelector<HTMLElement>('.capture-toast');
+    expect(getComputedStyle(toast!).position).toBe('fixed');
+    expect(getComputedStyle(toast!).bottom).toBe('18px');
+    expect(document.querySelector('.capture-page > .native-notice')).toBeNull();
+  });
+
   test('distinguishes trusted but unreachable Seal from unavailable trust', async () => {
     renderApp('?screen=seal-unreachable');
     await expect.element(page.getByText('Exalto Seal cannot be reached')).toBeVisible();

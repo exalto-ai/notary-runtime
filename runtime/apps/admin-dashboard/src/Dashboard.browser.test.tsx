@@ -131,7 +131,9 @@ describe('Notary admin dashboard', () => {
     await expect
       .element(page.getByRole('combobox', { name: 'Operational status filter' }))
       .not.toBeInTheDocument();
-    await page.getByRole('button', { name: 'More filters' }).click();
+    const moreFilters = page.getByRole('button', { name: 'More filters' });
+    await expect.element(moreFilters).toHaveClass(/trace-more-filters/);
+    await moreFilters.click();
     await expect.element(page.getByLabelText('Model filter')).toBeVisible();
     await expect.element(page.getByRole('combobox', { name: 'Streaming filter' })).toBeVisible();
   });
