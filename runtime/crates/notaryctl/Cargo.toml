@@ -2,7 +2,7 @@
 name = "notaryctl"
 version.workspace = true
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 description = "Thin REST client for the Notary daemon"
 
 [[bin]]

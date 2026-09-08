@@ -2,7 +2,7 @@
 name = "notary-core"
 version.workspace = true
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 description = "Proxy-TLS protocol, capture format, and local verification for Notary"
 
 [features]

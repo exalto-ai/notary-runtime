@@ -4,8 +4,8 @@
     "title": "Exalto Capture local administration API",
     "description": "Loopback administration API. Routes are available without credentials by default; configure admin.auth to require HTTP Basic authentication.",
     "license": {
-      "name": "MIT OR Apache-2.0",
-      "identifier": "MIT OR Apache-2.0"
+      "name": "MIT",
+      "identifier": "MIT"
     },
     "version": "1.0.0"
   },

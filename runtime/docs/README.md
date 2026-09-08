@@ -10,3 +10,6 @@
 - [Self-hosting the notary](self-hosting.md)
 - [Clustered daemon operation](cluster-operations.md)
 - [Notary key lifecycle](notary-key-lifecycle.md)
+
+See [Releases and download verification](releases.md) for source tags, immutable
+downloads, and manual signature verification.

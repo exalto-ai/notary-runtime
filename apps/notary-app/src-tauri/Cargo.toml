@@ -3,7 +3,7 @@ name = "notary-app"
 version = "0.1.4"
 description = "Guided desktop shell for Exalto Capture"
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 
 [lib]
 name = "notary_app"

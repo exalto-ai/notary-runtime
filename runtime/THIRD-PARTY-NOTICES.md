@@ -1,8 +1,9 @@
 # Third-party notices
 
-Notary is distributed under either of the licenses in `LICENSE-MIT` and
-`LICENSE-APACHE`, at your option. The release archives include both license
-texts and this notice.
+Exalto-authored Runtime code is distributed under `LICENSE-MIT`. The desktop
+application uses the same MIT license. Third-party components retain their own
+licenses. Release archives include the MIT license, this notice, and the
+vendored license texts under `third-party-licenses/`.
 
 The CLI and services link third-party Rust crates. Their exact, reproducible
 set is recorded in the committed `Cargo.lock`; each crate's declared SPDX
@@ -12,7 +13,11 @@ The web application dependencies are equivalently pinned in
 
 This repository also vendors a locally patched copy of TLSNotary in
 `vendor/tlsn`. The patch is maintained only for the protocol behavior described
-in this repository. The vendored crates declare the following licenses in their
+in this repository. The upstream README declares MIT or Apache-2.0 licensing
+but supplies no license-text files. Copies of those texts are included locally
+under `vendor/tlsn/`; upstream authorship remains with the TLSNotary Team and
+contributors, with Exalto copyright applying to local modifications only.
+The vendored crates declare the following licenses in their
 `Cargo.toml` files:
 
 | Component | License expression |

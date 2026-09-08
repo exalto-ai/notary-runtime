@@ -362,6 +362,7 @@ fn embedded_dashboard_response(path: &str, desktop_embed: bool) -> Response {
 #[openapi(
     info(
         title = "Exalto Capture local administration API",
+        license(name = "MIT", identifier = "MIT"),
         version = "1.0.0",
         description = "Loopback administration API. Routes are available without credentials by default; configure admin.auth to require HTTP Basic authentication."
     ),

@@ -2,7 +2,7 @@
 name = "notaryd"
 version.workspace = true
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 description = "Local Notary proxy and administration daemon"
 
 [[bin]]

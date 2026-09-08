@@ -52,7 +52,7 @@ def git_repository_and_pathspec(root: pathlib.Path) -> tuple[pathlib.Path, str]:
 
 def main() -> int:
     failures: list[str] = []
-    for required in ["LICENSE-APACHE", "LICENSE-MIT", "THIRD-PARTY-NOTICES.md"]:
+    for required in ["LICENSE-MIT", "THIRD-PARTY-NOTICES.md", "vendor/tlsn/LICENSE-APACHE", "vendor/tlsn/LICENSE-MIT"]:
         if not (ROOT / required).is_file():
             failures.append(f"required publication notice is missing: {required}")
 
