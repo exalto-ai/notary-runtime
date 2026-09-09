@@ -601,7 +601,11 @@ not own the retained canonical hosted identity, status and mutation return
 `409` without deleting the association or creating a second public URL.
 Missing or expired account authorization also returns `409`; a temporary
 platform or network failure returns `503` rather than pretending the share disappeared. A shared response
-contains the stable `share_url` and exact public `package_url`. Anyone with an
+contains the stable `share_url` and exact public `package_url`. The browser
+`share_url` may use a separate HTTPS website origin, such as `exalto.ai`.
+Status and package URLs stay on the configured API origin; the daemon never
+sends API credentials to the public website. HTTP website links are accepted
+only between loopback origins during local development. Anyone with an
 Unlisted or Listed link can read the disclosure; this is not private access.
 `DELETE /v1/traces/{trace_id}/share` stops public access without deleting or
 changing the local Notarized Trace. Its response retains the canonical hosted

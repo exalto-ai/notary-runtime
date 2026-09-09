@@ -279,7 +279,7 @@ pub(crate) async fn share_package_bytes(
     let share_url = share
         .public_url
         .as_deref()
-        .map(|value| absolute_same_origin_url(&authenticated.origin, value))
+        .map(|value| absolute_public_url(&authenticated.origin, value))
         .transpose()?;
     let package_url = share
         .package_url
@@ -441,7 +441,7 @@ fn hosted_trace_status(origin: &ApiOrigin, trace: HostedTrace) -> Result<ShareSt
     let share_url = trace
         .public_url
         .as_deref()
-        .map(|value| absolute_same_origin_url(origin, value))
+        .map(|value| absolute_public_url(origin, value))
         .transpose()?;
     let package_url = trace
         .package_url
@@ -695,6 +695,24 @@ fn absolute_status_url(origin: &ApiOrigin, status_url: &str) -> Result<String> {
     absolute_same_origin_url(origin, status_url)
 }
 
+// Public browser links can live on a separate website. The daemon never sends
+// credentials to them; status and package requests remain API-origin bound.
+fn absolute_public_url(origin: &ApiOrigin, value: &str) -> Result<String> {
+    let url = origin
+        .url()
+        .join(value)
+        .context("share API returned an invalid public URL")?;
+    let mut public_origin = url.clone();
+    public_origin.set_path("/");
+    public_origin.set_query(None);
+    public_origin.set_fragment(None);
+    ApiOrigin::parse(public_origin.as_str()).context("share API returned an unsafe public URL")?;
+    if url.scheme() == "http" && !origin.is_loopback() {
+        bail!("share API returned an insecure public URL");
+    }
+    Ok(url.to_string())
+}
+
 fn absolute_same_origin_url(origin: &ApiOrigin, value: &str) -> Result<String> {
     let url = origin
         .url()
@@ -719,6 +737,48 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn public_website_links_are_separate_from_authenticated_api_urls() {
+        let origin = ApiOrigin::parse("https://api.exalto.ai").unwrap();
+        let public_url = "https://exalto.ai/s/trc-job-1";
+        assert_eq!(
+            absolute_public_url(&origin, public_url).unwrap(),
+            public_url
+        );
+        assert!(absolute_status_url(&origin, public_url).is_err());
+        assert!(absolute_same_origin_url(&origin, public_url).is_err());
+
+        let mut trace = hosted_trace_json("shared", "unlisted", false);
+        trace["public_url"] = public_url.into();
+        trace["package_url"] = "https://api.exalto.ai/api/traces/trc-job-1/package.llmtrace".into();
+        let status =
+            hosted_trace_status(&origin, serde_json::from_value(trace.clone()).unwrap()).unwrap();
+        assert!(status.access_enabled);
+        assert_eq!(status.share_url.as_deref(), Some(public_url));
+        trace["package_url"] = "https://exalto.ai/package.llmtrace".into();
+        assert!(hosted_trace_status(&origin, serde_json::from_value(trace).unwrap()).is_err());
+    }
+
+    #[test]
+    fn public_links_reject_unsafe_schemes_and_credentials() {
+        let origin = ApiOrigin::parse("https://api.exalto.ai").unwrap();
+        for value in [
+            "javascript:alert(1)",
+            "file:///tmp/trace",
+            "http://exalto.ai/s/trace",
+            "http://localhost:4175/s/trace",
+            "https://user:password@exalto.ai/s/trace",
+        ] {
+            assert!(absolute_public_url(&origin, value).is_err(), "{value}");
+        }
+        let local = ApiOrigin::parse("http://localhost:8080").unwrap();
+        assert_eq!(
+            absolute_public_url(&local, "http://localhost:4175/s/trace").unwrap(),
+            "http://localhost:4175/s/trace"
+        );
+        assert!(absolute_public_url(&local, "http://example.test/s/trace").is_err());
+    }
 
     #[derive(Clone, Default)]
     struct MockState {
