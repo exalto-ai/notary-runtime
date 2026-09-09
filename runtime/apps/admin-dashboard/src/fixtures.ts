@@ -375,14 +375,14 @@ export const fixtureStatus: Status = {
 
 export const fixtureNotaries: Notaries = {
   source: 'registry',
-  registry_source: 'https://seal.exalto.ai/api/registry',
+  registry_source: 'https://api.exalto.ai/api/registry',
   generation: 12,
   active_key_id: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   notaries: [
     {
       name: 'Seal',
       operator: 'Exalto',
-      endpoint: 'tls://seal.exalto.ai:443',
+      endpoint: 'tls://alice.notary.exalto.ai:443',
       transport: 'tls',
       key_id: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       verification_key: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -745,10 +745,10 @@ export function createFixtureApi({
       },
     },
     links: {
-      account: 'https://seal.exalto.ai/account',
-      usage: 'https://seal.exalto.ai/account/usage',
-      plans: 'https://seal.exalto.ai/account/usage',
-      settings: 'https://seal.exalto.ai/account/settings',
+      account: 'https://capture.exalto.ai/app/overview',
+      usage: 'https://capture.exalto.ai/app/usage',
+      plans: 'https://capture.exalto.ai/app/usage',
+      settings: 'https://capture.exalto.ai/app/settings',
     },
   };
   let nextEventId = Math.max(...events.map((event) => event.event_id)) + 1;

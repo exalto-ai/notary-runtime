@@ -66,7 +66,7 @@ use crate::{
     },
     persistence::Persistence,
     registry::{NotaryKeyStatus, RegistryRecord, key_id},
-    service::{DEFAULT_PUBLIC_ORIGIN, auth, proxy, registry as registry_service, sharing},
+    service::{DEFAULT_API_ORIGIN, auth, proxy, registry as registry_service, sharing},
     vault::Vault,
 };
 
@@ -1761,7 +1761,7 @@ struct AccountConnectionRequest {
 }
 
 fn default_public_origin() -> String {
-    DEFAULT_PUBLIC_ORIGIN.to_owned()
+    DEFAULT_API_ORIGIN.to_owned()
 }
 
 fn default_device_name() -> String {

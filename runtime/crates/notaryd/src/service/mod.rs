@@ -7,8 +7,8 @@ pub(crate) mod sharing;
 pub(crate) mod storage;
 
 /// Public API origin compiled into released clients. Override it at build time
-/// with `NOTARYD_PUBLIC_ORIGIN` when producing a self-hosted distribution.
-pub(crate) use notary_updater::{BUILD_ID, DEFAULT_PUBLIC_ORIGIN};
+/// with `NOTARY_API_PUBLIC_ORIGIN` when producing a self-hosted distribution.
+pub(crate) use notary_updater::{BUILD_ID, DEFAULT_API_ORIGIN};
 
 pub(crate) const DAEMON_USER_AGENT: &str = concat!("notaryd/", env!("CARGO_PKG_VERSION"));
 

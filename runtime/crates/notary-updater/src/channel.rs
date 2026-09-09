@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
 use crate::{
-    BUILD_ID, DEFAULT_PUBLIC_ORIGIN, UpdateCheck, default_config_path, is_official_build,
+    BUILD_ID, DEFAULT_DOWNLOAD_ORIGIN, UpdateCheck, default_config_path, is_official_build,
     release::{
         MANIFEST_LIMIT, ReleaseManifest, fetch_small, require_build_url, require_https_url,
         update_http_client, validate_identifier, validate_manifest, validate_sha256,
@@ -73,7 +73,7 @@ pub struct VerifiedRelease {
 
 pub fn channel_url() -> Result<Url> {
     Url::parse(&format!(
-        "{DEFAULT_PUBLIC_ORIGIN}/downloads/releases/channels/{CHANNEL}.json"
+        "{DEFAULT_DOWNLOAD_ORIGIN}/releases/channels/{CHANNEL}.json"
     ))
     .context("the compiled update channel URL is invalid")
 }

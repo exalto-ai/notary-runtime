@@ -726,11 +726,7 @@ function EmbeddedNotaries({ api }: { api: LocalApi }) {
     records.find((record) => record.key_id === notaries.data?.active_key_id) ?? records[0];
   const officialExaltoRegistry =
     notaries.data?.source === 'registry' &&
-    [
-      'https://seal.exalto.ai/api/registry',
-      'https://notary.exalto.ai/api/registry',
-      'https://exalto.ai/api/registry',
-    ].includes(notaries.data.registry_source ?? '');
+    notaries.data.registry_source === 'https://api.exalto.ai/api/registry';
   const signerName = (record: Notary) => record.name.trim() || 'Not reported';
   const serviceName = (record: Notary) => {
     if (notaries.data?.source === 'explicit_configuration') return 'Configured sealing service';

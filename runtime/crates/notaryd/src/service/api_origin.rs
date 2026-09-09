@@ -38,8 +38,8 @@ impl ApiOrigin {
     }
 
     pub(crate) fn default_public() -> Self {
-        Self::parse(super::DEFAULT_PUBLIC_ORIGIN)
-            .expect("NOTARYD_PUBLIC_ORIGIN must be a secure API origin")
+        Self::parse(super::DEFAULT_API_ORIGIN)
+            .expect("NOTARY_API_PUBLIC_ORIGIN must be a secure API origin")
     }
 
     /// Builds an absolute URL for an API path rooted at `/api/`.
@@ -53,12 +53,16 @@ impl ApiOrigin {
             .expect("an absolute API path always joins a validated origin")
     }
 
-    /// Builds a website URL for a stable route on the same validated
+    /// Builds a Capture URL for the hosted API, or a route on the same validated
     /// origin. Account links must stay on the configured hosted origin so a
     /// self-hosted daemon never sends a user to the public service by
     /// accident.
     pub(crate) fn web_url(&self, route: &str) -> Url {
-        let mut url = self.0.clone();
+        let mut url = if self == &Self::default_public() {
+            Url::parse(notary_updater::DEFAULT_CAPTURE_ORIGIN).expect("validated Capture origin")
+        } else {
+            self.0.clone()
+        };
         let route = route
             .strip_prefix("#/")
             .or_else(|| route.strip_prefix('/'))
@@ -114,6 +118,22 @@ fn is_loopback_url(url: &Url) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hosted_account_links_use_capture_while_api_calls_use_api() {
+        let origin = ApiOrigin::default_public();
+        assert_eq!(
+            origin
+                .api_url("/api/account")
+                .origin()
+                .ascii_serialization(),
+            notary_updater::DEFAULT_API_ORIGIN
+        );
+        assert_eq!(
+            origin.web_url("/app/settings").as_str(),
+            format!("{}/app/settings", notary_updater::DEFAULT_CAPTURE_ORIGIN)
+        );
+    }
 
     #[test]
     fn accepts_and_normalizes_secure_and_loopback_origins() {

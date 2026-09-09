@@ -716,10 +716,12 @@ mod tests {
             )
             .is_ok()
         );
-        assert!(validate_account_link("https://notary.example/account/usage").is_ok());
-        assert!(validate_account_link("https://notary.example/account/traces").is_ok());
-        assert!(validate_account_link("https://notary.example/#/account/usage").is_ok());
-        assert!(validate_account_link("https://notary.example/#/account/traces").is_ok());
+        assert!(validate_account_link("https://capture.exalto.ai/app/overview").is_ok());
+        assert!(validate_account_link("https://capture.exalto.ai/app/settings").is_ok());
+        assert!(validate_account_link("https://notary.example/app/usage").is_ok());
+        assert!(validate_account_link("https://notary.example/app/traces").is_ok());
+        assert!(validate_account_link("https://notary.example/#/app/usage").is_ok());
+        assert!(validate_account_link("https://notary.example/#/app/traces").is_ok());
         assert!(validate_account_link("https://notary.example/authorize?request_id=abc").is_err());
         assert!(
             validate_account_link("https://notary.example/authorize?request_id=abc&evil=xyz")
@@ -732,9 +734,12 @@ mod tests {
     fn product_links_are_an_explicit_allowlist() {
         assert_eq!(
             product_link("public_traces"),
-            Some("https://seal.exalto.ai/traces")
+            Some("https://exalto.ai/traces")
         );
-        assert_eq!(product_link("guide"), Some("https://seal.exalto.ai/docs"));
+        assert_eq!(
+            product_link("guide"),
+            Some("https://capture.exalto.ai/docs")
+        );
         assert_eq!(
             product_link("report"),
             Some("https://github.com/exalto-ai/notary/issues/new")

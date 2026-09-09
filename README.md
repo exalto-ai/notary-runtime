@@ -15,7 +15,7 @@ and maintained separately. Self-hosting does not require an Exalto account.
 ## Get started
 
 - [Install the CLI and capture your first exchange](runtime/docs/getting-started.md)
-- [Download Exalto Capture for macOS](https://seal.exalto.ai)
+- [Download Exalto Capture for macOS](https://capture.exalto.ai)
 - [Run your own notary](runtime/docs/self-hosting.md)
 - [Read the architecture and trust model](runtime/docs/architecture.md)
 - [Understand Trace formats and verification](runtime/docs/artifact-formats.md)
@@ -74,7 +74,7 @@ records its source revision in `.notary-source.json`.
 
 [GitHub Releases](https://github.com/exalto-ai/notary-runtime/releases) provide
 change notes and download links. Stable source releases use `vX.Y.Z` tags.
-Official clients use the signed `latest` update channel at `seal.exalto.ai`; see
+Official clients use the signed `latest` update channel at `notary-prod-downloads.t3.tigrisfiles.io`; see
 [download verification](runtime/docs/releases.md).
 
 ## License

@@ -32,7 +32,9 @@ pub use release::{
 pub use storage::write_private_file_atomically;
 
 /// Public release origin compiled into official distributions.
-pub const DEFAULT_PUBLIC_ORIGIN: &str = env!("NOTARY_PUBLIC_ORIGIN");
+pub const DEFAULT_API_ORIGIN: &str = env!("NOTARY_API_PUBLIC_ORIGIN");
+pub const DEFAULT_CAPTURE_ORIGIN: &str = env!("NOTARY_CAPTURE_PUBLIC_ORIGIN");
+pub const DEFAULT_DOWNLOAD_ORIGIN: &str = env!("NOTARY_DOWNLOAD_PUBLIC_ORIGIN");
 /// Exact source/release identity compiled into this updater.
 pub const BUILD_ID: &str = env!("NOTARY_BUILD_ID");
 /// Whether this build may replace installed release artifacts.

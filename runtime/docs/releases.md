@@ -22,7 +22,7 @@ From the repository root, set `build_url` to the immutable build directory
 linked by the GitHub Release, then fetch its manifest and signature:
 
 ```bash
-build_url='https://seal.exalto.ai/downloads/releases/builds/BUILD_ID'
+build_url='https://notary-prod-downloads.t3.tigrisfiles.io/releases/builds/BUILD_ID'
 curl -fL "$build_url/release.json" -o release.json
 curl -fL "$build_url/release.json.sig" -o release.json.sig
 python3 - <<'PY'
