@@ -135,11 +135,20 @@ pub(super) fn vault_unlock_key_for_child(
     session: &VaultSession,
 ) -> Result<Zeroizing<Vec<u8>>, String> {
     match Vault::status() {
-        Ok("OS vault") => Vault::open(None)
-            .map(|vault| vault.child_unlock_key_line())
-            .map_err(|error| {
-                format!("Could not unlock the capture key with the OS credential vault: {error}")
-            }),
+        Ok("OS vault") => {
+            let mut held = session
+                .0
+                .lock()
+                .map_err(|_| "capture vault session is unavailable".to_string())?;
+            if held.is_none() {
+                *held = Some(Vault::open(None).map_err(|error| {
+                    format!(
+                        "Could not unlock the capture key with the OS credential vault: {error}"
+                    )
+                })?);
+            }
+            Ok(held.as_ref().unwrap().child_unlock_key_line())
+        }
         Ok("passphrase vault") => {
             if convenience_marker_path()?.exists() {
                 return Vault::open(Some(""))
@@ -183,9 +192,16 @@ pub(super) fn configure_vault(
     }
 
     match mode.as_str() {
-        "keychain" => Vault::init_os().map(|_| ()).map_err(|error| {
-            format!("Could not store the capture key in the OS credential vault: {error}")
-        }),
+        "keychain" => {
+            let vault = Vault::init_os().map_err(|error| {
+                format!("Could not store the capture key in the OS credential vault: {error}")
+            })?;
+            *vault_session
+                .0
+                .lock()
+                .map_err(|_| "capture vault session is unavailable".to_string())? = Some(vault);
+            Ok(())
+        }
         "passphrase" => {
             let passphrase = Zeroizing::new(
                 passphrase.ok_or_else(|| "Enter and confirm a vault passphrase.".to_string())?,

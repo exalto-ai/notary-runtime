@@ -5,16 +5,12 @@ import {
   Check,
   ChevronDown,
   ChevronLeft,
-  ChevronRight,
   CircleDot,
-  ExternalLink,
   FileCheck2,
-  KeyRound,
   LockKeyhole,
   Network,
   Server,
   ShieldCheck,
-  SlidersHorizontal,
   SquareTerminal,
 } from 'lucide-react';
 import {
@@ -27,12 +23,12 @@ import {
   getDesktopState,
   getRecentTraceProbes,
   isTauri,
-  openProductLink,
-  runProviderCaptureTest,
   startDaemon,
   type DesktopState,
 } from './bridge';
+import { ProviderConnections } from './BuiltinChat';
 import { DesktopAccountCard } from './AccountCard';
+import { AgentSetup, agentSetupPrompt, CODEX_CONFIG, CLAUDE_COMMAND } from './AgentSetup';
 import {
   StatusDot,
   vaultProtection,
@@ -44,8 +40,7 @@ import './onboarding.css';
 
 type OnboardingStep = 'welcome' | 'protection' | 'notary' | 'client' | 'test' | 'account';
 type VaultSetupMode = 'keychain' | 'passphrase';
-type ClientId = 'codex' | 'claude' | 'api';
-type ApiProviderId = 'openai' | 'anthropic' | 'openrouter';
+type ClientId = 'codex' | 'claude' | 'builtin';
 type TestStatus = 'idle' | 'checking' | 'not-found' | 'unconfirmed' | 'captured';
 type TemporaryCaptureEvent = {
   window_generation: number;
@@ -93,71 +88,38 @@ const onboardingSteps: OnboardingStep[] = [
   'account',
 ];
 
+const stepNames: Record<OnboardingStep, string> = {
+  welcome: 'Overview',
+  protection: 'Protection',
+  notary: 'Sealing service',
+  client: 'Chat',
+  test: 'Capture test',
+  account: 'Account',
+};
+
 const clientChoices = [
   {
+    id: 'builtin',
+    name: 'Built-in',
+    detail: 'Chat inside Capture. Link your ChatGPT plan, or save an OpenAI or Anthropic API key.',
+  },
+  {
     id: 'codex',
-    name: 'Codex CLI',
-    detail: 'Use the ChatGPT sign-in already saved by Codex',
-    status: 'Live-tested',
+    name: 'Codex',
+    detail: 'Configure a separate Codex session. It keeps your existing ChatGPT sign-in or API key.',
   },
   {
     id: 'claude',
     name: 'Claude Code',
-    detail: 'Use the claude.ai sign-in already saved by Claude Code',
-    status: 'Live-tested',
-  },
-  {
-    id: 'api',
-    name: 'API or SDK',
-    detail: 'Keep your existing environment or try a temporary onboarding key',
-    status: 'No key storage',
+    detail: 'Configure a separate Claude Code session that uses an Anthropic API key.',
   },
 ] as const;
 
-const apiProviders = [
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    environmentVariable: 'OPENAI_API_KEY',
-    baseUrl: 'http://127.0.0.1:8787/openai/v1',
-    keyUrl: 'https://platform.openai.com/api-keys',
-    keyDestination: 'openai_key',
-    keyLabel: 'Create an OpenAI API key',
-  },
-  {
-    id: 'anthropic',
-    name: 'Anthropic',
-    environmentVariable: 'ANTHROPIC_API_KEY',
-    baseUrl: 'http://127.0.0.1:8787/anthropic',
-    keyUrl: 'https://console.anthropic.com/settings/keys',
-    keyDestination: 'anthropic_key',
-    keyLabel: 'Create an Anthropic API key',
-  },
-  {
-    id: 'openrouter',
-    name: 'OpenRouter',
-    environmentVariable: 'OPENROUTER_API_KEY',
-    baseUrl: 'http://127.0.0.1:8787/openrouter/api/v1',
-    keyUrl: 'https://openrouter.ai/settings/keys',
-    keyDestination: 'openrouter_key',
-    keyLabel: 'Create an OpenRouter API key',
-  },
-] as const;
-
-type ApiProvider = (typeof apiProviders)[number];
-
-const CODEX_CONFIG = `model_provider = "capture-chatgpt"
-
-[model_providers.capture-chatgpt]
-name = "Exalto Capture, ChatGPT plan"
-base_url = "http://127.0.0.1:8787/codex"
-requires_openai_auth = true
-wire_api = "responses"
-supports_websockets = false`;
-
-const CLAUDE_COMMAND = `env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \\
-  ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic \\
-  claude`;
+const clientLabels: Record<ClientId, string> = {
+  builtin: 'Built-in chat',
+  codex: 'Codex CLI',
+  claude: 'Claude Code',
+};
 
 const TEST_MARKER_PREFIX = 'EXALTO-CAPTURE-TEST-';
 
@@ -173,39 +135,11 @@ function createTemporaryCaptureLeaseId() {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function expectedTestProvider(client: ClientId, provider: ApiProvider) {
-  if (client === 'codex') return 'openai';
-  if (client === 'claude') return 'anthropic';
-  return provider.id;
-}
+function expectedTestProvider(client: ClientId) { return client === 'claude' ? 'anthropic' : 'openai'; }
 
-function testCommand(client: ClientId, provider: ApiProvider, prompt: string) {
-  if (client === 'codex') {
-    return `codex exec --ephemeral --skip-git-repo-check \\
-  '${prompt}'`;
-  }
-  if (client === 'claude') {
-    return `env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \\
-  ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic \\
-  claude -p '${prompt}'`;
-  }
-  if (provider.id === 'anthropic') {
-    return `curl http://127.0.0.1:8787/anthropic/v1/messages \\
-  -H "x-api-key: $ANTHROPIC_API_KEY" \\
-  -H 'anthropic-version: 2023-06-01' \\
-  -H 'content-type: application/json' \\
-  -d '{"model":"YOUR_MODEL","max_tokens":64,"messages":[{"role":"user","content":"${prompt}"}]}'`;
-  }
-  if (provider.id === 'openrouter') {
-    return `curl http://127.0.0.1:8787/openrouter/api/v1/chat/completions \\
-  -H "Authorization: Bearer $OPENROUTER_API_KEY" \\
-  -H 'content-type: application/json' \\
-  -d '{"model":"YOUR_MODEL","messages":[{"role":"user","content":"${prompt}"}]}'`;
-  }
-  return `curl http://127.0.0.1:8787/openai/v1/responses \\
-  -H "Authorization: Bearer $OPENAI_API_KEY" \\
-  -H 'content-type: application/json' \\
-  -d '{"model":"YOUR_MODEL","input":"${prompt}"}'`;
+function testCommand(client: ClientId, prompt: string) {
+  if (client === 'codex') return `codex --profile exalto-capture exec --ephemeral --skip-git-repo-check '${prompt}'`;
+  return `${CLAUDE_COMMAND} -p '${prompt}'`;
 }
 
 export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', initialError = null, onDisposableTestChange, onCancel }: {
@@ -221,9 +155,7 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
   const [protectionMode, setProtectionMode] = useState<VaultSetupMode>('keychain');
   const [passphrase, setPassphrase] = useState('');
   const [passphraseConfirmation, setPassphraseConfirmation] = useState('');
-  const [client, setClient] = useState<ClientId>('codex');
-  const [apiProviderId, setApiProviderId] = useState<ApiProviderId>('openai');
-  const [onboardingApiKey, setOnboardingApiKey] = useState('');
+  const [client, setClient] = useState<ClientId>('builtin');
   const [testMarker] = useState(createDisposableTestMarker);
   const [testBaseline, setTestBaseline] = useState<ReadonlySet<string> | null>(null);
   const [testStatus, setTestStatus] = useState<TestStatus>('idle');
@@ -234,9 +166,7 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
   const preparationCancelled = useRef(false);
   const testOperation = useRef(0);
   const windowGeneration = useRef(state.temporary_capture_generation);
-  const apiProvider = apiProviders.find((item) => item.id === apiProviderId) ?? apiProviders[0];
   const testPrompt = `Reply with exactly: ${testMarker}`;
-  const useOnboardingApiTest = client === 'api' && Boolean(onboardingApiKey.trim());
   const stepIndex = onboardingSteps.indexOf(step);
   const sealingService = onboardingSealingService(state);
 
@@ -249,14 +179,7 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
 
   const chooseClient = (nextClient: ClientId) => {
     setError(null);
-    if (nextClient !== 'api') setOnboardingApiKey('');
     setClient(nextClient);
-  };
-
-  const chooseApiProvider = (provider: ApiProviderId) => {
-    setError(null);
-    setOnboardingApiKey('');
-    setApiProviderId(provider);
   };
 
   const invalidateTestWork = () => {
@@ -297,7 +220,6 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
       invalidateTestWork();
       setPassphrase('');
       setPassphraseConfirmation('');
-      setOnboardingApiKey('');
       if (temporaryCaptureLease.current !== event.payload.lease_id) {
         temporaryCaptureLease.current = null;
       }
@@ -492,7 +414,7 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
     setTestStatus('checking');
     setError(null);
     try {
-      const expectedProvider = expectedTestProvider(client, apiProvider);
+      const expectedProvider = expectedTestProvider(client);
       const traceId = testBaseline === null ? null : await confirmDisposableTrace(
         [...testBaseline],
         expectedProvider,
@@ -520,68 +442,6 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
     }
   };
 
-  const runOnboardingApiTest = async (model: string) => {
-    if (state.sealing_service_readiness.phase !== 'ready') {
-      setError(
-        'The trusted capture transport is not ready. No Exalto Seal account is required. Restore the trusted connection before running the disposable test.',
-      );
-      return;
-    }
-    const leaseId = temporaryCaptureLease.current;
-    if (!leaseId) {
-      setError('Prepare the disposable capture test again.');
-      return;
-    }
-    if (testBaseline === null) {
-      setError('Prepare the disposable capture test again.');
-      return;
-    }
-    if (!onboardingApiKey.trim()) {
-      setError(`Paste a temporary ${apiProvider.name} API key before running the in-app test.`);
-      return;
-    }
-    preparationCancelled.current = false;
-    const operation = testOperation.current + 1;
-    testOperation.current = operation;
-    const generation = windowGeneration.current;
-    setTestStatus('checking');
-    setError(null);
-    try {
-      const result = await runProviderCaptureTest(
-        apiProvider.id,
-        model,
-        testMarker,
-        onboardingApiKey,
-        [...testBaseline],
-        leaseId,
-      );
-      if (
-        !testWorkIsCurrent(operation, generation) ||
-        temporaryCaptureLease.current !== leaseId
-      ) return;
-      if (!result.successful) {
-        setError(`${apiProvider.name} returned HTTP ${result.http_status}. Check that the key and model are available to this account.`);
-        setTestStatus('not-found');
-        return;
-      }
-      if (!result.captured || !result.trace_id) {
-        await restoreTestCapture(leaseId);
-        if (!testWorkIsCurrent(operation, generation)) return;
-        setDisposableTraceId(null);
-        setTestStatus('unconfirmed');
-        return;
-      }
-      await restoreTestCapture(leaseId);
-      if (!testWorkIsCurrent(operation, generation)) return;
-      setDisposableTraceId(result.trace_id);
-      setTestStatus('captured');
-    } catch (caught) {
-      if (!testWorkIsCurrent(operation, generation)) return;
-      setError(errorMessage(caught));
-      setTestStatus('not-found');
-    }
-  };
-
   const leaveTest = async () => {
     invalidateTestWork();
     setBusy(true);
@@ -598,7 +458,6 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
 
   const cancelSetup = async () => {
     invalidateTestWork();
-    setOnboardingApiKey('');
     setBusy(true);
     setError(null);
     try {
@@ -613,7 +472,6 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
 
   const finish = async (destination: View, traceTarget?: TraceTarget) => {
     invalidateTestWork();
-    setOnboardingApiKey('');
     setBusy(true);
     setError(null);
     try {
@@ -630,111 +488,112 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
 
   const navigationBusy = busy || testStatus === 'checking';
 
+  const decisions: Partial<Record<OnboardingStep, string>> = {
+    protection: state.vault_configured
+      ? 'Existing vault'
+      : protectionMode === 'passphrase' ? 'Passphrase' : 'Keychain',
+    notary: sealingService.name,
+    client: clientLabels[client],
+    test: testStatus === 'captured'
+      ? 'Trace captured'
+      : testStatus === 'unconfirmed' ? 'Unconfirmed' : undefined,
+  };
+
   return <div className="onboarding-window exalto-onboarding">
-    <header className="onboarding-toolbar" data-tauri-drag-region="deep">
-      <div className="traffic-light-space" data-tauri-drag-region />
-      <div className="onboarding-brand" data-tauri-drag-region="deep">
+    <aside className="setup-rail">
+      <div className="setup-rail-drag" data-tauri-drag-region />
+      <div className="setup-brand" data-tauri-drag-region="deep">
         <img src={notaryMark} alt="" />
         <strong data-tauri-drag-region>Exalto Capture</strong>
       </div>
-      <span className="onboarding-window-context">Setup {String(stepIndex + 1).padStart(2, '0')} / 06</span>
-      {onCancel && <button className="onboarding-close" type="button" onClick={() => void cancelSetup()} disabled={navigationBusy}>Done</button>}
-    </header>
-    <div className="onboarding-progress" aria-label={`Setup step ${stepIndex + 1} of ${onboardingSteps.length}`}>
-      {onboardingSteps.map((item, index) => <span key={item} className={index <= stepIndex ? 'is-complete' : ''} />)}
-    </div>
-    <main className="onboarding-body">
-      <section className={`onboarding-content${step === 'client' ? ' is-client-step' : ''}`}>
-        {step !== 'welcome' && <button className="back-button" type="button" onClick={() => void goBack()} disabled={navigationBusy}>
-          <ChevronLeft size={14} /> Back
-        </button>}
-        {step === 'welcome' && <WelcomeStep state={state} onContinue={() => setStep('protection')} />}
-        {step === 'protection' && <ProtectionStep
-          configured={state.vault_configured}
-          mode={protectionMode}
-          setMode={setProtectionMode}
-          passphrase={passphrase}
-          setPassphrase={setPassphrase}
-          passphraseConfirmation={passphraseConfirmation}
-          setPassphraseConfirmation={setPassphraseConfirmation}
-          busy={busy}
-          onContinue={() => void configureProtection()}
-        />}
-        {step === 'notary' && <NotaryStep service={sealingService} onContinue={() => setStep('client')} />}
-        {step === 'client' && <ClientStep
-          client={client}
-          setClient={chooseClient}
-          apiProvider={apiProvider}
-          setApiProvider={chooseApiProvider}
-          onboardingApiKey={onboardingApiKey}
-          setOnboardingApiKey={setOnboardingApiKey}
-          busy={busy}
-          error={error}
-          running={state.running}
-          externallyManagedService={state.running && !state.managed_by_desktop}
-          onContinue={() => void startService()}
-        />}
-        {step === 'test' && <TestTraceStep
-          client={client}
-          apiProvider={apiProvider}
-          useOnboardingApiTest={useOnboardingApiTest}
-          testPrompt={testPrompt}
-          state={state}
-          status={testStatus}
-          busy={busy}
-          onCheck={() => void checkForTestTrace()}
-          onRunOnboardingApiTest={(model) => void runOnboardingApiTest(model)}
-          onContinue={() => void leaveTest()}
-          onSkip={() => void leaveTest()}
-        />}
-        {step === 'account' && <AccountReadyStep
-          state={state}
-          client={client}
-          apiProvider={apiProvider}
-          disposableTraceId={disposableTraceId}
-          busy={busy}
-          onFinish={finish}
-        />}
-        {error && step !== 'client' && <div className="onboarding-error" role="alert">{error}</div>}
-      </section>
-      <OnboardingAside
-        step={step}
-        sealingService={sealingService}
+      <span className="setup-rail-label">Setup</span>
+      <ol className="setup-ledger" aria-label={`Setup step ${stepIndex + 1} of ${onboardingSteps.length}`}>
+        {onboardingSteps.map((item, index) => <li
+          key={item}
+          className={index < stepIndex ? 'is-done' : index === stepIndex ? 'is-current' : ''}
+          aria-current={index === stepIndex ? 'step' : undefined}
+        >
+          <span className="ledger-mark">{index < stepIndex ? <Check size={11} /> : index + 1}</span>
+          <span className="ledger-name">{stepNames[item]}</span>
+          {index <= stepIndex && decisions[item] && <span className="ledger-value">{decisions[item]}</span>}
+        </li>)}
+      </ol>
+    </aside>
+    <section className={`onboarding-content${step === 'client' ? ' is-client-step' : ''}`}>
+      <header className="setup-bar" data-tauri-drag-region="deep">
+        {step !== 'welcome'
+          ? <button className="back-button" type="button" onClick={() => void goBack()} disabled={navigationBusy}>
+            <ChevronLeft size={13} /> Back
+          </button>
+          : <span className="setup-bar-step" />}
+        {onCancel && <button className="onboarding-close" type="button" onClick={() => void cancelSetup()} disabled={navigationBusy}>Done</button>}
+      </header>
+      {step === 'welcome' && <WelcomeStep state={state} onContinue={() => setStep('protection')} />}
+      {step === 'protection' && <ProtectionStep
+        configured={state.vault_configured}
+        mode={protectionMode}
+        setMode={setProtectionMode}
+        passphrase={passphrase}
+        setPassphrase={setPassphrase}
+        passphraseConfirmation={passphraseConfirmation}
+        setPassphraseConfirmation={setPassphraseConfirmation}
+        busy={busy}
+        onContinue={() => void configureProtection()}
+      />}
+      {step === 'notary' && <NotaryStep service={sealingService} onContinue={() => setStep('client')} />}
+      {step === 'client' && <ClientStep
         client={client}
-        apiProvider={apiProvider}
-        useOnboardingApiTest={useOnboardingApiTest}
-        testStatus={testStatus}
-      />
-    </main>
+        setClient={chooseClient}
+        busy={busy}
+        running={state.running}
+        externallyManagedService={state.running && !state.managed_by_desktop}
+        onContinue={() => void startService()}
+        onSkip={() => setStep('account')}
+        onChat={() => void finish('chat')}
+      />}
+      {step === 'test' && <TestTraceStep
+        client={client}
+        testPrompt={testPrompt}
+        state={state}
+        status={testStatus}
+        busy={busy}
+        onCheck={() => void checkForTestTrace()}
+        onContinue={() => void leaveTest()}
+        onSkip={() => void leaveTest()}
+      />}
+      {step === 'account' && <AccountReadyStep
+        state={state}
+        client={client}
+        disposableTraceId={disposableTraceId}
+        busy={busy}
+        onFinish={finish}
+      />}
+      {error && <div className={`onboarding-error${step === 'client' ? ' client-step-error' : ''}`} role="alert">{error}</div>}
+    </section>
   </div>;
 }
 
 function WelcomeStep({ state, onContinue }: { state: DesktopState; onContinue: () => void }) {
   const fresh = !state.agent_configured && !state.vault_configured;
-  return <div className="wizard-step welcome-step">
-    <span className="wizard-kicker">Local trace capture</span>
-    <h1>Set up Exalto Capture</h1>
-    <p>{fresh
-      ? 'Capture a model exchange on this Mac, review what a sealed trace can reveal, then send it to Exalto Seal or another compatible notary for sealing.'
-      : 'This Mac already has capture settings. Setup will preserve them while it checks the path from your AI tool to a portable trace.'}</p>
-    <div className="capture-workflow" aria-label="Capture, review, seal, then verify or share">
-      {['Capture', 'Review', 'Seal', 'Verify or share'].map((label, index) => <div key={label}>
-        <span>{String(index + 1).padStart(2, '0')}</span>
-        <strong>{label}</strong>
-      </div>)}
+  return <>
+    <div className="wizard-step welcome-step">
+      <h1>Set up Exalto Capture</h1>
+      <p>{fresh
+        ? 'Capture a model exchange on this Mac, review what a sealed trace can reveal, then send it to Exalto Seal or another compatible notary for sealing.'
+        : 'This Mac already has capture settings. Setup will preserve them while it checks the path from your AI tool to a portable trace.'}</p>
+      <figure className="trace-receipt" aria-label="A sample local trace receipt">
+        <figcaption><span><CircleDot size={10} /> REC</span><code>TRACE / LOCAL</code></figcaption>
+        <dl>
+          <div><dt>Source</dt><dd>Built-in chat or your AI tool</dd></div>
+          <div><dt>Provider</dt><dd>Authenticated response</dd></div>
+          <div><dt>Private content</dt><dd>Hidden from the sealing service</dd></div>
+          <div><dt>Portable result</dt><dd>.llmtrace</dd></div>
+        </dl>
+        <p>A trace proves the interaction it contains. It does not prove that omitted interactions never happened.</p>
+      </figure>
     </div>
-    <figure className="trace-receipt" aria-label="A sample local trace receipt">
-      <figcaption><span><CircleDot size={11} /> REC</span><code>TRACE / LOCAL</code></figcaption>
-      <dl>
-        <div><dt>AI tool</dt><dd>Codex CLI</dd></div>
-        <div><dt>Provider</dt><dd>Authenticated response</dd></div>
-        <div><dt>Private content</dt><dd>Hidden from the sealing service</dd></div>
-        <div><dt>Portable result</dt><dd>.llmtrace</dd></div>
-      </dl>
-      <p>A trace proves the interaction it contains. It does not prove that omitted interactions never happened.</p>
-    </figure>
-    <div className="wizard-actions"><button className="mac-button is-primary is-large" onClick={onContinue}>Begin setup <ChevronRight size={15} /></button></div>
-  </div>;
+    <div className="wizard-actions"><button className="mac-button is-primary is-large" onClick={onContinue}>Begin setup</button></div>
+  </>;
 }
 
 function ProtectionStep({ configured, mode, setMode, passphrase, setPassphrase, passphraseConfirmation, setPassphraseConfirmation, busy, onContinue }: {
@@ -762,31 +621,32 @@ function ProtectionStep({ configured, mode, setMode, passphrase, setPassphrase, 
     if (advancedOpen) chooseKeychain();
     setAdvancedOpen(!advancedOpen);
   };
-  return <div className="wizard-step">
-    <span className="wizard-kicker">Local protection</span>
-    <h1>Protect private traces on this Mac</h1>
-    <p>A full private capture can reconstruct the original provider request, including credentials. Exalto Capture vault-encrypts that artifact before writing it to disk.</p>
-    <div className="wizard-warning preview-storage-warning" role="note"><LockKeyhole size={16} /><span>When retained previews are enabled, short prompt and response excerpts are also kept in local metadata so Traces can be browsed. Those excerpts stay on this Mac but are not protected by the trace vault.</span></div>
-    {configured ? <div className="configured-protection"><BadgeCheck size={22} /><div><strong>Local protection is already configured</strong><span>Your existing vault will remain unchanged.</span></div></div> : <div className="protection-options" role="radiogroup" aria-label="Private trace protection">
-      <button type="button" role="radio" aria-checked={mode === 'keychain'} className={mode === 'keychain' ? 'is-selected' : ''} onClick={chooseKeychain}>
-        <span className="radio-mark">{mode === 'keychain' && <span />}</span><KeyRound size={20} />
-        <div><strong>Use macOS Keychain</strong><p>Recommended. macOS protects the vault key, with no separate password to remember.</p></div>
-      </button>
-      {advancedOpen && <button type="button" role="radio" aria-checked={mode === 'passphrase'} className={mode === 'passphrase' ? 'is-selected' : ''} onClick={() => setMode('passphrase')}>
-        <span className="radio-mark">{mode === 'passphrase' && <span />}</span><SlidersHorizontal size={20} />
-        <div><strong>Use a passphrase</strong><p>Enter it whenever the app opens. Exalto Capture does not save it.</p></div>
-      </button>}
-    </div>}
-    {!configured && <button type="button" className="advanced-options-toggle" aria-expanded={advancedOpen} onClick={toggleAdvanced}><SlidersHorizontal size={13} /> Advanced protection <ChevronDown size={13} /></button>}
-    {!configured && advancedOpen && mode === 'passphrase' && <div className="passphrase-fields">
-      <label><span>Passphrase</span><input type="password" autoComplete="new-password" value={passphrase} aria-invalid={!passphraseValid} aria-describedby={!passphraseValid ? mismatchId : undefined} onChange={(event) => setPassphrase(event.target.value)} /></label>
-      <label><span>Confirm passphrase</span><input type="password" autoComplete="new-password" value={passphraseConfirmation} aria-invalid={!passphraseValid} aria-describedby={!passphraseValid ? mismatchId : undefined} onChange={(event) => setPassphraseConfirmation(event.target.value)} /></label>
-      {!passphrasePresent
-        ? <small id={mismatchId} className="passphrase-mismatch" role="alert">Enter a non-empty passphrase.</small>
-        : !passphrasesMatch && <small id={mismatchId} className="passphrase-mismatch" role="alert">The passphrases do not match.</small>}
-    </div>}
-    <div className="wizard-actions"><button className="mac-button is-primary is-large" onClick={onContinue} disabled={busy || (mode === 'passphrase' && (!advancedOpen || !passphraseValid))}>{busy ? 'Saving…' : 'Protect traces'} <ChevronRight size={15} /></button></div>
-  </div>;
+  return <>
+    <div className="wizard-step">
+      <h1>Protect private traces on this Mac</h1>
+      <p>A full private capture can reconstruct the original provider request, including credentials. Exalto Capture vault-encrypts that artifact before writing it to disk.</p>
+      {configured ? <div className="configured-protection"><BadgeCheck size={18} /><div><strong>Local protection is already configured</strong><span>Your existing vault will remain unchanged.</span></div></div> : <div className="protection-options" role="radiogroup" aria-label="Private trace protection">
+        <button type="button" role="radio" aria-checked={mode === 'keychain'} className={mode === 'keychain' ? 'is-selected' : ''} onClick={chooseKeychain}>
+          <span className="radio-mark">{mode === 'keychain' && <span />}</span>
+          <div><strong>Use macOS Keychain</strong><p>Recommended. macOS protects the vault key, with no separate password to remember.</p></div>
+        </button>
+        {advancedOpen && <button type="button" role="radio" aria-checked={mode === 'passphrase'} className={mode === 'passphrase' ? 'is-selected' : ''} onClick={() => setMode('passphrase')}>
+          <span className="radio-mark">{mode === 'passphrase' && <span />}</span>
+          <div><strong>Use a passphrase</strong><p>Enter it whenever the app opens. Exalto Capture does not save it.</p></div>
+        </button>}
+      </div>}
+      {!configured && <button type="button" className="advanced-options-toggle" aria-expanded={advancedOpen} onClick={toggleAdvanced}>Advanced protection <ChevronDown size={12} /></button>}
+      {!configured && advancedOpen && mode === 'passphrase' && <div className="passphrase-fields">
+        <label><span>Passphrase</span><input type="password" autoComplete="new-password" value={passphrase} aria-invalid={!passphraseValid} aria-describedby={!passphraseValid ? mismatchId : undefined} onChange={(event) => setPassphrase(event.target.value)} /></label>
+        <label><span>Confirm passphrase</span><input type="password" autoComplete="new-password" value={passphraseConfirmation} aria-invalid={!passphraseValid} aria-describedby={!passphraseValid ? mismatchId : undefined} onChange={(event) => setPassphraseConfirmation(event.target.value)} /></label>
+        {!passphrasePresent
+          ? <small id={mismatchId} className="passphrase-mismatch" role="alert">Enter a non-empty passphrase.</small>
+          : !passphrasesMatch && <small id={mismatchId} className="passphrase-mismatch" role="alert">The passphrases do not match.</small>}
+      </div>}
+      <div className="wizard-note" role="note"><LockKeyhole size={13} /><span>When retained previews are enabled, short prompt and response excerpts are also kept in local metadata so Traces can be browsed. Those excerpts stay on this Mac but are not protected by the trace vault.</span></div>
+    </div>
+    <div className="wizard-actions"><button className="mac-button is-primary is-large" onClick={onContinue} disabled={busy || (mode === 'passphrase' && (!advancedOpen || !passphraseValid))}>{busy ? 'Saving…' : 'Protect traces'}</button></div>
+  </>;
 }
 
 function NotaryStep({ service, onContinue }: {
@@ -814,244 +674,123 @@ function NotaryStep({ service, onContinue }: {
     : service.available
       ? `Continue with ${service.name}`
       : 'Continue with configured service';
-  return <div className="wizard-step notary-step">
-    <span className="wizard-kicker">Choose a sealing service</span>
-    <h1>{heading}</h1>
-    <p>{introduction}</p>
-    <div className="notary-choice is-selected">
-      <span className="notary-choice-mark"><Check size={15} /></span>
-      <div><strong>{service.name}</strong><p>{detail}</p></div>
-      <span className="choice-status">{service.isExaltoSeal && !service.configured ? 'Recommended' : service.available ? 'Configured' : 'Unavailable'}</span>
-    </div>
-    <button type="button" className="advanced-options-toggle" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(!advancedOpen)}><Network size={13} /> About compatible notaries <ChevronDown size={13} /></button>
-    {advancedOpen && <div className="advanced-notaries">
-      <div><Server size={17} /><span><strong>Compatible notary</strong><small>Selected through signed Registry trust</small></span><em>Administrator managed</em></div>
-      <div><SquareTerminal size={17} /><span><strong>Self-hosted notary</strong><small>Operator endpoint and verification key required</small></span><em>Administrator managed</em></div>
-      <p>This build preserves the pinned notary selected by its runtime configuration. Switching or adding a compatible notary requires an administrator-managed configuration.</p>
-    </div>}
-    <div className="notary-boundary">
-      <div><span>SEALING SERVICE SEES</span><strong>Provider hostname, encrypted traffic, sizes, timing</strong></div>
-      <div><span>APPLICATION PLAINTEXT</span><strong>Visible to this Mac and your chosen model provider</strong></div>
-    </div>
-    <div className="wizard-actions"><button className="mac-button is-primary is-large" type="button" onClick={onContinue}>{continueLabel} <ChevronRight size={15} /></button></div>
-  </div>;
-}
-
-function ClientStep({
-  client,
-  setClient,
-  apiProvider,
-  setApiProvider,
-  onboardingApiKey,
-  setOnboardingApiKey,
-  busy,
-  error,
-  running,
-  externallyManagedService,
-  onContinue,
-}: {
-  client: ClientId;
-  setClient: (client: ClientId) => void;
-  apiProvider: ApiProvider;
-  setApiProvider: (provider: ApiProviderId) => void;
-  onboardingApiKey: string;
-  setOnboardingApiKey: (apiKey: string) => void;
-  busy: boolean;
-  error: string | null;
-  running: boolean;
-  externallyManagedService: boolean;
-  onContinue: () => void;
-}) {
-  return <div className="client-step">
-    <div className="wizard-step client-step-scroll">
-    <span className="wizard-kicker">Connect an AI tool</span>
-    <h1>Which local tool will you use first?</h1>
-    <p>Codex CLI and Claude Code keep their saved sign-ins. API clients keep their provider keys in the client or secret manager.</p>
-    <div className="client-picker" role="radiogroup" aria-label="AI tool to connect first">
-      {clientChoices.map((item) => <button key={item.id} type="button" role="radio" aria-checked={client === item.id} className={client === item.id ? 'is-selected' : ''} onClick={() => setClient(item.id)}>
-        <span className="radio-mark">{client === item.id && <span />}</span>
-        <div><strong>{item.name}</strong><p>{item.detail}</p></div>
-        <small>{item.status}</small>
-      </button>)}
-    </div>
-    {client === 'codex' && <div className="connection-instructions">
-      <div className="instruction-heading"><span>CODEX CLI / SAVED CHATGPT SIGN-IN</span><strong>1. Confirm login, then add the local provider</strong></div>
-      <pre><code>codex login status</code></pre>
-      <p>The result must say <code>Logged in using ChatGPT</code>. Then add this to <code>~/.codex/config.toml</code> and keep your current model setting.</p>
-      <pre><code>{CODEX_CONFIG}</code></pre>
-      <p>Do not add <code>env_key</code>. Codex keeps and attaches its saved ChatGPT authorization.</p>
-    </div>}
-    {client === 'claude' && <div className="connection-instructions">
-      <div className="instruction-heading"><span>CLAUDE CODE / SAVED CLAUDE.AI SIGN-IN</span><strong>1. Confirm login, then launch through the local route</strong></div>
-      <pre><code>claude auth status</code></pre>
-      <p>It must report <code>loggedIn: true</code>. A Claude Desktop login is separate and does not establish this CLI session.</p>
-      <pre><code>{CLAUDE_COMMAND}</code></pre>
-      <p>Remove any <code>apiKeyHelper</code> while using subscription authentication. Native Claude Desktop cannot use this route.</p>
-    </div>}
-    {client === 'api' && <ApiConnection
-      apiProvider={apiProvider}
-      setApiProvider={setApiProvider}
-      onboardingApiKey={onboardingApiKey}
-      setOnboardingApiKey={setOnboardingApiKey}
-      busy={busy}
-    />}
-    <div className="wizard-warning credential-capture-warning" role="note">
-      <LockKeyhole size={16} />
-      <span>{externallyManagedService
-        ? 'This compatible service was started outside Exalto Capture. Setup will reuse it without taking ownership or changing its capture setting. The disposable test requires capture to already be on.'
-        : <>An encrypted private <code>.llmcapture</code> can reconstruct the authenticated provider request, including credential-bearing header bytes. Treat private captures as secrets and never share them.</>}</span>
-    </div>
-    </div>
-    {error && <div className="onboarding-error client-step-error" role="alert">{error}</div>}
-    <div className="wizard-actions client-step-actions"><button
-      className="mac-button is-primary is-large"
-      type="button"
-      onClick={onContinue}
-      disabled={busy}
-    >{busy ? 'Preparing test…' : running ? 'Prepare disposable test' : 'Start service and prepare test'} <ChevronRight size={15} /></button></div>
-  </div>;
-}
-
-function ApiConnection({
-  apiProvider,
-  setApiProvider,
-  onboardingApiKey,
-  setOnboardingApiKey,
-  busy,
-}: {
-  apiProvider: ApiProvider;
-  setApiProvider: (provider: ApiProviderId) => void;
-  onboardingApiKey: string;
-  setOnboardingApiKey: (apiKey: string) => void;
-  busy: boolean;
-}) {
-  return <div className="api-connection">
-    <div className="api-provider-picker" role="radiogroup" aria-label="API provider">
-      {apiProviders.map((provider) => <button key={provider.id} type="button" role="radio" aria-checked={apiProvider.id === provider.id} className={apiProvider.id === provider.id ? 'is-selected' : ''} onClick={() => setApiProvider(provider.id)} disabled={busy}>{provider.name}</button>)}
-      <button type="button" className="is-unsupported" disabled><span>xAI / Grok</span><small>Not yet supported</small></button>
-    </div>
-    <div className="unsupported-provider-guide">
-      <span><strong>Planning to use Grok?</strong><small>Create an xAI API key now. The xAI and Grok capture route is not available in this build.</small></span>
-      <a href="https://docs.x.ai/developers/quickstart" target="_blank" rel="noreferrer" onClick={(event) => {
-        event.preventDefault();
-        void openProductLink('xai_key');
-      }}>Open the xAI key guide <ExternalLink size={12} /></a>
-    </div>
-    <div className="connection-instructions api-key-instructions">
-      <div className="instruction-heading"><span>{apiProvider.name.toUpperCase()} / CLIENT-MANAGED KEY</span><strong>Keep the key in your current environment</strong></div>
-      <dl>
-        <div><dt>Environment variable</dt><dd><code>{apiProvider.environmentVariable}</code></dd></div>
-        <div><dt>Local base URL</dt><dd><code>{apiProvider.baseUrl}</code></dd></div>
-      </dl>
-      <div className="credential-import">
-        <label htmlFor={`provider-key-${apiProvider.id}`}>Optional temporary key for the onboarding test</label>
-        <div>
-          <input
-            id={`provider-key-${apiProvider.id}`}
-            value={onboardingApiKey}
-            onChange={(event) => setOnboardingApiKey(event.target.value)}
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Paste key"
-            disabled={busy}
-          />
-          {onboardingApiKey && <button className="mac-button" type="button" onClick={() => setOnboardingApiKey('')} disabled={busy}>Clear</button>}
-        </div>
+  return <>
+    <div className="wizard-step notary-step">
+      <h1>{heading}</h1>
+      <p>{introduction}</p>
+      <div className="notary-choice is-selected">
+        <span className="notary-choice-mark"><Check size={13} /></span>
+        <div><strong>{service.name}</strong><p>{detail}</p></div>
+        <span className="choice-status">{service.isExaltoSeal && !service.configured ? 'Recommended' : service.available ? 'Configured' : 'Unavailable'}</span>
       </div>
-      <a href={apiProvider.keyUrl} target="_blank" rel="noreferrer" onClick={(event) => {
-        event.preventDefault();
-        void openProductLink(apiProvider.keyDestination);
-      }}>{apiProvider.keyLabel} <ExternalLink size={12} /></a>
-      <p>Your SDK, CLI, shell, or secret manager remains the credential owner. If you paste a key here, setup keeps it only in this in-memory onboarding session, uses it for one normal provider request through the local route, and never saves it to Keychain, disk, or daemon configuration.</p>
+      <dl className="notary-boundary">
+        <div><dt>Sealing service sees</dt><dd>Provider hostname, encrypted traffic, sizes, timing</dd></div>
+        <div><dt>Application plaintext</dt><dd>Visible to this Mac and your chosen model provider</dd></div>
+      </dl>
+      <button type="button" className="advanced-options-toggle" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(!advancedOpen)}>About compatible notaries <ChevronDown size={12} /></button>
+      {advancedOpen && <div className="advanced-notaries">
+        <div><Server size={15} /><span><strong>Compatible notary</strong><small>Selected through signed Registry trust</small></span><em>Administrator managed</em></div>
+        <div><SquareTerminal size={15} /><span><strong>Self-hosted notary</strong><small>Operator endpoint and verification key required</small></span><em>Administrator managed</em></div>
+        <p>This build preserves the pinned notary selected by its runtime configuration. Switching or adding a compatible notary requires an administrator-managed configuration.</p>
+      </div>}
     </div>
-  </div>;
+    <div className="wizard-actions"><button className="mac-button is-primary is-large" type="button" onClick={onContinue}>{continueLabel}</button></div>
+  </>;
 }
 
-function TestTraceStep({ client, apiProvider, useOnboardingApiTest, testPrompt, state, status, busy, onCheck, onRunOnboardingApiTest, onContinue, onSkip }: {
+function ClientStep({ client, setClient, busy, running, externallyManagedService, onContinue, onSkip, onChat }: {
+  client: ClientId; setClient: (client: ClientId) => void; busy: boolean;
+  running: boolean; externallyManagedService: boolean; onContinue: () => void; onSkip: () => void; onChat: () => void;
+}) {
+  return <>
+    <div className="wizard-step client-step-scroll">
+      <h1>Where would you like to chat?</h1>
+      <p>Chat inside Capture, or configure an external tool to send through it. You can add more connections later.</p>
+      <div className="client-picker" role="radiogroup" aria-label="AI tool to connect first">
+        {clientChoices.map((item) => <button key={item.id} type="button" role="radio" aria-checked={client === item.id} className={client === item.id ? 'is-selected' : ''} onClick={() => setClient(item.id)} disabled={busy}>
+          {item.name}
+        </button>)}
+      </div>
+      <p className="harness-description">{clientChoices.find((item) => item.id === client)?.detail}</p>
+      {client === 'builtin' ? <ProviderConnections disabled={busy} /> : <AgentSetup key={client} client={client} prompt={agentSetupPrompt(client)} disabled={busy}
+        manual={client === 'codex' ? <>
+          <p>Run <code>codex login status</code>. Keep its existing sign-in. For a ChatGPT login, use the configuration below. For API-key authentication, use <code>http://127.0.0.1:8787/openai/v1</code> as the base URL and <code>env_key = "OPENAI_API_KEY"</code> instead of <code>requires_openai_auth</code>. Set the key privately in your shell.</p>
+          <pre><code>{CODEX_CONFIG}</code></pre><p>Merge this into your user config, respecting <code>CODEX_HOME</code>. Start with <code>codex --profile exalto-capture</code>. Desktop chats are not automatically captured by this CLI profile.</p>
+        </> : <><p>Set <code>ANTHROPIC_API_KEY</code> privately in your shell or secret manager, then launch a separate session using API billing.</p><pre><code>{CLAUDE_COMMAND}</code></pre><p>Claude Desktop can configure the CLI. Its own conversations do not use this capture route.</p></>} />}
+      {client !== 'builtin' && <div className="wizard-note credential-capture-note" role="note"><LockKeyhole size={13} /><span>{externallyManagedService ? 'This separately managed service must already have capture on to run the optional test.' : 'Credentials stay in your tool. Private encrypted captures can retain credential-bearing request bytes; keep them secret.'}</span></div>}
+    </div>
+    <div className="wizard-actions client-step-actions">
+      <button className="mac-button is-primary is-large" type="button" disabled={busy} onClick={client === 'builtin' ? onChat : onContinue}>{busy ? 'Preparing…' : client === 'builtin' ? 'Try a chat' : running ? 'Prepare optional test' : 'Start service and prepare test'}</button>
+      <button className="mac-button is-large" type="button" disabled={busy} onClick={onSkip}>Continue without a test</button>
+    </div>
+  </>;
+}
+
+function TestTraceStep({ client, testPrompt, state, status, busy, onCheck, onContinue, onSkip }: {
   client: ClientId;
-  apiProvider: ApiProvider;
-  useOnboardingApiTest: boolean;
   testPrompt: string;
   state: DesktopState;
   status: TestStatus;
   busy: boolean;
   onCheck: () => void;
-  onRunOnboardingApiTest: (model: string) => void;
   onContinue: () => void;
   onSkip: () => void;
 }) {
-  const [onboardingModel, setOnboardingModel] = useState('');
   const captureTransportReady = state.sealing_service_readiness.phase === 'ready';
-  const credentialCopy = useOnboardingApiTest
-    ? `The temporary ${apiProvider.name} key remains only in setup memory and is not saved.`
-    : `The credential remains in ${client === 'api' ? `${apiProvider.name} tooling` : client === 'codex' ? 'Codex CLI' : 'Claude Code'}.`;
-  return <div className="wizard-step test-step">
-    <span className="wizard-kicker">Test local capture</span>
-    <h1>Capture one disposable trace</h1>
-    <p>Send a tiny request through the route you just configured. If capture was off, Exalto Capture turns it on only for this disposable test, then restores your previous setting.</p>
-    {!captureTransportReady && <div className="wizard-warning credential-service-warning" role="status">
-      <Network size={16} />
-      <span>The trusted capture transport is not ready. No Exalto Seal account is required. Wait for the trusted connection, then run this disposable test.</span>
-    </div>}
-    <div className="test-prompt-receipt">
-      <span><CircleDot size={11} /> REC / SMALL TEST</span>
-      <strong>{testPrompt}</strong>
-      <small>Use a low-cost model available to your account. {credentialCopy} Once captured, setup can take this exact disposable Trace through sealing and local verification.</small>
-    </div>
-    {useOnboardingApiTest ? <form className="connection-instructions managed-test-runner" onSubmit={(event) => {
-      event.preventDefault();
-      if (!captureTransportReady) return;
-      onRunOnboardingApiTest(onboardingModel);
-    }}>
-      <div className="instruction-heading"><span>TEMPORARY IN-APP TEST</span><strong>No credential is copied into a terminal command</strong></div>
-      <label htmlFor="managed-test-model"><span>{apiProvider.name} model ID</span><input
-        id="managed-test-model"
-        value={onboardingModel}
-        onChange={(event) => setOnboardingModel(event.target.value)}
-        autoComplete="off"
-        spellCheck={false}
-        placeholder="A low-cost model available to your account"
-        disabled={status === 'checking' || busy}
-      /></label>
-      <button className="mac-button is-primary" type="submit" disabled={!captureTransportReady || !onboardingModel.trim() || status === 'checking' || busy}>{status === 'checking' ? 'Running test…' : 'Run in-app test'}</button>
-      <p>Setup sends the real key in the provider's normal authentication header through the local proxy. It is not written to Keychain, disk, app settings, or daemon configuration.</p>
-    </form> : captureTransportReady ? <div className="connection-instructions test-command">
-      <div className="instruction-heading"><span>RUN IN TERMINAL</span><strong>{client === 'api' ? `Replace YOUR_MODEL with an available ${apiProvider.name} model` : 'Run one ephemeral request'}</strong></div>
-      <pre><code>{testCommand(client, apiProvider, testPrompt)}</code></pre>
-    </div> : <div className="connection-instructions test-command is-waiting">
-      <div className="instruction-heading"><span>WAIT FOR TRUSTED TRANSPORT</span><strong>The disposable command will appear when capture is ready</strong></div>
-      <p>Capture authenticates the provider exchange through a trusted live transport. This check is separate from an Exalto Seal account.</p>
-    </div>}
-    <div className={`test-result is-${status}`} role="status" aria-live="polite">
-      <span>{status === 'captured' || status === 'unconfirmed' ? <Check size={16} /> : <StatusDot running={state.capture_enabled} warning={!state.capture_enabled} />}</span>
-      <div>
-        <strong>{status === 'captured' ? 'Test trace captured' : status === 'unconfirmed' ? 'Request succeeded, trace not auto-confirmed' : status === 'checking' ? useOnboardingApiTest ? 'Running provider test' : 'Checking local traces' : status === 'not-found' ? 'No new trace yet' : state.capture_enabled ? 'Disposable capture is on' : state.running ? 'Disposable capture is off' : 'Local service is still starting'}</strong>
-        <small>{status === 'captured'
-          ? 'The matching response appeared in the local store, and your previous capture setting was restored. Continue to seal and verify it, or keep it private on this Mac.'
-          : status === 'unconfirmed'
-            ? 'The provider returned success, but automatic confirmation requires response previews. Your previous capture setting was restored. Continue, then open Traces to review the request.'
-          : status === 'not-found'
-            ? useOnboardingApiTest ? 'Check the temporary key and model, then run the in-app test again.' : 'Run the command, wait for its response, then check again. Automatic confirmation requires response previews.'
-            : useOnboardingApiTest ? 'Enter a model ID and run the in-app test above.' : 'Run the command above, then check for its matching response.'}</small>
+  const credentialCopy = `The credential stays in ${clientLabels[client]}.`;
+  return <>
+    <div className="wizard-step test-step">
+      <h1>Capture one disposable trace</h1>
+      <p>Send a tiny request through the route you just configured. If capture was off, Exalto Capture turns it on only for this disposable test, then restores your previous setting.</p>
+      {!captureTransportReady && <div className="wizard-warning credential-service-warning" role="status">
+        <Network size={13} />
+        <span>The trusted capture transport is not ready. No Exalto Seal account is required. Wait for the trusted connection, then run this disposable test.</span>
+      </div>}
+      <div className="test-prompt-receipt">
+        <span><CircleDot size={10} /> REC / SMALL TEST</span>
+        <strong>{testPrompt}</strong>
+        <small>Use a low-cost model available to your account. {credentialCopy} Once captured, setup can take this exact disposable Trace through sealing and local verification.</small>
+      </div>
+      {captureTransportReady && client !== 'builtin' ? <AgentSetup
+      key={`${client}-${testPrompt}`}
+      client={client}
+      test
+      disabled={busy || status === 'checking' || status === 'captured'}
+      prompt={`Run one disposable Exalto Capture test in my local ${client === 'codex' ? 'Codex CLI' : 'Claude Code CLI'} environment. Setup should already be complete. ${client === 'codex' ? 'Run codex login status. Use the exalto-capture profile prepared for its existing ChatGPT or API-key authentication. Do not switch authentication methods. If the profile or required login is missing, stop and return to setup. Never read login caches or print tokens.' : 'Check only whether ANTHROPIC_API_KEY is nonempty; never read or print its value, login caches, or tokens. If missing, stop and ask me to provision it privately. Use API billing, never Claude subscription tokens.'} Do not change my global configuration, start/stop the service, change capture settings, or publish any Trace. Run this command once:\n\n${testCommand(client, testPrompt)}\n\nIf setup or the model is unavailable, report that and stop. Do not retry or fall back to a direct provider route. Return me to Exalto Capture to check for the matching Trace. A successful response alone does not confirm capture.`}
+        manual={<pre><code>{testCommand(client, testPrompt)}</code></pre>}
+      /> : <div className="connection-instructions test-command is-waiting">
+        <div className="instruction-heading"><span>WAIT FOR TRUSTED TRANSPORT</span><strong>The disposable command will appear when capture is ready</strong></div>
+        <p>Capture authenticates the provider exchange through a trusted live transport. This check is separate from an Exalto Seal account.</p>
+      </div>}
+      <div className={`test-result is-${status}`} role="status" aria-live="polite">
+        <span>{status === 'captured' || status === 'unconfirmed' ? <Check size={14} /> : <StatusDot running={state.capture_enabled} warning={!state.capture_enabled} />}</span>
+        <div>
+          <strong>{status === 'captured' ? 'Test trace captured' : status === 'unconfirmed' ? 'Request succeeded, trace not auto-confirmed' : status === 'checking' ? 'Checking local traces' : status === 'not-found' ? 'No new trace yet' : state.capture_enabled ? 'Disposable capture is on' : state.running ? 'Disposable capture is off' : 'Local service is still starting'}</strong>
+          <small>{status === 'captured'
+            ? 'The matching response appeared in the local store, and your previous capture setting was restored. Continue to seal and verify it, or keep it private on this Mac.'
+            : status === 'unconfirmed'
+              ? 'The provider returned success, but automatic confirmation requires response previews. Your previous capture setting was restored. Continue, then open Traces to review the request.'
+            : status === 'not-found'
+              ? 'Run the test in your AI tool, wait for its response, then check again. Automatic confirmation requires response previews.'
+              : 'Run the test above, then check for its matching response.'}</small>
+        </div>
       </div>
     </div>
     <div className="wizard-actions split-actions">
-      {status === 'captured' || status === 'unconfirmed' ? <button className="mac-button is-primary is-large" type="button" onClick={onContinue} disabled={busy}>{busy ? 'Finishing…' : 'Continue'} <ChevronRight size={15} /></button> : !useOnboardingApiTest && <button className="mac-button is-primary is-large" type="button" onClick={onCheck} disabled={!captureTransportReady || status === 'checking' || busy}>{status === 'checking' ? 'Checking…' : 'Check for new trace'}</button>}
+      {status === 'captured' || status === 'unconfirmed' ? <button className="mac-button is-primary is-large" type="button" onClick={onContinue} disabled={busy}>{busy ? 'Finishing…' : 'Continue'}</button> : <button className="mac-button is-primary is-large" type="button" onClick={onCheck} disabled={!captureTransportReady || status === 'checking' || busy}>{status === 'checking' ? 'Checking…' : 'Check for new trace'}</button>}
       {status !== 'captured' && status !== 'unconfirmed' && <button className="mac-button is-large" type="button" onClick={onSkip} disabled={status === 'checking' || busy}>{busy ? 'Restoring setting…' : status === 'checking' ? 'Test in progress…' : 'Continue without a test'}</button>}
     </div>
-  </div>;
+  </>;
 }
 
-function AccountReadyStep({ state, client, apiProvider, disposableTraceId, busy, onFinish }: {
+function AccountReadyStep({ state, client, disposableTraceId, busy, onFinish }: {
   state: DesktopState;
   client: ClientId;
-  apiProvider: ApiProvider;
   disposableTraceId: string | null;
   busy: boolean;
   onFinish: (destination: View, traceTarget?: TraceTarget) => Promise<void>;
 }) {
-  const clientLabel = client === 'codex' ? 'Codex CLI' : client === 'claude' ? 'Claude Code' : `${apiProvider.name} API or SDK`;
+  const clientLabel = clientLabels[client];
   const notaryLabel = state.sealing_service?.name ?? 'Sealing service';
   const sealingPhase = state.sealing_service_readiness.phase;
   const sealingReady = sealingPhase === 'ready';
@@ -1064,100 +803,36 @@ function AccountReadyStep({ state, client, apiProvider, disposableTraceId, busy,
         : sealingPhase === 'trust_unavailable'
           ? 'Trust needs attention'
           : 'Off';
-  return <div className="wizard-step account-step ready-step">
-    <span className="ready-check"><Check size={23} /></span>
-    <span className="wizard-kicker">Ready</span>
-    <h1>Exalto Capture is ready</h1>
-    <p>Local capture does not require an Exalto account. Connect one now for hosted credits, usage, and account-owned sharing, or continue without it.</p>
-    <div className="ready-summary">
-      <div><span><StatusDot running={state.running} /></span><strong>Local service</strong><small>{state.running ? `Running, capture ${state.capture_enabled ? 'on' : 'off'}` : 'Starting'}</small></div>
-      <div><span><SquareTerminal size={15} /></span><strong>First AI tool</strong><small>{clientLabel}</small></div>
-      <div><span><FileCheck2 size={15} /></span><strong>Sealing service</strong><small>{notaryLabel} · {sealingStatus}</small></div>
-      <div><span><ShieldCheck size={15} /></span><strong>Local vault</strong><small>{vaultProtection(state.vault_mode).label}</small></div>
+  return <>
+    <div className="wizard-step account-step ready-step">
+      <span className="ready-check"><Check size={16} /></span>
+      <h1>Exalto Capture is ready</h1>
+      <p>Local capture does not require an Exalto account. Connect one now for hosted credits, usage, and account-owned sharing, or continue without it.</p>
+      <dl className="ready-summary">
+        <div><span><StatusDot running={state.running} /></span><dt>Local service</dt><dd>{state.running ? `Running, capture ${state.capture_enabled ? 'on' : 'off'}` : 'Off'}</dd></div>
+        <div><span><SquareTerminal size={13} /></span><dt>First AI tool</dt><dd>{clientLabel}</dd></div>
+        <div><span><FileCheck2 size={13} /></span><dt>Sealing service</dt><dd>{notaryLabel} · {sealingStatus}</dd></div>
+        <div><span><ShieldCheck size={13} /></span><dt>Local vault</dt><dd>{vaultProtection(state.vault_mode).label}</dd></div>
+      </dl>
+      {disposableTraceId && <div className={`first-proof-ready ${sealingReady ? '' : 'is-blocked'}`}>
+        <span><BadgeCheck size={15} /></span>
+        {sealingReady
+          ? <div><strong>Your first local Trace is ready to seal</strong><small>Exalto Capture will open this exact test Trace, seal it with {notaryLabel}, and verify the portable proof locally. It will stay private unless you explicitly share it.</small></div>
+          : <div><strong>Your first local Trace will stay private for now</strong><small>{notaryLabel} is {sealingPhase === 'unreachable' ? 'not reachable' : sealingPhase === 'trust_unavailable' ? 'missing trusted endpoint information' : 'still starting'}. Finish setup, then retry the Seal connection before creating a portable proof.</small></div>}
+      </div>}
+      <DesktopAccountCard compact />
     </div>
-    <DesktopAccountCard compact />
-    {disposableTraceId && <div className={`first-proof-ready ${sealingReady ? '' : 'is-blocked'}`}>
-      <span><BadgeCheck size={17} /></span>
-      {sealingReady
-        ? <div><strong>Your first local Trace is ready to seal</strong><small>Exalto Capture will open this exact test Trace, seal it with {notaryLabel}, and verify the portable proof locally. It will stay private unless you explicitly share it.</small></div>
-        : <div><strong>Your first local Trace will stay private for now</strong><small>{notaryLabel} is {sealingPhase === 'unreachable' ? 'not reachable' : sealingPhase === 'trust_unavailable' ? 'missing trusted endpoint information' : 'still starting'}. Finish setup, then retry the Seal connection before creating a portable proof.</small></div>}
-    </div>}
     <div className="wizard-actions split-actions final-actions">
       {disposableTraceId && sealingReady ? <>
-        <button className="mac-button is-primary is-large" type="button" onClick={() => void onFinish('traces', { traceId: disposableTraceId, action: 'first-proof' })} disabled={busy}>{busy ? 'Finishing setup…' : 'Seal and verify test Trace'} <ChevronRight size={15} /></button>
+        <button className="mac-button is-primary is-large" type="button" onClick={() => void onFinish('traces', { traceId: disposableTraceId, action: 'first-proof' })} disabled={busy}>{busy ? 'Finishing setup…' : 'Seal and verify test Trace'}</button>
         <button className="mac-button is-large" type="button" onClick={() => void onFinish('home')} disabled={busy}>Keep it local for now</button>
       </> : disposableTraceId ? <>
-        <button className="mac-button is-primary is-large" type="button" onClick={() => void onFinish('home')} disabled={busy}>{busy ? 'Finishing setup…' : 'Open Capture and retry Seal'} <ChevronRight size={15} /></button>
+        <button className="mac-button is-primary is-large" type="button" onClick={() => void onFinish('home')} disabled={busy}>{busy ? 'Finishing setup…' : 'Open Capture and retry Seal'}</button>
         <button className="mac-button is-large" type="button" onClick={() => void onFinish('traces', { traceId: disposableTraceId })} disabled={busy}>Open test Trace</button>
       </> : <>
-        <button className="mac-button is-primary is-large" type="button" onClick={() => void onFinish('home')} disabled={busy}>{busy ? 'Finishing setup…' : 'Open Capture'} <ChevronRight size={15} /></button>
+        <button className="mac-button is-primary is-large" type="button" onClick={() => void onFinish('home')} disabled={busy}>{busy ? 'Finishing setup…' : 'Open Capture'}</button>
         <button className="mac-button is-large" type="button" onClick={() => void onFinish('traces')} disabled={busy}>Open Traces</button>
       </>}
     </div>
-  </div>;
-}
-
-function OnboardingAside({ step, sealingService, client, apiProvider, useOnboardingApiTest, testStatus }: {
-  step: OnboardingStep;
-  sealingService: OnboardingSealingService;
-  client: ClientId;
-  apiProvider: ApiProvider;
-  useOnboardingApiTest: boolean;
-  testStatus: TestStatus;
-}) {
-  const clientLabel = client === 'codex' ? 'Codex CLI' : client === 'claude' ? 'Claude Code' : `${apiProvider.name} SDK`;
-  const content = {
-    welcome: {
-      label: 'TRACE WORKFLOW',
-      title: 'Local first, portable when you choose',
-      copy: 'Capture keeps a private record on this Mac. Sealing creates a portable .llmtrace. Sharing is always a later explicit action.',
-    },
-    protection: {
-      label: 'LOCAL BOUNDARY',
-      title: 'Full captures are encrypted, previews are separate',
-      copy: 'The reconstructable capture is vault-encrypted. If retained previews are enabled, bounded excerpts stay in local metadata outside that vault.',
-    },
-    notary: {
-      label: 'SEALING BOUNDARY',
-      title: 'The witness sees ciphertext, not the conversation',
-      copy: `${sealingService.name} participates in the provider connection. It receives encrypted protocol data and the upstream hostname, never application plaintext.`,
-    },
-    client: {
-      label: 'CLIENT FIRST',
-      title: useOnboardingApiTest
-        ? `Try ${apiProvider.name} without saving its key`
-        : `${clientLabel} remains the credential owner`,
-      copy: useOnboardingApiTest
-        ? 'The pasted key exists only in this setup session and is used for one ordinary request through the local proxy.'
-        : 'Only its provider base URL changes. The login, API key, model selection, and request continue to be managed by the tool.',
-    },
-    test: {
-      label: 'DISPOSABLE TRACE',
-      title: testStatus === 'captured'
-        ? 'The local route is working'
-        : testStatus === 'unconfirmed'
-          ? 'The provider request succeeded'
-          : 'Prove the path with a tiny request',
-      copy: testStatus === 'unconfirmed'
-        ? 'Open Traces after setup to review the request. Automatic matching was unavailable because response previews are off.'
-        : 'The test is deliberately small. Keep it private, inspect it later, or delete it when you no longer need it.',
-    },
-    account: {
-      label: 'OPTIONAL ACCOUNT',
-      title: 'Capture now, connect hosted services when useful',
-      copy: 'An account enables hosted credits, usage, and account-owned sharing. It does not upload or publish local traces automatically.',
-    },
-  }[step];
-  return <aside className="onboarding-aside">
-    <span className="aside-label">{content.label}</span>
-    <h2>{content.title}</h2>
-    <p>{content.copy}</p>
-    <div className="aside-flow" aria-label="Local capture path">
-      <div className={step === 'client' ? 'is-active' : ''}><span>01</span><strong>{clientLabel}</strong><small>{useOnboardingApiTest ? 'Temporary test key in memory' : 'Login and key managed here'}</small></div>
-      <div className={step === 'protection' || step === 'test' ? 'is-active is-local' : 'is-local'}><span>02</span><strong>Exalto Capture</strong><small>Loopback and private vault</small></div>
-      <div className={step === 'notary' ? 'is-active' : ''}><span>03</span><strong>{sealingService.name}</strong><small>Encrypted witness</small></div>
-      <div><span>04</span><strong>Model provider</strong><small>Authenticated response</small></div>
-    </div>
-    <div className="aside-privacy"><LockKeyhole size={17} /><span>Prompts, responses, and provider credentials are not sent to the sealing service.</span></div>
-  </aside>;
+  </>;
 }

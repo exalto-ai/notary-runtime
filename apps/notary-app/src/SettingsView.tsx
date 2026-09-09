@@ -6,7 +6,7 @@ import {
   type DesktopState,
   type DesktopUpdateState,
 } from './bridge';
-import { updateRestartBlockReason, vaultProtection, type View } from './product';
+import { updateRestartBlockReason, vaultProtection, type View, type WorkspaceView, type TraceConstraint, type TraceTarget } from './product';
 import {
   type DesktopSettingsAction,
   type DesktopSettingsPayload,
@@ -14,6 +14,7 @@ import {
 } from './Shell';
 
 export function SettingsView({
+  route, active, navigationRequest, constraint, traceTarget, onTraceActionConsumed,
   state,
   updateState,
   busy,
@@ -25,6 +26,12 @@ export function SettingsView({
   onNavigate,
   allowLegacyWorkspace,
 }: {
+  route: WorkspaceView;
+  active: boolean;
+  navigationRequest: number;
+  constraint: TraceConstraint | null;
+  traceTarget: TraceTarget | null;
+  onTraceActionConsumed: (traceId: string, action: 'first-proof') => void;
   state: DesktopState;
   updateState: DesktopUpdateState | null;
   busy: string | null;
@@ -78,7 +85,7 @@ export function SettingsView({
     notice: message ?? notice,
   };
 
-  if (!state.running) {
+  if (!state.running && route === 'settings') {
     const restartBlock = updateRestartBlockReason(state);
     const updateBusy = busy === 'update-check' || busy === 'update-install';
     return (
@@ -177,7 +184,15 @@ export function SettingsView({
   return (
     <div className="native-page embedded-settings-page">
       <WorkspaceFrame
-        route="settings"
+        route={route}
+        active={active}
+        navigationRequest={navigationRequest}
+        constraint={constraint}
+        traceTarget={traceTarget}
+        onTraceActionConsumed={onTraceActionConsumed}
+        onStartService={onStartService}
+        serviceStarting={busy === 'service-start'}
+        serviceError={serviceError}
         running={state.running}
         desktopSettings={desktopSettings}
         onDesktopSettingsAction={handleDesktopAction}

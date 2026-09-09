@@ -299,23 +299,6 @@ pub(super) async fn read_sealing_service_readiness(
         .map_err(|error| error.to_string())
 }
 
-pub(super) async fn confirm_disposable_trace_id(
-    baseline_trace_ids: &[String],
-    expected_provider: &str,
-    confirmation_marker: &str,
-    expected_trace_id: &str,
-) -> Result<bool, String> {
-    let trace_client = client()?;
-    let trace_id = trace_client
-        .confirm_disposable_trace(baseline_trace_ids, expected_provider, confirmation_marker)
-        .await
-        .map_err(|error| error.to_string())?;
-    if trace_id.as_deref() != Some(expected_trace_id) {
-        return Ok(false);
-    }
-    Ok(true)
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum DisposableCaptureTarget {
     Managed(u64),
@@ -463,7 +446,6 @@ pub(super) fn product_link(destination: &str) -> Option<&'static str> {
         "openai_key" => Some("https://platform.openai.com/api-keys"),
         "anthropic_key" => Some("https://console.anthropic.com/settings/keys"),
         "openrouter_key" => Some("https://openrouter.ai/settings/keys"),
-        "xai_key" => Some("https://docs.x.ai/developers/quickstart"),
         _ => None,
     }
 }

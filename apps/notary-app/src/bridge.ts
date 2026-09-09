@@ -109,18 +109,6 @@ export type AccountConnectionStarted = {
   state: string;
 };
 
-export type ProviderTestProvider = 'openai' | 'anthropic' | 'openrouter';
-
-export type ProviderCaptureTestResult = {
-  provider: ProviderTestProvider;
-  model: string;
-  marker: string;
-  trace_id: string | null;
-  http_status: number;
-  successful: boolean;
-  captured: boolean;
-};
-
 const emptyCounts: TraceCounts = {
   captured: 0,
   notarizing: 0,
@@ -564,14 +552,26 @@ export async function openAccountLink(url: string): Promise<void> {
   await invoke('open_account_link', { url });
 }
 
+export type AgentTarget = 'codex' | 'claude_cli' | 'claude_desktop';
+export type AgentApps = Record<AgentTarget, boolean>;
+
+export async function detectAgentApps(): Promise<AgentApps> {
+  if (!isTauri()) throw new Error('App detection is available in Exalto Capture for macOS.');
+  return invoke('detect_agent_apps');
+}
+
+export async function openAgentSetup(target: AgentTarget, prompt: string): Promise<void> {
+  if (!isTauri()) throw new Error('Open Exalto Capture for macOS, or copy the prompt into your local AI tool.');
+  await invoke('open_agent_setup', { target, prompt });
+}
+
 export type ProductLinkDestination =
   | 'public_traces'
   | 'guide'
   | 'report'
   | 'openai_key'
   | 'anthropic_key'
-  | 'openrouter_key'
-  | 'xai_key';
+  | 'openrouter_key';
 
 export async function openProductLink(destination: ProductLinkDestination): Promise<void> {
   if (!isTauri()) {
@@ -582,41 +582,9 @@ export async function openProductLink(destination: ProductLinkDestination): Prom
       openai_key: 'https://platform.openai.com/api-keys',
       anthropic_key: 'https://console.anthropic.com/settings/keys',
       openrouter_key: 'https://openrouter.ai/settings/keys',
-      xai_key: 'https://docs.x.ai/developers/quickstart',
     } as const;
     window.open(routes[destination], '_blank', 'noopener,noreferrer');
     return;
   }
   await invoke('open_product_link', { destination });
-}
-
-export async function runProviderCaptureTest(
-  provider: ProviderTestProvider,
-  model: string,
-  marker: string,
-  apiKey: string,
-  baselineTraceIds: string[],
-  leaseId: string,
-): Promise<ProviderCaptureTestResult> {
-  if (!isTauri()) {
-    await new Promise((resolve) => window.setTimeout(resolve, 250));
-    const captured = new URLSearchParams(window.location.search).get('test-result') !== 'unconfirmed';
-    return {
-      provider,
-      model,
-      marker,
-      trace_id: captured ? 'trc-browser-disposable-test' : null,
-      http_status: 200,
-      successful: true,
-      captured,
-    };
-  }
-  return invoke<ProviderCaptureTestResult>('run_provider_capture_test', {
-    provider,
-    model,
-    marker,
-    apiKey,
-    baselineTraceIds,
-    leaseId,
-  });
 }

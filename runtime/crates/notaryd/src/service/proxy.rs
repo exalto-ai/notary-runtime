@@ -1128,8 +1128,20 @@ async fn proxy_inner(state: AppState, request: Request) -> Result<Response> {
     // caller. `Host` is connection-specific here because we create a new
     // upstream connection rather than forwarding the caller's one.
     outbound_headers.remove(http::header::HOST);
+    // Built-in clients require capture. Never silently bill a direct request
+    // if capture was switched off between their readiness check and dispatch.
+    let require_capture = outbound_headers
+        .remove("x-exalto-require-capture")
+        .is_some();
     let capture_enabled = state.capture_mode.snapshot().await?;
     if !capture_enabled {
+        if require_capture {
+            let mut response = Response::new(Body::from(
+                r#"{"error":{"message":"Capture is off. Enable capture before sending."}}"#,
+            ));
+            *response.status_mut() = StatusCode::CONFLICT;
+            return Ok(response);
+        }
         tracing::info!(
             provider = host,
             "forwarding provider request without capture"
@@ -2357,6 +2369,26 @@ mod tests {
             .await
             .unwrap_err();
         assert!(error.to_string().contains("maximum attestable HTTP budget"));
+    }
+
+    #[tokio::test]
+    async fn required_capture_never_falls_back_to_a_direct_paid_request() {
+        let state = state();
+        state.capture_mode.set_enabled(false).await.unwrap();
+        let request = Request::post("/openai/v1/responses")
+            .header("authorization", "Bearer offline-secret")
+            .header("x-exalto-require-capture", "1")
+            .body(Body::from("{}"))
+            .unwrap();
+        let response = proxy_inner(state.clone(), request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert!(response.headers().get("x-notary-trace-id").is_none());
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(!String::from_utf8_lossy(&body).contains("offline-secret"));
+        assert_eq!(
+            state.persistence.metadata.counts().await.unwrap().captured,
+            0
+        );
     }
 
     #[tokio::test]

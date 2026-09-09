@@ -1,306 +1,365 @@
+/* Exalto Capture setup.
+ *
+ * Two surfaces, one job each. A dark rail repeats the app's own sidebar
+ * geometry and carries the setup ledger: the steps, and the decision each
+ * finished step recorded. A single paper sheet carries the work, with the
+ * primary action always parked on a fixed footer so a 980x680 window never
+ * hides it. Setup deliberately runs in light mode; it is a first-run sheet,
+ * not a workspace. */
+
 .exalto-onboarding {
-  --capture-paper: #f5f3ec;
-  --capture-paper-deep: #ebe8dd;
-  --capture-ink: #1a2233;
-  --capture-night: #0c1622;
-  --capture-blue: #1e4a73;
-  --capture-blue-hover: #173b5d;
-  --capture-blue-soft: #dce6ed;
-  --capture-green: #0e8f5d;
-  --capture-green-soft: #dcece4;
-  --capture-red: #b3402a;
-  --capture-rule: rgba(26, 34, 51, .14);
-  --capture-muted: #6d7482;
-  --capture-ink-soft: #465166;
-  --capture-display-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
-  --capture-body-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  --capture-mono-font: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas, monospace;
-  --window: var(--capture-paper);
-  --sidebar: var(--capture-night);
-  --surface: #fffdf7;
-  --surface-secondary: var(--capture-paper-deep);
-  --surface-hover: #efece3;
-  --text: var(--capture-ink);
-  --secondary: var(--capture-muted);
-  --tertiary: #7e8588;
-  --separator: var(--capture-rule);
-  --separator-soft: rgba(26, 34, 51, .13);
-  --blue: var(--capture-blue);
-  --blue-hover: var(--capture-blue-hover);
-  --blue-soft: var(--capture-blue-soft);
-  --green: var(--capture-green);
-  --red: var(--capture-red);
-  color: var(--capture-ink);
+  --window: #f5f3ec;
+  --surface: #fdfcf7;
+  --surface-secondary: #ebe8dd;
+  --surface-hover: rgba(30, 74, 115, .06);
+  --text: #1a2233;
+  --secondary: #465166;
+  --tertiary: #6d7482;
+  --separator: rgba(26, 34, 51, .14);
+  --separator-soft: rgba(26, 34, 51, .08);
+  --blue: #1e4a73;
+  --blue-hover: #16395a;
+  --blue-soft: rgba(30, 74, 115, .1);
+  --green: #0e8f5d;
+  --green-soft: rgba(14, 143, 93, .09);
+  --orange: #8d551e;
+  --orange-soft: rgba(168, 101, 38, .09);
+  --orange-rule: rgba(168, 101, 38, .34);
+  --red: #b3402a;
+  --red-soft: rgba(179, 64, 42, .08);
+  --night: #0c1622;
+  --night-rule: rgba(255, 255, 255, .1);
+  --night-ink: #f5f3ec;
+  --night-muted: #9aa8b7;
+  --phosphor: #35e39b;
+  --column: 640px;
+  --gutter: max(24px, calc((100% - var(--column)) / 2));
+  color: var(--text);
   color-scheme: light;
-  background: var(--capture-paper);
-  font-family: var(--capture-body-font);
+  background: var(--surface);
+  font: 400 var(--text-body)/1.5 var(--font-text);
 }
 
 .exalto-onboarding.onboarding-window {
-  grid-template-rows: 48px 3px minmax(0, 1fr);
-  background: var(--capture-paper);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: 232px minmax(0, 1fr);
+  background: var(--surface);
 }
 
-.exalto-onboarding .onboarding-toolbar {
-  padding-right: 18px;
-  border-color: var(--capture-rule);
-  background: rgba(245, 243, 236, .96);
+.exalto-onboarding button:focus-visible,
+.exalto-onboarding input:focus-visible,
+.exalto-onboarding textarea:focus-visible,
+.exalto-onboarding summary:focus-visible,
+.exalto-onboarding label:focus-within {
+  outline: 3px solid rgba(30, 74, 115, .42);
+  outline-offset: 1px;
 }
 
-.exalto-onboarding .onboarding-brand {
-  position: absolute;
-  left: 50%;
+/* The setup ledger rail */
+
+.setup-rail {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--night-rule);
+  background: var(--night);
+  color: var(--night-ink);
+}
+
+.setup-rail-drag { height: 44px; flex: 0 0 44px; }
+
+.setup-brand {
   display: flex;
   align-items: center;
-  gap: 9px;
-  color: var(--capture-ink);
-  font-size: 13px;
-  font-weight: 650;
-  transform: translateX(-50%);
-  pointer-events: none;
+  gap: 10px;
+  padding: 6px 17px 26px;
 }
 
-.exalto-onboarding .onboarding-brand img {
-  width: 19px;
-  height: 19px;
-  border-radius: 4px;
+.setup-brand img {
+  width: 27px;
+  height: 27px;
+  border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 5px;
 }
 
-.exalto-onboarding .onboarding-window-context,
-.exalto-onboarding .wizard-kicker,
-.exalto-onboarding .aside-label,
-.exalto-onboarding .instruction-heading > span,
-.exalto-onboarding .choice-status,
-.exalto-onboarding .notary-boundary span,
-.exalto-onboarding .test-prompt-receipt > span {
-  font-family: var(--capture-body-font);
-  letter-spacing: .055em;
+.setup-brand strong {
+  color: var(--night-ink);
+  font: 640 var(--text-section)/1.1 var(--font-display);
+  letter-spacing: -.012em;
 }
 
-.exalto-onboarding .onboarding-window-context {
-  color: var(--capture-muted);
-  font-size: 11px;
-  font-weight: 600;
+.setup-rail-label {
+  padding: 0 18px 9px;
+  color: var(--night-muted);
+  font: 600 var(--text-caption)/1.2 var(--font-text);
+  letter-spacing: .09em;
+  text-transform: uppercase;
 }
 
-.exalto-onboarding .onboarding-close {
-  margin-left: 10px;
-  min-height: 30px;
-  padding: 5px 10px;
-  border: 1px solid var(--capture-rule);
-  border-radius: 2px;
-  background: transparent;
-  color: var(--capture-ink);
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.exalto-onboarding .onboarding-close:hover {
-  border-color: var(--capture-blue);
-  background: var(--capture-blue-soft);
-}
-
-.exalto-onboarding .onboarding-close:disabled {
-  opacity: .48;
-}
-
-.exalto-onboarding .onboarding-progress {
-  grid-template-columns: repeat(6, 1fr);
+.setup-ledger {
+  display: grid;
   gap: 2px;
-  background: var(--capture-rule);
+  margin: 0;
+  padding: 0 11px;
+  list-style: none;
 }
 
-.exalto-onboarding .onboarding-progress span {
-  background: var(--capture-paper-deep);
+.setup-ledger li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  min-height: 38px;
+  padding: 7px 8px;
+  border-radius: 4px;
+  color: var(--night-muted);
 }
 
-.exalto-onboarding .onboarding-progress span.is-complete {
-  background: var(--capture-blue);
+.setup-ledger li.is-current {
+  background: rgba(255, 255, 255, .1);
+  color: #fff;
+  box-shadow: inset 2px 0 0 var(--phosphor);
 }
 
-.exalto-onboarding .onboarding-body {
-  grid-template-columns: minmax(650px, 1.72fr) minmax(340px, .62fr);
-  grid-template-rows: minmax(0, 1fr);
-  background: var(--capture-paper);
+.ledger-mark {
+  display: grid;
+  grid-row: span 2;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  align-self: center;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 3px;
+  font: 500 10px/1 var(--font-code);
 }
+
+.setup-ledger li.is-done .ledger-mark {
+  border-color: rgba(53, 227, 155, .45);
+  color: var(--phosphor);
+}
+
+.setup-ledger li.is-current .ledger-mark {
+  border-color: rgba(255, 255, 255, .5);
+  color: #fff;
+}
+
+.ledger-name { font: 500 var(--text-label)/1.3 var(--font-text); }
+
+.ledger-value {
+  grid-column: 2;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--night-muted);
+  font-size: var(--text-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-ledger li.is-current .ledger-value { color: #cbd6e1; }
+
+/* The work sheet */
 
 .exalto-onboarding .onboarding-content {
-  padding: 34px 48px 30px;
-  background: var(--capture-paper);
-  scrollbar-color: var(--capture-rule) transparent;
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 44px minmax(0, 1fr) auto auto;
+  overflow: hidden;
+  padding: 0;
+  background: var(--surface);
 }
 
-.exalto-onboarding .onboarding-content.is-client-step {
-  display: grid;
-  min-height: 0;
-  grid-template-rows: minmax(0, 1fr) auto auto;
-  overflow: hidden;
-  padding-bottom: 0;
+.setup-bar {
+  display: flex;
+  grid-row: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px 0 20px;
+}
+
+.setup-bar-step {
+  color: var(--tertiary);
+  font-size: var(--text-caption);
 }
 
 .exalto-onboarding .back-button {
-  top: 14px;
-  left: 18px;
-  color: var(--capture-muted);
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 8px 5px 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--secondary);
+  font: 500 var(--text-label)/1.2 var(--font-text);
 }
 
 .exalto-onboarding .back-button:hover:not(:disabled) {
-  color: var(--capture-blue);
+  background: var(--surface-hover);
+  color: var(--blue);
 }
 
-.exalto-onboarding .wizard-step {
-  width: min(740px, 100%);
-  justify-content: center;
-  padding: 18px 0 22px;
+.exalto-onboarding .onboarding-close {
+  min-height: 26px;
+  padding: 0 11px;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: 500 var(--text-label)/1.2 var(--font-text);
 }
 
-.exalto-onboarding .client-step {
-  display: contents;
+.exalto-onboarding .onboarding-close:hover:not(:disabled) {
+  border-color: rgba(30, 74, 115, .4);
+  color: var(--blue);
 }
 
-.exalto-onboarding .client-step-scroll {
+.exalto-onboarding .onboarding-close:disabled { opacity: .45; }
+
+.exalto-onboarding > .onboarding-content > .wizard-step {
+  display: block;
+  grid-row: 2;
+  width: auto;
   min-height: 0;
-  height: 100%;
-  max-height: 100%;
-  padding: 18px 8px 20px 0;
   overflow: auto;
-  scrollbar-color: var(--capture-rule) transparent;
-}
-
-.exalto-onboarding .client-step-scroll > p {
-  max-width: 700px;
-  margin-top: 12px;
-  color: var(--capture-ink-soft);
-  font: 400 16px/1.55 var(--capture-body-font);
-}
-
-.exalto-onboarding .client-step-error {
-  width: min(740px, 100%);
   margin: 0;
-  border-bottom: 0;
+  padding: 4px var(--gutter) 28px;
+  scrollbar-color: var(--separator) transparent;
 }
 
-.exalto-onboarding .wizard-kicker {
-  color: var(--capture-blue);
-  font-size: 11px;
-  font-weight: 700;
-}
+.exalto-onboarding .wizard-step > * { margin-top: 18px; }
+.exalto-onboarding .wizard-step > :first-child { margin-top: 0; }
+.exalto-onboarding .wizard-step > h1 { margin-top: 0; }
+.exalto-onboarding .wizard-step > p { margin-top: 8px; }
+.exalto-onboarding .wizard-step > .advanced-options-toggle { margin-top: 12px; }
 
 .exalto-onboarding .wizard-step h1 {
-  max-width: 720px;
-  margin-top: 10px;
-  color: var(--capture-ink);
-  font-family: var(--capture-display-font);
-  font-size: clamp(31px, 3vw, 38px);
-  font-weight: 650;
-  letter-spacing: -.02em;
-  line-height: 1.08;
+  max-width: 34ch;
+  color: var(--text);
+  font: 650 var(--text-section)/1.25 var(--font-display);
+  letter-spacing: -.015em;
 }
 
 .exalto-onboarding .wizard-step > p {
-  max-width: 700px;
-  margin-top: 12px;
-  color: var(--capture-ink-soft);
-  font: 400 16px/1.55 var(--capture-body-font);
+  max-width: 62ch;
+  color: var(--secondary);
+  font: 400 var(--text-body)/1.55 var(--font-text);
 }
 
-.exalto-onboarding p {
-  font-family: var(--capture-body-font);
+/* The cover step is centred; every working step starts at the top so the
+   heading never moves between them. */
+.exalto-onboarding > .onboarding-content > .welcome-step {
+  display: flex;
+  flex-direction: column;
+  justify-content: safe center;
+  padding-bottom: 34px;
 }
 
-.exalto-onboarding .wizard-actions {
-  gap: 10px;
-  margin-top: 24px;
-  padding-top: 0;
+.exalto-onboarding .welcome-step h1 {
+  font-size: var(--text-title);
+  letter-spacing: -.028em;
+  line-height: 1.12;
 }
 
-.exalto-onboarding .wizard-actions.client-step-actions {
-  width: min(740px, 100%);
-  margin: 0 auto;
-  padding: 14px 0 18px;
-  border-top: 1px solid var(--capture-rule);
-  background: var(--capture-paper);
+.exalto-onboarding .welcome-step > p { font-size: var(--text-lead); }
+
+/* Footer: the error and the actions never scroll away. */
+
+.exalto-onboarding > .onboarding-content > .onboarding-error {
+  grid-row: 3;
+  width: auto;
+  margin: 0;
+  padding: 10px var(--gutter);
+  border: 0;
+  border-top: 1px solid var(--red-soft);
+  border-radius: 0;
+  background: var(--red-soft);
+  color: var(--red);
+  font-size: var(--text-label);
+  line-height: 1.45;
+}
+
+.exalto-onboarding > .onboarding-content > .wizard-actions {
+  display: flex;
+  grid-row: 4;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 13px var(--gutter);
+  border-top: 1px solid var(--separator);
+  background: var(--surface);
 }
 
 .exalto-onboarding .mac-button {
-  min-height: 40px;
-  border: 1px solid var(--capture-rule);
-  border-radius: 5px;
-  background: #fffdf7;
+  min-height: 30px;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--surface);
   box-shadow: none;
-  color: var(--capture-ink);
-  font: 600 13px/1.2 var(--capture-body-font);
+  color: var(--text);
+  font: 500 var(--text-label)/1.2 var(--font-text);
 }
 
 .exalto-onboarding .mac-button:hover:not(:disabled) {
-  border-color: var(--capture-blue);
-  background: #fffdf7;
-  color: var(--capture-blue);
+  border-color: rgba(30, 74, 115, .4);
+  background: var(--window);
+  color: var(--blue);
+}
+
+.exalto-onboarding .mac-button.is-large {
+  min-height: 34px;
+  padding-inline: 16px;
+  font: 600 var(--text-body)/1.2 var(--font-text);
 }
 
 .exalto-onboarding .mac-button.is-primary,
 .exalto-onboarding .mac-button.is-primary:hover:not(:disabled) {
-  border-color: var(--capture-blue);
-  background: var(--capture-blue);
+  border-color: var(--blue);
+  background: var(--blue);
   color: #fff;
 }
 
 .exalto-onboarding .mac-button.is-primary:hover:not(:disabled) {
-  background: var(--capture-blue-hover);
+  border-color: var(--blue-hover);
+  background: var(--blue-hover);
 }
 
-.exalto-onboarding .capture-workflow {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  margin-top: 26px;
-  border: 1px solid var(--capture-rule);
-  background: #fffdf7;
-}
-
-.exalto-onboarding .capture-workflow div {
-  display: grid;
-  min-height: 70px;
-  align-content: center;
-  gap: 5px;
-  padding: 12px 14px;
-}
-
-.exalto-onboarding .capture-workflow div + div {
-  border-left: 1px solid var(--capture-rule);
-}
-
-.exalto-onboarding .capture-workflow span {
-  color: var(--capture-blue);
-  font: 600 11px var(--capture-body-font);
-}
-
-.exalto-onboarding .capture-workflow strong {
-  font-size: 13px;
-  font-weight: 650;
-}
+/* Welcome: one sample record, nothing else. */
 
 .exalto-onboarding .trace-receipt {
-  width: min(620px, 100%);
-  margin: 22px 0 0;
-  border: 1px solid var(--capture-ink);
-  background: #fffdf7;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--window);
 }
 
 .exalto-onboarding .trace-receipt figcaption {
   display: flex;
+  min-height: 32px;
   align-items: center;
   justify-content: space-between;
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--capture-ink);
-  font: 600 11px var(--capture-body-font);
-  letter-spacing: .04em;
+  padding: 0 13px;
+  border-bottom: 1px solid var(--separator);
+  background: var(--surface);
 }
 
 .exalto-onboarding .trace-receipt figcaption span {
   display: flex;
   align-items: center;
   gap: 5px;
-  color: var(--capture-red);
+  color: var(--red);
+  font: 600 var(--text-caption)/1 var(--font-text);
+  letter-spacing: .09em;
+}
+
+.exalto-onboarding .trace-receipt figcaption code {
+  color: var(--tertiary);
+  font: 500 var(--text-caption)/1 var(--font-code);
+  letter-spacing: .08em;
 }
 
 .exalto-onboarding .trace-receipt dl {
@@ -311,305 +370,413 @@
 
 .exalto-onboarding .trace-receipt dl div {
   display: grid;
-  gap: 5px;
-  padding: 13px 14px;
-  border-bottom: 1px solid var(--capture-rule);
+  gap: 3px;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--separator-soft);
 }
 
 .exalto-onboarding .trace-receipt dl div:nth-child(even) {
-  border-left: 1px solid var(--capture-rule);
+  border-left: 1px solid var(--separator-soft);
 }
 
 .exalto-onboarding .trace-receipt dt {
-  color: var(--capture-muted);
-  font: 600 11px var(--capture-body-font);
+  color: var(--tertiary);
+  font: 600 var(--text-caption)/1.2 var(--font-text);
+  letter-spacing: .06em;
   text-transform: uppercase;
 }
 
 .exalto-onboarding .trace-receipt dd {
   margin: 0;
-  font-size: 12px;
-  font-weight: 650;
+  font: 500 var(--text-label)/1.35 var(--font-text);
 }
 
 .exalto-onboarding .trace-receipt > p {
   margin: 0;
-  padding: 11px 14px;
-  color: var(--capture-muted);
-  font-size: 12px;
+  padding: 9px 13px;
+  color: var(--tertiary);
+  font-size: var(--text-caption);
   line-height: 1.5;
 }
 
-.exalto-onboarding .protection-options,
-.exalto-onboarding .client-picker {
+/* Choices: one bordered group, rule-separated rows. */
+
+.exalto-onboarding .protection-options {
   display: grid;
   gap: 0;
-  margin-top: 23px;
-  border: 1px solid var(--capture-rule);
-  background: #fffdf7;
-}
-
-.exalto-onboarding .protection-options > button,
-.exalto-onboarding .client-picker > button {
-  display: grid;
-  width: 100%;
-  min-height: 76px;
-  align-items: center;
-  gap: 12px;
-  padding: 13px 15px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--capture-ink);
-  text-align: left;
+  overflow: hidden;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--surface);
 }
 
 .exalto-onboarding .protection-options > button {
-  grid-template-columns: 14px 22px minmax(0, 1fr);
+  display: grid;
+  width: 100%;
+  min-height: 58px;
+  grid-template-columns: 13px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
 }
 
-.exalto-onboarding .client-picker > button {
-  grid-template-columns: 14px minmax(0, 1fr) auto;
+.exalto-onboarding .protection-options > button + button {
+  border-top: 1px solid var(--separator-soft);
 }
 
-.exalto-onboarding .protection-options > button + button,
-.exalto-onboarding .client-picker > button + button {
-  border-top: 1px solid var(--capture-rule);
-}
-
-.exalto-onboarding .protection-options > button:hover,
-.exalto-onboarding .client-picker > button:hover,
-.exalto-onboarding .protection-options > button.is-selected,
-.exalto-onboarding .client-picker > button.is-selected {
-  background: var(--capture-blue-soft);
-}
+.exalto-onboarding .protection-options > button:hover:not(.is-selected) { background: var(--surface-hover); }
+.exalto-onboarding .protection-options > button.is-selected { background: var(--blue-soft); }
 
 .exalto-onboarding .radio-mark {
   display: grid;
   width: 13px;
   height: 13px;
   place-items: center;
-  border: 1px solid var(--capture-muted);
+  margin-top: 2px;
+  border: 1px solid var(--tertiary);
   border-radius: 50%;
+  background: var(--surface);
 }
 
 .exalto-onboarding .radio-mark > span {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--capture-blue);
+  background: var(--blue);
 }
 
-.exalto-onboarding .protection-options strong,
-.exalto-onboarding .client-picker strong {
-  font-size: 13px;
+.exalto-onboarding .protection-options strong {
+  display: block;
+  font: 600 var(--text-body)/1.3 var(--font-text);
 }
 
-.exalto-onboarding .protection-options p,
-.exalto-onboarding .client-picker p {
-  margin-top: 4px;
-  color: var(--capture-muted);
-  font-size: 11.5px;
+.exalto-onboarding .protection-options p {
+  margin-top: 3px;
+  color: var(--secondary);
+  font-size: var(--text-label);
   line-height: 1.45;
-}
-
-.exalto-onboarding .client-picker > button > small {
-  color: var(--capture-blue);
-  font: 600 11px/1.3 var(--capture-body-font);
-  text-transform: uppercase;
 }
 
 .exalto-onboarding .advanced-options-toggle {
-  margin-top: 13px;
-  color: var(--capture-blue);
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 5px;
+  padding: 4px 7px 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font: 500 var(--text-label)/1.2 var(--font-text);
 }
 
+.exalto-onboarding .advanced-options-toggle:hover { color: var(--blue-hover); }
+.exalto-onboarding .advanced-options-toggle svg { transition: transform 140ms ease; }
+.exalto-onboarding .advanced-options-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+
 .exalto-onboarding .passphrase-fields {
-  border-color: var(--capture-rule);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.exalto-onboarding .passphrase-fields label { display: grid; gap: 5px; }
+
+.exalto-onboarding .passphrase-fields label span {
+  color: var(--secondary);
+  font: 500 var(--text-label)/1.2 var(--font-text);
 }
 
 .exalto-onboarding .passphrase-fields input {
-  border-radius: 2px;
-  background: #fffdf7;
-  color: var(--capture-ink);
-}
-
-.exalto-onboarding .passphrase-fields label span {
-  font-size: 12px;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-body);
 }
 
 .exalto-onboarding .passphrase-mismatch {
-  font-size: 11.5px;
-  line-height: 1.45;
+  grid-column: 1 / -1;
+  color: var(--red);
+  font-size: var(--text-label);
 }
 
 .exalto-onboarding .configured-protection {
-  margin-top: 24px;
-  padding: 16px;
-  border: 1px solid var(--capture-green);
-  border-radius: 0;
-  background: var(--capture-green-soft);
-  color: var(--capture-green);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(14, 143, 93, .34);
+  border-radius: 4px;
+  background: var(--green-soft);
 }
 
-.exalto-onboarding .wizard-warning {
-  border: 1px solid #d5a366;
-  border-radius: 0;
-  background: #f7ead7;
-  color: #8d551e;
-  font-size: 11.5px;
+.exalto-onboarding .configured-protection svg { margin-top: 1px; color: var(--green); }
+.exalto-onboarding .configured-protection strong,
+.exalto-onboarding .configured-protection span { display: block; }
+.exalto-onboarding .configured-protection strong { font-size: var(--text-body); font-weight: 600; }
+
+.exalto-onboarding .configured-protection span {
+  margin-top: 3px;
+  color: var(--secondary);
+  font-size: var(--text-label);
+}
+
+/* Quiet facts and real problems read differently. */
+
+.exalto-onboarding .wizard-note {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid var(--separator-soft);
+  border-radius: 4px;
+  background: var(--window);
+  color: var(--secondary);
+  font-size: var(--text-label);
   line-height: 1.5;
 }
 
+.exalto-onboarding .wizard-note svg { margin-top: 2px; color: var(--tertiary); }
+
+.exalto-onboarding .wizard-warning {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--orange-rule);
+  border-radius: 4px;
+  background: var(--orange-soft);
+  color: var(--orange);
+  font-size: var(--text-label);
+  line-height: 1.5;
+}
+
+.exalto-onboarding .wizard-warning svg { margin-top: 2px; }
+
+.exalto-onboarding .credential-capture-note code {
+  color: inherit;
+  font-family: var(--font-code);
+  font-size: .95em;
+}
+
+/* Sealing service */
+
 .exalto-onboarding .notary-choice {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  margin-top: 24px;
-  padding: 16px;
-  border: 1px solid var(--capture-blue);
-  background: var(--capture-blue-soft);
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--window);
 }
 
 .exalto-onboarding .notary-choice-mark {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
   place-items: center;
-  background: var(--capture-blue);
+  border-radius: 3px;
+  background: var(--blue);
   color: #fff;
 }
 
-.exalto-onboarding .notary-choice strong {
-  font-size: 13px;
-}
+.exalto-onboarding .notary-choice strong { font: 600 var(--text-body)/1.3 var(--font-text); }
 
 .exalto-onboarding .notary-choice p {
-  margin-top: 5px;
-  color: var(--capture-muted);
-  font-size: 11.5px;
+  margin-top: 4px;
+  color: var(--secondary);
+  font-size: var(--text-label);
   line-height: 1.45;
 }
 
 .exalto-onboarding .choice-status {
-  color: var(--capture-blue);
-  font-size: 11px;
+  color: var(--blue);
+  font: 600 var(--text-caption)/1.6 var(--font-text);
   font-style: normal;
-  font-weight: 700;
+  letter-spacing: .06em;
   text-transform: uppercase;
-}
-
-.exalto-onboarding .advanced-notaries {
-  margin-top: 8px;
-  border: 1px solid var(--capture-rule);
-  background: #fffdf7;
-}
-
-.exalto-onboarding .advanced-notaries > div {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-  min-height: 62px;
-  padding: 11px 14px;
-}
-
-.exalto-onboarding .advanced-notaries > div + div {
-  border-top: 1px solid var(--capture-rule);
-}
-
-.exalto-onboarding .advanced-notaries strong,
-.exalto-onboarding .advanced-notaries small {
-  display: block;
-}
-
-.exalto-onboarding .advanced-notaries strong {
-  font-size: 12px;
-}
-
-.exalto-onboarding .advanced-notaries small {
-  margin-top: 3px;
-  color: var(--capture-muted);
-  font-size: 11px;
-}
-
-.exalto-onboarding .advanced-notaries em {
-  color: var(--capture-muted);
-  font: 600 11px var(--capture-body-font);
-  font-style: normal;
-  text-transform: uppercase;
-}
-
-.exalto-onboarding .advanced-notaries > p {
-  margin: 0;
-  padding: 10px 14px;
-  border-top: 1px solid var(--capture-rule);
-  color: var(--capture-muted);
-  font-size: 11.5px;
-  line-height: 1.5;
 }
 
 .exalto-onboarding .notary-boundary {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  margin-top: 18px;
-  border: 1px solid var(--capture-rule);
+  overflow: hidden;
+  margin: 16px 0 0;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
 }
 
 .exalto-onboarding .notary-boundary div {
   display: grid;
-  min-height: 68px;
-  gap: 6px;
-  padding: 13px 14px;
+  align-content: start;
+  gap: 5px;
+  padding: 11px 13px;
 }
 
-.exalto-onboarding .notary-boundary div + div {
-  border-left: 1px solid var(--capture-rule);
+.exalto-onboarding .notary-boundary div + div { border-left: 1px solid var(--separator-soft); }
+
+.exalto-onboarding .notary-boundary dt {
+  color: var(--tertiary);
+  font: 600 var(--text-caption)/1.2 var(--font-text);
+  letter-spacing: .06em;
+  text-transform: uppercase;
 }
 
-.exalto-onboarding .notary-boundary span {
-  color: var(--capture-blue);
-  font-size: 11px;
-  font-weight: 700;
+.exalto-onboarding .notary-boundary dd {
+  margin: 0;
+  font: 500 var(--text-label)/1.4 var(--font-text);
 }
 
-.exalto-onboarding .notary-boundary strong {
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.4;
+.exalto-onboarding .advanced-notaries {
+  overflow: hidden;
+  margin-top: 8px;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--window);
 }
+
+.exalto-onboarding .advanced-notaries > div {
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 13px;
+}
+
+.exalto-onboarding .advanced-notaries > div + div { border-top: 1px solid var(--separator-soft); }
+.exalto-onboarding .advanced-notaries svg { color: var(--tertiary); }
+.exalto-onboarding .advanced-notaries strong,
+.exalto-onboarding .advanced-notaries small { display: block; }
+.exalto-onboarding .advanced-notaries strong { font: 600 var(--text-label)/1.3 var(--font-text); }
+
+.exalto-onboarding .advanced-notaries small {
+  margin-top: 2px;
+  color: var(--tertiary);
+  font-size: var(--text-caption);
+}
+
+.exalto-onboarding .advanced-notaries em {
+  color: var(--tertiary);
+  font: 600 var(--text-caption)/1.2 var(--font-text);
+  font-style: normal;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.exalto-onboarding .advanced-notaries > p {
+  margin: 0;
+  padding: 10px 13px;
+  border-top: 1px solid var(--separator-soft);
+  color: var(--tertiary);
+  font-size: var(--text-caption);
+  line-height: 1.5;
+}
+
+/* Where to chat */
+
+.exalto-onboarding .client-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.exalto-onboarding .client-picker > button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--secondary);
+  font: 500 var(--text-body)/1.2 var(--font-text);
+}
+
+.exalto-onboarding .client-picker > button + button { border-left: 1px solid var(--separator); }
+
+.exalto-onboarding .client-picker > button:hover:not(:disabled):not(.is-selected) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.exalto-onboarding .client-picker > button.is-selected {
+  background: var(--blue);
+  color: #fff;
+}
+
+.exalto-onboarding .harness-description {
+  margin-top: 10px;
+  color: var(--secondary);
+  font-size: var(--text-label);
+  line-height: 1.5;
+}
+
+.exalto-onboarding .provider-connections {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--separator);
+}
+
+/* Agent hand-off panel */
 
 .exalto-onboarding .connection-instructions {
-  margin-top: 16px;
-  border: 1px solid var(--capture-rule);
-  border-radius: 3px;
-  background: #fffdf7;
   overflow: hidden;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--window);
 }
 
 .exalto-onboarding .instruction-heading {
   display: flex;
+  min-height: 34px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 42px;
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--capture-rule);
+  padding: 7px 13px;
+  border-bottom: 1px solid var(--separator-soft);
+  background: var(--surface);
 }
 
 .exalto-onboarding .instruction-heading > span {
-  color: var(--capture-blue);
-  font-size: 11px;
-  font-weight: 700;
+  color: var(--blue);
+  font: 600 var(--text-caption)/1.3 var(--font-text);
+  letter-spacing: .06em;
 }
 
 .exalto-onboarding .instruction-heading > strong {
-  color: var(--capture-muted);
-  font-size: 11px;
-  font-weight: 600;
+  color: var(--tertiary);
+  font: 500 var(--text-caption)/1.3 var(--font-text);
   text-align: right;
+}
+
+.exalto-onboarding .connection-instructions p {
+  margin: 0;
+  padding: 9px 13px;
+  color: var(--secondary);
+  font-size: var(--text-label);
+  line-height: 1.5;
+}
+
+.exalto-onboarding .connection-instructions p code,
+.exalto-onboarding .api-key-instructions dd code {
+  color: var(--text);
+  font: 400 var(--text-label)/1.5 var(--font-code);
 }
 
 .exalto-onboarding .connection-instructions pre {
@@ -618,167 +785,122 @@
   padding: 11px 13px;
   overflow: auto;
   border: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, .13);
   border-radius: 0;
-  background: var(--capture-night);
-  color: #f5f3ec;
+  background: var(--night);
+  color: #e7e4d9;
   white-space: pre-wrap;
 }
 
 .exalto-onboarding .connection-instructions pre code {
   color: inherit;
-  font: 500 11px/1.55 var(--capture-mono-font);
-}
-
-.exalto-onboarding .connection-instructions > p {
-  margin: 0;
-  padding: 10px 12px;
-  color: var(--capture-ink-soft);
-  font-size: 12.5px;
-  line-height: 1.52;
+  font: 400 var(--text-label)/1.55 var(--font-code);
 }
 
 .exalto-onboarding .connection-instructions > p + pre,
 .exalto-onboarding .connection-instructions > pre + p {
-  border-top: 1px solid var(--capture-rule);
+  border-top: 1px solid var(--separator-soft);
 }
 
-.exalto-onboarding .connection-instructions p code,
-.exalto-onboarding .api-key-instructions dd code {
-  color: var(--capture-ink);
-  font: 600 11px var(--capture-mono-font);
+.exalto-onboarding .agent-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 13px;
+}
+
+.exalto-onboarding .agent-setup details {
+  margin: 10px 13px;
+  padding-top: 10px;
+  border-top: 1px solid var(--separator-soft);
+}
+
+.exalto-onboarding .agent-setup details p { margin: 10px 0; padding: 0; }
+
+.exalto-onboarding .agent-setup summary {
+  color: var(--blue);
+  cursor: pointer;
+  font: 500 var(--text-label)/1.3 var(--font-text);
+}
+
+.exalto-onboarding .agent-setup textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 150px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: 400 var(--text-label)/1.55 var(--font-text);
+  resize: vertical;
 }
 
 .exalto-onboarding .api-provider-picker {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  margin-top: 16px;
-  border: 1px solid var(--capture-rule);
-  border-radius: 3px 3px 0 0;
+  grid-template-columns: repeat(3, 1fr);
   overflow: hidden;
+  margin-top: 16px;
+  border: 1px solid var(--separator);
+  border-radius: 4px 4px 0 0;
 }
 
 .exalto-onboarding .api-provider-picker button {
-  min-height: 42px;
-  padding: 8px 9px;
+  min-height: 34px;
+  padding: 6px 9px;
   border: 0;
   border-radius: 0;
-  background: #fffdf7;
-  color: var(--capture-ink);
-  font-size: 11.5px;
+  background: var(--surface);
+  color: var(--secondary);
+  font-size: var(--text-label);
 }
 
-.exalto-onboarding .api-provider-picker button + button {
-  border-left: 1px solid var(--capture-rule);
-}
+.exalto-onboarding .api-provider-picker button + button { border-left: 1px solid var(--separator); }
 
 .exalto-onboarding .api-provider-picker button.is-selected {
-  background: var(--capture-blue);
+  background: var(--blue);
   color: #fff;
-}
-
-.exalto-onboarding .api-provider-picker button.is-unsupported {
-  display: grid;
-  gap: 1px;
-  opacity: 1;
-  background: var(--capture-paper-deep);
-  color: var(--capture-muted);
-}
-
-.exalto-onboarding .api-provider-picker button.is-unsupported small {
-  font: 600 11px var(--capture-body-font);
-  text-transform: uppercase;
-}
-
-.exalto-onboarding .unsupported-provider-guide {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 11px 12px;
-  border: 1px solid var(--capture-rule);
-  border-top: 0;
-  border-radius: 0 0 3px 3px;
-  background: var(--capture-paper-deep);
-}
-
-.exalto-onboarding .unsupported-provider-guide span,
-.exalto-onboarding .unsupported-provider-guide strong,
-.exalto-onboarding .unsupported-provider-guide small {
-  display: block;
-}
-
-.exalto-onboarding .unsupported-provider-guide strong {
-  font-size: 11px;
-}
-
-.exalto-onboarding .unsupported-provider-guide small {
-  margin-top: 2px;
-  color: var(--capture-muted);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.exalto-onboarding .unsupported-provider-guide a {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 5px;
-  color: var(--capture-blue);
-  font: 600 11px/1.35 var(--capture-body-font);
-  text-decoration: none;
 }
 
 .exalto-onboarding .api-key-instructions dl {
   display: grid;
   grid-template-columns: 1fr 1.25fr;
   margin: 0;
-  border-bottom: 1px solid var(--capture-rule);
+  border-bottom: 1px solid var(--separator-soft);
 }
 
-.exalto-onboarding .api-key-instructions dl div {
-  display: grid;
-  gap: 5px;
-  padding: 10px 12px;
-}
-
-.exalto-onboarding .api-key-instructions dl div + div {
-  border-left: 1px solid var(--capture-rule);
-}
+.exalto-onboarding .api-key-instructions dl div { display: grid; gap: 4px; padding: 9px 12px; }
+.exalto-onboarding .api-key-instructions dl div + div { border-left: 1px solid var(--separator-soft); }
 
 .exalto-onboarding .api-key-instructions dt {
-  color: var(--capture-muted);
-  font-size: 11px;
+  color: var(--tertiary);
+  font-size: var(--text-caption);
 }
 
-.exalto-onboarding .api-key-instructions dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
+.exalto-onboarding .api-key-instructions dd { margin: 0; overflow-wrap: anywhere; }
 
 .exalto-onboarding .api-key-instructions > a {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--capture-rule);
-  color: var(--capture-blue);
-  font-size: 11.5px;
-  font-weight: 650;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--separator-soft);
+  color: var(--blue);
+  font: 500 var(--text-label)/1.3 var(--font-text);
   text-decoration: none;
 }
 
 .exalto-onboarding .credential-import {
   display: grid;
-  gap: 8px;
-  padding: 11px 12px;
-  border-bottom: 1px solid var(--capture-rule);
+  gap: 7px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--separator-soft);
 }
 
 .exalto-onboarding .credential-import > label {
-  color: var(--capture-muted);
-  font-size: 11px;
-  font-weight: 650;
+  color: var(--tertiary);
+  font: 600 var(--text-caption)/1.2 var(--font-text);
+  letter-spacing: .05em;
   text-transform: uppercase;
 }
 
@@ -788,21 +910,17 @@
   gap: 7px;
 }
 
-.exalto-onboarding .credential-import input {
+.exalto-onboarding .credential-import input,
+.exalto-onboarding .managed-test-runner input {
   width: 100%;
   min-width: 0;
-  min-height: 36px;
-  padding: 8px 10px;
-  border: 1px solid var(--capture-rule);
-  border-radius: 2px;
-  background: #fffdf7;
-  color: var(--capture-ink);
-  font: 500 11px var(--capture-mono-font);
-}
-
-.exalto-onboarding .credential-import input:focus {
-  border-color: var(--capture-blue);
-  outline: 2px solid rgba(30, 74, 115, .16);
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: 500 var(--text-label)/1.3 var(--font-code);
 }
 
 .exalto-onboarding .managed-test-runner {
@@ -813,390 +931,248 @@
 }
 
 .exalto-onboarding .managed-test-runner .instruction-heading,
-.exalto-onboarding .managed-test-runner > p {
-  grid-column: 1 / -1;
-}
+.exalto-onboarding .managed-test-runner > p { grid-column: 1 / -1; }
 
 .exalto-onboarding .managed-test-runner > label {
   display: grid;
-  gap: 6px;
-  padding: 0 0 0 12px;
+  gap: 5px;
+  padding-left: 13px;
 }
 
 .exalto-onboarding .managed-test-runner > label > span {
-  color: var(--capture-muted);
-  font-size: 11px;
-  font-weight: 650;
+  color: var(--tertiary);
+  font: 500 var(--text-caption)/1.2 var(--font-text);
 }
 
-.exalto-onboarding .managed-test-runner input {
-  width: 100%;
-  min-width: 0;
-  min-height: 38px;
-  padding: 8px 10px;
-  border: 1px solid var(--capture-rule);
-  border-radius: 2px;
-  background: #fffdf7;
-  color: var(--capture-ink);
-  font: 500 12px var(--capture-mono-font);
-}
+.exalto-onboarding .managed-test-runner > button { min-height: 30px; margin-right: 13px; }
 
-.exalto-onboarding .managed-test-runner > button {
-  min-height: 38px;
-  margin-right: 12px;
-}
+/* Disposable test */
 
 .exalto-onboarding .test-prompt-receipt {
   display: grid;
-  gap: 10px;
-  margin-top: 24px;
-  padding: 16px 18px;
-  border: 1px solid var(--capture-ink);
-  border-radius: 3px;
-  background: #fffdf7;
+  gap: 8px;
+  padding: 13px 14px;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--window);
 }
 
 .exalto-onboarding .test-prompt-receipt > span {
   display: flex;
   align-items: center;
   gap: 5px;
-  color: var(--capture-red);
-  font-size: 11px;
-  font-weight: 700;
+  color: var(--red);
+  font: 600 var(--text-caption)/1 var(--font-text);
+  letter-spacing: .09em;
 }
 
 .exalto-onboarding .test-prompt-receipt > strong {
-  font-family: var(--capture-display-font);
-  font-size: 21px;
-  font-weight: 650;
-  letter-spacing: -.015em;
+  overflow-wrap: anywhere;
+  font: 500 var(--text-body)/1.5 var(--font-code);
 }
 
 .exalto-onboarding .test-prompt-receipt > small {
-  color: var(--capture-muted);
-  font-size: 11.5px;
+  color: var(--tertiary);
+  font-size: var(--text-caption);
   line-height: 1.5;
 }
 
 .exalto-onboarding .test-result {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  min-height: 50px;
+  grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
-  min-height: 58px;
   gap: 10px;
-  margin-top: 15px;
-  padding: 11px 13px;
-  border: 1px solid var(--capture-rule);
-  border-radius: 3px;
-  background: #fffdf7;
+  padding: 10px 13px;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--surface);
 }
 
 .exalto-onboarding .test-result > span {
   display: grid;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   place-items: center;
 }
 
 .exalto-onboarding .test-result strong,
-.exalto-onboarding .test-result small {
-  display: block;
-}
-
-.exalto-onboarding .test-result strong {
-  font-size: 11.5px;
-}
+.exalto-onboarding .test-result small { display: block; }
+.exalto-onboarding .test-result strong { font: 600 var(--text-label)/1.35 var(--font-text); }
 
 .exalto-onboarding .test-result small {
   margin-top: 2px;
-  color: var(--capture-muted);
-  font-size: 11px;
+  color: var(--secondary);
+  font-size: var(--text-caption);
+  line-height: 1.45;
 }
 
 .exalto-onboarding .test-result.is-captured {
-  border-color: var(--capture-green);
-  background: var(--capture-green-soft);
-  color: var(--capture-green);
+  border-color: rgba(14, 143, 93, .34);
+  background: var(--green-soft);
 }
 
-.exalto-onboarding .test-result.is-unconfirmed {
-  border-color: #bb8a3b;
-  background: #fff4dd;
-  color: #785116;
-}
+.exalto-onboarding .test-result.is-captured > span { color: var(--green); }
 
+.exalto-onboarding .test-result.is-unconfirmed,
 .exalto-onboarding .test-result.is-not-found {
-  border-color: #d5a366;
-  background: #f7ead7;
+  border-color: var(--orange-rule);
+  background: var(--orange-soft);
 }
 
-.exalto-onboarding .ready-check {
+.exalto-onboarding .test-result.is-unconfirmed > span { color: var(--orange); }
+
+/* Ready */
+
+.exalto-onboarding .ready-step .ready-check {
   display: grid;
-  width: 46px;
-  height: 46px;
+  width: 24px;
+  height: 24px;
   place-items: center;
-  margin-bottom: 14px;
-  border-radius: 50%;
-  background: var(--capture-green);
+  margin: 0 0 12px;
+  border-radius: 3px;
+  background: var(--green);
   color: #fff;
+  box-shadow: none;
 }
 
 .exalto-onboarding .ready-summary {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  margin-top: 21px;
-  border: 1px solid var(--capture-rule);
-  border-radius: 3px;
-  background: #fffdf7;
   overflow: hidden;
+  margin: 18px 0 0;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--window);
 }
 
 .exalto-onboarding .ready-summary > div {
   display: grid;
-  min-height: 66px;
-  grid-template-columns: 21px minmax(0, 1fr);
+  min-height: 52px;
+  grid-template-columns: 18px minmax(0, 1fr);
   align-content: center;
   column-gap: 9px;
-  padding: 11px 13px;
+  padding: 10px 13px;
 }
 
-.exalto-onboarding .ready-summary > div:nth-child(even) {
-  border-left: 1px solid var(--capture-rule);
-}
-
-.exalto-onboarding .ready-summary > div:nth-child(n + 3) {
-  border-top: 1px solid var(--capture-rule);
-}
+.exalto-onboarding .ready-summary > div:nth-child(even) { border-left: 1px solid var(--separator-soft); }
+.exalto-onboarding .ready-summary > div:nth-child(n + 3) { border-top: 1px solid var(--separator-soft); }
 
 .exalto-onboarding .ready-summary > div > span {
   display: grid;
   grid-row: span 2;
-  width: 19px;
-  height: 19px;
+  width: 18px;
+  height: 18px;
   place-items: center;
-  color: var(--capture-blue);
+  color: var(--blue);
 }
 
-.exalto-onboarding .ready-summary strong {
-  font-size: 11px;
+.exalto-onboarding .ready-summary dt {
+  color: var(--tertiary);
+  font: 600 var(--text-caption)/1.2 var(--font-text);
+  letter-spacing: .05em;
+  text-transform: uppercase;
 }
 
-.exalto-onboarding .ready-summary small {
-  margin-top: 2px;
-  color: var(--capture-muted);
-  font-size: 11px;
+.exalto-onboarding .ready-summary dd {
+  overflow: hidden;
+  margin: 2px 0 0;
+  font: 500 var(--text-label)/1.3 var(--font-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .exalto-onboarding .first-proof-ready {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
-  align-items: center;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
   gap: 10px;
-  margin-top: 16px;
-  padding: 12px 13px;
-  border: 1px solid var(--capture-green);
-  border-radius: 3px;
-  background: var(--capture-green-soft);
+  padding: 11px 13px;
+  border: 1px solid rgba(14, 143, 93, .34);
+  border-radius: 4px;
+  background: var(--green-soft);
 }
 
 .exalto-onboarding .first-proof-ready > span {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   place-items: center;
-  color: var(--capture-green);
+  color: var(--green);
 }
 
 .exalto-onboarding .first-proof-ready strong,
-.exalto-onboarding .first-proof-ready small {
-  display: block;
-}
-
-.exalto-onboarding .first-proof-ready strong {
-  font-size: 11.5px;
-}
+.exalto-onboarding .first-proof-ready small { display: block; }
+.exalto-onboarding .first-proof-ready strong { font: 600 var(--text-label)/1.35 var(--font-text); }
 
 .exalto-onboarding .first-proof-ready small {
   margin-top: 3px;
-  color: var(--capture-muted);
-  font-size: 11px;
+  color: var(--secondary);
+  font-size: var(--text-caption);
   line-height: 1.45;
 }
 
 .exalto-onboarding .first-proof-ready.is-blocked {
-  border-color: #bb8a3b;
-  background: #fff4dd;
+  border-color: var(--orange-rule);
+  background: var(--orange-soft);
 }
 
-.exalto-onboarding .first-proof-ready.is-blocked > span {
-  color: #785116;
-}
+.exalto-onboarding .first-proof-ready.is-blocked > span { color: var(--orange); }
 
 .exalto-onboarding .account-step .native-account-card {
   gap: 12px;
-  margin-top: 16px;
+  margin: 18px 0 0;
   padding: 14px;
-  border: 1px solid var(--capture-rule);
-  border-radius: 3px;
-  background: #fffdf7;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--window);
   box-shadow: none;
+}
+
+.exalto-onboarding .account-step .native-account-heading h2 {
+  font: 650 var(--text-lead)/1.3 var(--font-display);
 }
 
 .exalto-onboarding .account-step .section-label,
 .exalto-onboarding .account-step .account-state {
-  font: 600 11px/1.25 var(--capture-body-font);
+  font: 600 var(--text-caption)/1.25 var(--font-text);
 }
 
-.exalto-onboarding .account-step .native-account-card p {
-  font-size: 12px;
-}
+.exalto-onboarding .account-step .native-account-card p { font-size: var(--text-label); }
 
 .exalto-onboarding .account-step .native-account-card .wizard-actions {
+  display: flex;
+  gap: 8px;
   margin-top: 0;
-  padding-top: 4px;
+  padding-top: 2px;
 }
 
 .exalto-onboarding .account-step .native-account-card .mac-button.is-large {
-  min-height: 36px;
-  font-size: 12px;
+  min-height: 30px;
+  font-size: var(--text-label);
 }
 
-.exalto-onboarding .final-actions {
-  margin-top: 24px;
-  padding-top: 0;
+/* A narrow window drops the rail rather than squeezing the work. */
+
+@media (max-width: 900px) {
+  .exalto-onboarding.onboarding-window { grid-template-columns: minmax(0, 1fr); }
+  .setup-rail { display: none; }
+  .exalto-onboarding { --column: 560px; }
 }
 
-.exalto-onboarding .onboarding-error {
-  border: 1px solid var(--capture-red);
-  border-radius: 0;
-  background: #f2e1dc;
-  color: var(--capture-red);
-}
-
-.exalto-onboarding .onboarding-aside {
-  padding: 44px 30px 30px;
-  border-color: #31404d;
-  background: var(--capture-night);
-  color: var(--capture-paper);
-}
-
-.exalto-onboarding .aside-label {
-  color: #8cb4d0;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.exalto-onboarding .onboarding-aside h2 {
-  max-width: 310px;
-  margin-top: 12px;
-  color: var(--capture-paper);
-  font-family: var(--capture-display-font);
-  font-size: 25px;
-  font-weight: 650;
-  letter-spacing: -.015em;
-  line-height: 1.12;
-}
-
-.exalto-onboarding .onboarding-aside > p {
-  margin-top: 12px;
-  color: #aebbc3;
-  font: 400 15px/1.52 var(--capture-body-font);
-}
-
-.exalto-onboarding .aside-flow {
-  display: grid;
-  margin-top: 32px;
-  border: 1px solid #31404d;
-}
-
-.exalto-onboarding .aside-flow > div {
-  display: grid;
-  min-height: 64px;
-  grid-template-columns: 26px minmax(0, 1fr);
-  align-content: center;
-  column-gap: 9px;
-  padding: 10px 12px;
-  transition: background 140ms ease;
-}
-
-.exalto-onboarding .aside-flow > div + div {
-  border-top: 1px solid #31404d;
-}
-
-.exalto-onboarding .aside-flow > div.is-active {
-  background: rgba(30, 74, 115, .72);
-}
-
-.exalto-onboarding .aside-flow > div.is-local:not(.is-active) {
-  box-shadow: inset 3px 0 var(--capture-green);
-}
-
-.exalto-onboarding .aside-flow span {
-  grid-row: span 2;
-  color: #8cb4d0;
-  font: 600 11px var(--capture-body-font);
-}
-
-.exalto-onboarding .aside-flow strong {
-  color: var(--capture-paper);
-  font-size: 11.5px;
-}
-
-.exalto-onboarding .aside-flow small {
-  margin-top: 2px;
-  color: #8797a2;
-  font-size: 11px;
-}
-
-.exalto-onboarding .credential-capture-warning {
-  color: #7c4b16;
-}
-
-.exalto-onboarding .credential-capture-warning code {
-  color: inherit;
-  font-family: var(--capture-mono-font);
-  font-size: .95em;
-}
-
-.exalto-onboarding .aside-privacy {
-  border-color: #31404d;
-  color: #aebbc3;
-  font-size: 11.5px;
-  line-height: 1.5;
-}
-
-.exalto-onboarding .aside-privacy svg {
-  color: #8cb4d0;
-}
-
-@media (max-width: 1020px) {
-  .exalto-onboarding .onboarding-body {
-    grid-template-columns: minmax(570px, 1fr) 285px;
-  }
-
-  .exalto-onboarding .onboarding-content {
-    padding-inline: 34px;
-  }
-
-  .exalto-onboarding .onboarding-aside {
-    padding-inline: 22px;
-  }
-}
-
-@media (max-width: 860px) {
-  .exalto-onboarding .onboarding-body {
-    grid-template-columns: 1fr;
-  }
-
-  .exalto-onboarding .onboarding-aside {
-    display: none;
-  }
+@media (max-width: 620px) {
+  .exalto-onboarding .trace-receipt dl,
+  .exalto-onboarding .notary-boundary,
+  .exalto-onboarding .ready-summary,
+  .exalto-onboarding .passphrase-fields { grid-template-columns: minmax(0, 1fr); }
+  .exalto-onboarding .trace-receipt dl div:nth-child(even),
+  .exalto-onboarding .notary-boundary div + div,
+  .exalto-onboarding .ready-summary > div:nth-child(even) { border-left: 0; }
+  .exalto-onboarding .ready-summary > div + div { border-top: 1px solid var(--separator-soft); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .exalto-onboarding *,
   .exalto-onboarding *::before,
-  .exalto-onboarding *::after {
-    transition: none !important;
-  }
+  .exalto-onboarding *::after { transition: none !important; }
 }

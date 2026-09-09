@@ -4,18 +4,23 @@ use notaryctl::client::TraceCounts;
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
+mod agent_setup;
+mod chat;
+mod codex_chat;
+mod connections;
+mod credentials;
 mod daemon;
-mod provider_test;
+mod models;
 mod service_client;
 mod tray;
 mod updates;
 mod vault;
 
+use agent_setup::{detect_agent_apps, open_agent_setup};
 use daemon::{
     DaemonProcess, managed_daemon_is_healthy, owned_child_present,
     request_managed_daemon_shutdown_inner, restart_daemon, start_daemon, stop_daemon,
 };
-use provider_test::run_provider_capture_test;
 use service_client::{
     SealingServiceIdentity, TemporaryCaptureState, begin_temporary_capture,
     confirm_disposable_trace, daemon_is_healthy, disconnect_account, end_temporary_capture,
@@ -272,6 +277,9 @@ pub fn run() {
             show_main_window(app);
         }))
         .manage(DaemonProcess::default())
+        .manage(chat::ChatState::default())
+        .manage(codex_chat::CodexState::default())
+        .manage(connections::Connections::default())
         .manage(VaultSession::default())
         .manage(TemporaryCaptureState::default())
         .manage(ExitState::default())
@@ -284,6 +292,18 @@ pub fn run() {
         )
         .plugin(autostart_plugin())
         .invoke_handler(tauri::generate_handler![
+            connections::list_provider_connections,
+            connections::unlock_provider_connections,
+            connections::save_provider_connection,
+            connections::remove_provider_connection,
+            codex_chat::start_chatgpt_login,
+            codex_chat::chatgpt_status,
+            codex_chat::cancel_chatgpt_login,
+            codex_chat::disconnect_chatgpt,
+            codex_chat::open_chatgpt_verification,
+            chat::send_chat,
+            models::list_chat_models,
+            chat::cancel_chat,
             get_desktop_state,
             get_account_connection,
             start_account_connection,
@@ -291,9 +311,10 @@ pub fn run() {
             disconnect_account,
             open_account_link,
             open_product_link,
+            detect_agent_apps,
+            open_agent_setup,
             get_recent_trace_probes,
             confirm_disposable_trace,
-            run_provider_capture_test,
             set_capture_enabled,
             begin_temporary_capture,
             end_temporary_capture,
@@ -369,6 +390,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
+                window.app_handle().state::<chat::ChatState>().cancel_all();
                 if window.label() == "main" {
                     let temporary_capture = window.app_handle().state::<TemporaryCaptureState>();
                     let (window_generation, lease_id) =
@@ -756,10 +778,7 @@ mod tests {
             product_link("openrouter_key"),
             Some("https://openrouter.ai/settings/keys")
         );
-        assert_eq!(
-            product_link("xai_key"),
-            Some("https://docs.x.ai/developers/quickstart")
-        );
+        assert_eq!(product_link("xai_key"), None);
         assert_eq!(product_link("https://example.com"), None);
     }
 }
