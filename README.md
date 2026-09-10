@@ -15,7 +15,7 @@ and maintained separately. Self-hosting does not require an Exalto account.
 ## Get started
 
 - [Install the CLI and capture your first exchange](runtime/docs/getting-started.md)
-- [Download Exalto Capture for macOS](https://capture.exalto.ai)
+- [Download Exalto Capture for macOS](https://capture.exalto.ai/docs/getting-started)
 - [Run your own notary](runtime/docs/self-hosting.md)
 - [Read the architecture and trust model](runtime/docs/architecture.md)
 - [Understand Trace formats and verification](runtime/docs/artifact-formats.md)
