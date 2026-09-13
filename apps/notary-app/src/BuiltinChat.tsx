@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Send, Square, ExternalLink } from 'lucide-react';
+import { Symbol } from './Symbol';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import {
   errorMessage,
+  isTauri,
   setCaptureEnabled,
   startDaemon,
   type DesktopState,
@@ -314,10 +317,31 @@ export function BuiltinChat({
   const [showConnections, setShowConnections] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [consent, setConsent] = useState(false);
   const request = useRef<string | null>(null);
   const alive = useRef(true);
   const bottom = useRef<HTMLDivElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
+  // File > New Chat clears the conversation and focuses the composer.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: UnlistenFn | null = null;
+    void listen<string>('exalto:menu', (event) => {
+      if (event.payload !== 'new-chat' || request.current) return;
+      setExchanges([]);
+      setPrompt('');
+      setError('');
+      setShowConnections(false);
+      requestAnimationFrame(() => composer.current?.focus());
+    }).then((stopListening) => {
+      if (disposed) stopListening();
+      else unlisten = stopListening;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -362,7 +386,6 @@ export function BuiltinChat({
   async function send() {
     if (
       busy ||
-      !consent ||
       !connection ||
       !prompt.trim() ||
       !model.trim() ||
@@ -421,7 +444,7 @@ export function BuiltinChat({
   }
   return (
     <section className="builtin-chat">
-      <header className="chat-bar">
+      <header className="chat-bar" data-tauri-drag-region="deep">
         {connections.length > 0 && !showConnections ? (
           <>
             <label className="chat-field">
@@ -468,7 +491,7 @@ export function BuiltinChat({
             setError('');
           }}
         >
-          <Plus size={13} /> New chat
+          <Symbol name="plus" fallback={Plus} size={12} weight="semibold" /> New chat
         </button>
         <button
           className="mac-button is-small"
@@ -504,8 +527,8 @@ export function BuiltinChat({
                 <h2>Start a chat</h2>
                 <p>
                   Each exchange is captured as its own private Trace in your
-                  vault. The chat text stays in memory until you close this
-                  window.
+                  vault and uses your provider’s API balance or plan allowance.
+                  The chat text stays in memory until you close this window.
                 </p>
               </div>
             )}
@@ -572,20 +595,6 @@ export function BuiltinChat({
                 </button>
               </div>
             )}
-            {!consent && (
-              <label className="chat-consent">
-                <input
-                  type="checkbox"
-                  checked={consent}
-                  onChange={(e) => setConsent(e.target.checked)}
-                />
-                <span>
-                  I understand sending uses my provider’s API balance or ChatGPT
-                  plan allowance and saves a private encrypted Trace. It does
-                  not seal or share it.
-                </span>
-              </label>
-            )}
             {error && (
               <p className="chat-error" role="alert">
                 {error}
@@ -603,6 +612,7 @@ export function BuiltinChat({
               }}
             >
               <textarea
+                ref={composer}
                 aria-label="Message"
                 placeholder="Write a message…"
                 value={prompt}
@@ -621,7 +631,7 @@ export function BuiltinChat({
                         .catch((e) => setError(errorMessage(e)));
                   }}
                 >
-                  <Square size={13} /> Stop
+                  <Symbol name="stop.fill" fallback={Square} size={11} /> Stop
                 </button>
               ) : (
                 <button
@@ -629,7 +639,6 @@ export function BuiltinChat({
                   type="submit"
                   disabled={
                     !connection ||
-                    !consent ||
                     !state.capture_enabled ||
                     !state.running ||
                     !model.trim() ||
@@ -637,7 +646,7 @@ export function BuiltinChat({
                     unfinished
                   }
                 >
-                  <Send size={13} /> Send
+                  <Symbol name="paperplane.fill" fallback={Send} size={12} /> Send
                 </button>
               )}
             </form>

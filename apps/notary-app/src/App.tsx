@@ -121,6 +121,36 @@ function App() {
     };
   }, [setupOpen, state?.onboarding_complete]);
 
+  // Menu-bar View commands. New Chat and Find are handled by the view that owns them.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: UnlistenFn | null = null;
+    void listen<string>('exalto:menu', (event) => {
+      if (!state?.onboarding_complete || setupOpen) return;
+      const target = event.payload;
+      if (target === 'home' || target === 'chat' || target === 'traces' || target === 'settings') {
+        setTraceConstraint(null);
+        setTraceTarget(null);
+        setView(target);
+        if (workspaceRoutes[target]) {
+          setWorkspaceNavigationRevision((current) => current + 1);
+        }
+      } else if (target === 'new-chat') {
+        setTraceConstraint(null);
+        setTraceTarget(null);
+        setView('chat');
+      }
+    }).then((stopListening) => {
+      if (disposed) stopListening();
+      else unlisten = stopListening;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [setupOpen, state?.onboarding_complete]);
+
   useEffect(() => {
     if (!isTauri()) return;
     let disposed = false;
@@ -358,9 +388,14 @@ function App() {
         onNavigate={navigate}
       />
       <section className="window-content">
-        <main className={`native-content ${route ? 'has-workspace' : ''} ${(view === 'settings' || view === 'providers' || view === 'activity') ? 'has-settings-subnav' : ''}`}>
+        <main className={`native-content ${route ? 'has-workspace' : ''} ${(view === 'settings' || view === 'providers' || view === 'activity') ? 'has-settings-subnav' : ''} ${view === 'home' ? 'has-view-toolbar' : ''}`}>
+          {view === 'home' && (
+            <header className="view-toolbar" data-tauri-drag-region="deep">
+              <h1 data-tauri-drag-region>Overview</h1>
+            </header>
+          )}
           {(view === 'settings' || view === 'providers' || view === 'activity') && (
-            <nav className="settings-subnav" aria-label="Settings sections">
+            <nav className="settings-subnav" aria-label="Settings sections" data-tauri-drag-region="deep">
               <button
                 type="button"
                 className={view === 'settings' ? 'is-selected' : ''}

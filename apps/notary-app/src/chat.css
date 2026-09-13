@@ -26,13 +26,14 @@
 
 .chat-bar {
   display: flex;
-  min-height: 46px;
+  min-height: var(--toolbar-height);
   flex-shrink: 0;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  padding: 6px 16px;
+  padding: 6px 20px;
   border-bottom: 1px solid var(--separator);
+  background: var(--surface);
 }
 
 .chat-bar h1 {
@@ -60,7 +61,7 @@
   min-width: 0;
   padding: 3px 7px;
   border: 1px solid var(--separator);
-  border-radius: 4px;
+  border-radius: var(--control-radius);
   background: var(--surface);
   color: var(--text);
   font-size: var(--text-label);
@@ -119,7 +120,7 @@
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--separator);
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--window);
   list-style: none;
 }
@@ -187,7 +188,7 @@
 .connection-empty {
   padding: 14px;
   border: 1px dashed var(--separator);
-  border-radius: 4px;
+  border-radius: 8px;
   color: var(--secondary);
   font-size: var(--text-label);
   line-height: 1.5;
@@ -199,7 +200,7 @@
   min-height: 30px;
   padding: 6px 9px;
   border: 1px solid var(--separator);
-  border-radius: 4px;
+  border-radius: var(--control-radius);
   background: var(--surface);
   color: var(--text);
   font-size: var(--text-body);
@@ -215,7 +216,7 @@
   padding: 12px 14px;
   border: 1px solid var(--separator);
   border-left: 3px solid var(--blue);
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--window);
 }
 
@@ -359,29 +360,15 @@
   max-height: 170px;
   padding: 9px 11px;
   border: 1px solid var(--separator);
-  border-radius: 4px;
+  border-radius: var(--control-radius);
   background: var(--surface);
   color: var(--text);
   font: 400 var(--text-body)/1.55 var(--font-text);
-  resize: vertical;
+  resize: none;
 }
 
 .chat-composer-note { color: var(--secondary); font-size: var(--text-label); }
 
-.chat-consent {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 9px 11px;
-  border: 1px solid var(--separator-soft);
-  border-radius: 4px;
-  background: var(--window);
-  color: var(--secondary);
-  font-size: var(--text-label);
-  line-height: 1.5;
-}
-
-.chat-consent input { margin-top: 2px; }
 
 .chat-capture-off {
   display: flex;
@@ -391,7 +378,7 @@
   gap: 10px;
   padding: 9px 11px;
   border: 1px solid rgba(168, 101, 38, .34);
-  border-radius: 4px;
+  border-radius: 8px;
   background: rgba(168, 101, 38, .08);
   color: var(--orange);
   font-size: var(--text-label);

@@ -1,4 +1,5 @@
 import { ChevronRight, FileCheck2, Play, Plug, ShieldCheck, Square } from 'lucide-react';
+import { Symbol } from './Symbol';
 import type { DesktopState } from './bridge';
 import {
   vaultProtection,
@@ -33,8 +34,6 @@ export function HomeView({
     + state.counts.notarized
     + state.counts.capturing
     + state.counts.capture_failed;
-  const hasCapturedTrace = traceTotal > 0;
-  const hasSealedTrace = state.counts.notarized > 0;
   const sealingServiceName = state.sealing_service?.name ?? 'Exalto Seal';
   const sealingPhase = state.sealing_service_readiness.phase;
   const sealingReady = sealingPhase === 'ready';
@@ -66,7 +65,7 @@ export function HomeView({
       </div>
       {recording
         ? <button className="mac-button capture-button is-stop" onClick={onStopCapture} disabled={busy !== null}>
-          <Square size={12} /> {busy === 'capture-stop' ? 'Stopping…' : 'Stop capturing'}
+          <Symbol name="stop.fill" fallback={Square} size={11} /> {busy === 'capture-stop' ? 'Stopping…' : 'Stop capturing'}
         </button>
         : <button
           className="mac-button capture-button is-primary"
@@ -78,7 +77,7 @@ export function HomeView({
               ? 'Start the local service and connect its trusted capture transport.'
             : 'Capture requires a reachable trusted transport. No Exalto Seal account is required.'}
         >
-          <Play size={14} /> {busy === 'capture-start' ? 'Starting…' : 'Start capturing'}
+          <Symbol name="play.fill" fallback={Play} size={12} /> {busy === 'capture-start' ? 'Starting…' : 'Start capturing'}
         </button>}
     </section>
 
@@ -110,31 +109,24 @@ export function HomeView({
       </div>
     </div>}
 
-    <section className="capture-workflow" aria-label="Trace workflow">
-      <WorkflowStep number="01" label="Capture" detail={recording ? 'Recording locally' : 'Ready when you start'} state={recording ? 'active' : 'idle'} />
-      <WorkflowStep number="02" label="Review" detail={hasCapturedTrace ? 'Inspect disclosure' : 'After capture'} state={hasCapturedTrace ? 'complete' : 'idle'} />
-      <WorkflowStep number="03" label="Seal" detail={state.counts.notarizing ? 'Sealing now' : hasSealedTrace ? 'Portable proof ready' : 'When you need proof'} state={state.counts.notarizing ? 'active' : hasSealedTrace ? 'complete' : 'idle'} />
-      <WorkflowStep number="04" label="Verify or share" detail={hasSealedTrace ? 'Available' : 'After sealing'} state={hasSealedTrace ? 'complete' : 'idle'} />
-    </section>
-
     <section className="capture-layout">
       <div className="capture-main-stack">
         <div className="capture-receipt">
           <header>
             <div><span className="section-label">Private traces</span><h2>{traceTotal ? `${traceTotal} on this Mac` : 'No traces yet'}</h2></div>
-            <FileCheck2 size={19} aria-hidden="true" />
+            <Symbol name="checkmark.seal" fallback={FileCheck2} size={18} />
           </header>
           {traceTotal ? <div className="capture-counts">
-            <button onClick={() => onOpenTraces('state=captured')}><b>{state.counts.captured}</b><span>Captured</span><ChevronRight size={14} /></button>
-            <button onClick={() => onOpenTraces('status=notarizing')}><b>{state.counts.notarizing}</b><span>Sealing</span><ChevronRight size={14} /></button>
-            <button onClick={() => onOpenTraces('state=notarized')}><b>{state.counts.notarized}</b><span>Sealed</span><ChevronRight size={14} /></button>
-            <button onClick={() => onOpenTraces('status=needs_attention')}><b>{state.counts.needs_attention}</b><span>Needs attention</span><ChevronRight size={14} /></button>
+            <button onClick={() => onOpenTraces('state=captured')}><b>{state.counts.captured}</b><span>Captured</span><Symbol name="chevron.right" fallback={ChevronRight} size={12} weight="semibold" /></button>
+            <button onClick={() => onOpenTraces('status=notarizing')}><b>{state.counts.notarizing}</b><span>Sealing</span><Symbol name="chevron.right" fallback={ChevronRight} size={12} weight="semibold" /></button>
+            <button onClick={() => onOpenTraces('state=notarized')}><b>{state.counts.notarized}</b><span>Sealed</span><Symbol name="chevron.right" fallback={ChevronRight} size={12} weight="semibold" /></button>
+            <button onClick={() => onOpenTraces('status=needs_attention')}><b>{state.counts.needs_attention}</b><span>Needs attention</span><Symbol name="chevron.right" fallback={ChevronRight} size={12} weight="semibold" /></button>
           </div> : <div className="capture-empty">
             <p>Start capturing, then make a request in a connected AI client.</p>
-            <button type="button" onClick={() => onNavigate('providers')}>Set up an AI connection <ChevronRight size={14} /></button>
+            <button type="button" onClick={() => onNavigate('providers')}>Set up an AI connection <Symbol name="chevron.right" fallback={ChevronRight} size={12} weight="semibold" /></button>
           </div>}
           <button className="receipt-action" onClick={() => onNavigate('traces')}>
-            Open traces <ChevronRight size={15} />
+            Open traces <Symbol name="chevron.right" fallback={ChevronRight} size={12} weight="semibold" />
           </button>
         </div>
         <section className="capture-route-card">
@@ -150,12 +142,12 @@ export function HomeView({
 
       <div className="capture-side-stack">
         <section className="capture-connection-card">
-          <header><div><span className="section-label">AI connections</span><h2>Use the tools you already have</h2></div><Plug size={18} aria-hidden="true" /></header>
+          <header><div><span className="section-label">AI connections</span><h2>Use the tools you already have</h2></div><Symbol name="powerplug" fallback={Plug} size={17} /></header>
           <p>Codex CLI, Claude Code, and API clients can send their normal provider request through Exalto Capture.</p>
-          <button type="button" onClick={() => onNavigate('providers')}>Set up a connection <ChevronRight size={14} /></button>
+          <button type="button" onClick={() => onNavigate('providers')}>Set up a connection <Symbol name="chevron.right" fallback={ChevronRight} size={12} weight="semibold" /></button>
         </section>
         <section className="capture-protection-card">
-          <header><div><span className="section-label">Privacy and storage</span><h2>{vault.label}</h2></div><ShieldCheck size={18} aria-hidden="true" /></header>
+          <header><div><span className="section-label">Privacy and storage</span><h2>{vault.label}</h2></div><Symbol name="checkmark.shield" fallback={ShieldCheck} size={17} /></header>
           <p>{vault.detail}</p>
           <dl>
             <div><dt>Sealing service</dt><dd>{`${sealingServiceName} · ${sealingStatus}`}</dd></div>
@@ -164,19 +156,6 @@ export function HomeView({
         </section>
       </div>
     </section>
-  </div>;
-}
-
-function WorkflowStep({ number, label, detail, state }: {
-  number: string;
-  label: string;
-  detail: string;
-  state: 'idle' | 'active' | 'complete';
-}) {
-  return <div className={`workflow-step is-${state}`}>
-    <span>{number}</span>
-    <strong>{label}</strong>
-    <small>{detail}</small>
   </div>;
 }
 

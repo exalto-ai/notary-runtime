@@ -12,6 +12,7 @@ mod credentials;
 mod daemon;
 mod models;
 mod service_client;
+mod symbols;
 mod tray;
 mod updates;
 mod vault;
@@ -31,7 +32,7 @@ use service_client::{
 };
 use tray::{
     AppMenuAction, app_menu_action, create_app_menu, create_tray, schedule_capture_menu_updates,
-    show_main_window, show_settings_window,
+    send_menu_command, show_main_window, show_settings_window, toggle_capture_from_menu,
 };
 use updates::{
     DesktopUpdaterState, check_for_updates, get_update_state, install_update_and_restart,
@@ -270,6 +271,23 @@ async fn get_desktop_state(
     }
 }
 
+/// The sidebar column is drawn by the system as a translucent sidebar
+/// material, so the window is transparent and the content area paints its
+/// own opaque background.
+fn apply_sidebar_material(app: &tauri::App) {
+    #[cfg(target_os = "macos")]
+    if let Some(window) = app.get_webview_window("main")
+        && let Err(error) = window_vibrancy::apply_vibrancy(
+            &window,
+            window_vibrancy::NSVisualEffectMaterial::Sidebar,
+            None,
+            None,
+        )
+    {
+        eprintln!("sidebar material unavailable: {error}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -328,6 +346,7 @@ pub fn run() {
             get_update_state,
             check_for_updates,
             install_update_and_restart,
+            symbols::system_symbol,
         ])
         .on_menu_event(|app, event| match app_menu_action(event.id().as_ref()) {
             Some(AppMenuAction::Hide) => {
@@ -345,11 +364,15 @@ pub fn run() {
             Some(AppMenuAction::HelpReport) => {
                 let _ = open_product_link("report".into());
             }
+            Some(AppMenuAction::Command(command)) => send_menu_command(app, command),
+            Some(AppMenuAction::ToggleCapture) => toggle_capture_from_menu(app),
             None => {}
         })
         .setup(|app| {
-            create_app_menu(app)?;
-            let capture_menu = create_tray(app)?;
+            let menu_bar_capture = create_app_menu(app)?;
+            apply_sidebar_material(app);
+            let mut capture_menu = create_tray(app)?;
+            capture_menu.add(menu_bar_capture);
             app.manage(capture_menu);
             schedule_capture_menu_updates(app.handle().clone());
             schedule_update_checks(app.handle().clone());

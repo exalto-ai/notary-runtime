@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use tauri::{
     Emitter, Manager,
-    menu::{AboutMetadata, CheckMenuItem, HELP_SUBMENU_ID, Menu, MenuItem, PredefinedMenuItem},
+    menu::{
+        AboutMetadata, CheckMenuItem, HELP_SUBMENU_ID, Menu, MenuItem, PredefinedMenuItem, Submenu,
+    },
     tray::TrayIconBuilder,
 };
 
@@ -12,20 +14,58 @@ use crate::service_client::{TemporaryCaptureState, read_admin_status, write_capt
 
 pub(super) const SAFE_HIDE_MENU_ID: &str = "app_hide";
 pub(super) const CAPTURE_STATE_CHANGED_EVENT: &str = "exalto:capture-state-changed";
+/// Menu-bar commands the web view carries out: a view name, `new-chat`, or `find`.
+pub(super) const MENU_COMMAND_EVENT: &str = "exalto:menu";
+const MENU_BAR_CAPTURE_ID: &str = "menu_capture_requests";
 const CAPTURE_MENU_LABEL: &str = "Capture";
 const OPEN_APP_MENU_LABEL: &str = "Open";
 const QUIT_MENU_LABEL: &str = "Quit";
 
+/// The tray and menu-bar capture toggles show one state.
 #[derive(Clone)]
 pub(super) struct CaptureMenuState {
-    item: CheckMenuItem<tauri::Wry>,
+    items: Vec<CheckMenuItem<tauri::Wry>>,
 }
 
 impl CaptureMenuState {
     fn set(&self, enabled: bool) {
-        let _ = self.item.set_checked(enabled);
-        let _ = self.item.set_enabled(true);
+        for item in &self.items {
+            let _ = item.set_checked(enabled);
+            let _ = item.set_enabled(true);
+        }
     }
+
+    pub(super) fn add(&mut self, item: CheckMenuItem<tauri::Wry>) {
+        self.items.push(item);
+    }
+
+    fn menu_bar_checked(&self) -> bool {
+        self.items
+            .iter()
+            .find(|item| item.id().as_ref() == MENU_BAR_CAPTURE_ID)
+            .and_then(|item| item.is_checked().ok())
+            .unwrap_or(false)
+    }
+}
+
+/// Turn capture on or off from a menu, starting the daemon first when needed,
+/// and publish the resulting state to every toggle and the web view.
+pub(super) fn request_capture(app: &tauri::AppHandle, requested: bool) {
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if requested && read_admin_status().await.is_err() {
+            let process = app_handle.state::<DaemonProcess>();
+            if start_daemon(app_handle.clone(), process).await.is_err() {
+                publish_capture_state(&app_handle, false);
+                return;
+            }
+        }
+        let temporary_capture = app_handle.state::<TemporaryCaptureState>();
+        match write_capture_setting(requested, &temporary_capture).await {
+            Ok(enabled) => publish_capture_state(&app_handle, enabled),
+            Err(_) => publish_capture_state(&app_handle, !requested),
+        }
+    });
 }
 
 pub(super) fn publish_capture_state(app: &tauri::AppHandle, enabled: bool) {
@@ -41,6 +81,9 @@ pub(super) enum AppMenuAction {
     Settings,
     HelpGuide,
     HelpReport,
+    /// Sent to the web view as an `exalto:menu` command.
+    Command(&'static str),
+    ToggleCapture,
 }
 
 pub(super) fn app_menu_action(id: &str) -> Option<AppMenuAction> {
@@ -49,8 +92,38 @@ pub(super) fn app_menu_action(id: &str) -> Option<AppMenuAction> {
         "app_settings" => Some(AppMenuAction::Settings),
         "help_guide" => Some(AppMenuAction::HelpGuide),
         "help_report" => Some(AppMenuAction::HelpReport),
+        "file_new_chat" => Some(AppMenuAction::Command("new-chat")),
+        "view_home" => Some(AppMenuAction::Command("home")),
+        "view_chat" => Some(AppMenuAction::Command("chat")),
+        "view_traces" => Some(AppMenuAction::Command("traces")),
+        "view_settings" => Some(AppMenuAction::Command("settings")),
+        "view_find" => Some(AppMenuAction::Command("find")),
+        MENU_BAR_CAPTURE_ID => Some(AppMenuAction::ToggleCapture),
         _ => None,
     }
+}
+
+pub(super) fn send_menu_command(app: &tauri::AppHandle, command: &str) {
+    show_main_window(app);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.emit(MENU_COMMAND_EVENT, command);
+    }
+}
+
+pub(super) fn toggle_capture_from_menu(app: &tauri::AppHandle) {
+    let requested = app
+        .try_state::<CaptureMenuState>()
+        .map(|state| state.menu_bar_checked())
+        .unwrap_or(false);
+    request_capture(app, requested);
+}
+
+fn find_submenu(menu: &Menu<tauri::Wry>, text: &str) -> tauri::Result<Option<Submenu<tauri::Wry>>> {
+    Ok(menu.items()?.into_iter().find_map(|item| {
+        item.as_submenu()
+            .filter(|submenu| submenu.text().is_ok_and(|label| label == text))
+            .cloned()
+    }))
 }
 
 pub(super) fn show_main_window(app: &tauri::AppHandle) {
@@ -82,7 +155,9 @@ pub(super) fn show_settings_window(app: &tauri::AppHandle) {
     }
 }
 
-pub(super) fn create_app_menu(app: &tauri::App) -> tauri::Result<()> {
+/// Build the menu bar. Returns the Capture check item so it can share state
+/// with the tray toggle.
+pub(super) fn create_app_menu(app: &tauri::App) -> tauri::Result<CheckMenuItem<tauri::Wry>> {
     let menu = Menu::default(app.handle())?;
 
     #[cfg(target_os = "macos")]
@@ -138,6 +213,62 @@ pub(super) fn create_app_menu(app: &tauri::App) -> tauri::Result<()> {
         app_menu.insert(&settings_separator, 3)?;
     }
 
+    // File: the one document-like action the app has.
+    let new_chat = MenuItem::with_id(app, "file_new_chat", "New Chat", true, Some("CmdOrCtrl+N"))?;
+    if let Some(file) = find_submenu(&menu, "File")? {
+        file.prepend_items(&[&new_chat, &PredefinedMenuItem::separator(app)?])?;
+    } else {
+        let file = Submenu::with_items(app, "File", true, &[&new_chat])?;
+        menu.insert(&file, 1)?;
+    }
+
+    // View: the four sections and Find.
+    let view_items = [
+        MenuItem::with_id(app, "view_home", "Overview", true, Some("CmdOrCtrl+1"))?,
+        MenuItem::with_id(app, "view_chat", "Chat", true, Some("CmdOrCtrl+2"))?,
+        MenuItem::with_id(app, "view_traces", "Traces", true, Some("CmdOrCtrl+3"))?,
+        MenuItem::with_id(app, "view_settings", "Settings", true, Some("CmdOrCtrl+4"))?,
+    ];
+    let find = MenuItem::with_id(app, "view_find", "Find", true, Some("CmdOrCtrl+F"))?;
+    let view_separator = PredefinedMenuItem::separator(app)?;
+    let find_separator = PredefinedMenuItem::separator(app)?;
+    let view_entries: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![
+        &view_items[0],
+        &view_items[1],
+        &view_items[2],
+        &view_items[3],
+        &view_separator,
+        &find,
+        &find_separator,
+    ];
+    if let Some(view) = find_submenu(&menu, "View")? {
+        view.prepend_items(&view_entries)?;
+    } else {
+        let view = Submenu::with_items(app, "View", true, &view_entries)?;
+        let position = menu.items()?.len().saturating_sub(2);
+        menu.insert(&view, position)?;
+    }
+
+    // Capture: one check item, kept in step with the tray.
+    let capture_requests = CheckMenuItem::with_id(
+        app,
+        MENU_BAR_CAPTURE_ID,
+        "Capture Requests",
+        true,
+        false,
+        Some("CmdOrCtrl+Shift+R"),
+    )?;
+    let capture = Submenu::with_items(app, "Capture", true, &[&capture_requests])?;
+    let capture_position = menu
+        .items()?
+        .iter()
+        .position(|item| {
+            item.as_submenu()
+                .is_some_and(|submenu| submenu.text().is_ok_and(|label| label == "Window"))
+        })
+        .unwrap_or(menu.items()?.len().saturating_sub(1));
+    menu.insert(&capture, capture_position)?;
+
     if let Some(help_item) = menu.get(HELP_SUBMENU_ID)
         && let Some(help) = help_item.as_submenu()
     {
@@ -153,7 +284,7 @@ pub(super) fn create_app_menu(app: &tauri::App) -> tauri::Result<()> {
     }
 
     app.set_menu(menu)?;
-    Ok(())
+    Ok(capture_requests)
 }
 
 pub(super) fn create_tray(app: &tauri::App) -> tauri::Result<CaptureMenuState> {
@@ -186,26 +317,7 @@ pub(super) fn create_tray(app: &tauri::App) -> tauri::Result<CaptureMenuState> {
             move |app, event| match event.id().as_ref() {
                 "open_app" => show_main_window(app),
                 "capture_requests" => {
-                    let requested = capture_requests.is_checked().unwrap_or(false);
-                    let app_handle = app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        if requested && read_admin_status().await.is_err() {
-                            let process = app_handle.state::<DaemonProcess>();
-                            if start_daemon(app_handle.clone(), process).await.is_err() {
-                                publish_capture_state(&app_handle, false);
-                                return;
-                            }
-                        }
-                        let temporary_capture = app_handle.state::<TemporaryCaptureState>();
-                        match write_capture_setting(requested, &temporary_capture).await {
-                            Ok(enabled) => {
-                                publish_capture_state(&app_handle, enabled);
-                            }
-                            Err(_) => {
-                                publish_capture_state(&app_handle, !requested);
-                            }
-                        }
-                    });
+                    request_capture(app, capture_requests.is_checked().unwrap_or(false));
                 }
                 "quit" => app.exit(0),
                 _ => {}
@@ -213,7 +325,7 @@ pub(super) fn create_tray(app: &tauri::App) -> tauri::Result<CaptureMenuState> {
         })
         .build(app)?;
     Ok(CaptureMenuState {
-        item: capture_requests,
+        items: vec![capture_requests],
     })
 }
 

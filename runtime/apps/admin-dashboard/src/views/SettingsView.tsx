@@ -842,10 +842,8 @@ export function EmbeddedSettingsView({
             <Text className="eyebrow">AI tools</Text>
             <Title order={2}>AI connections</Title>
             <Text>
-              Connect Codex CLI, Claude Code, or an API client from the AI connections tab above.
-              Saved product sign-ins and model selection stay in the originating tool. API clients
-              send their own provider key. Exalto Capture does not store or substitute it; the
-              optional onboarding test keeps a pasted key only in memory for that setup session.
+              Connect Codex CLI, Claude Code, or an API client from the AI connections tab.
+              Sign-ins, API keys, and model selection stay in the originating tool.
             </Text>
           </Paper>
           <EmbeddedNotaries api={api} />

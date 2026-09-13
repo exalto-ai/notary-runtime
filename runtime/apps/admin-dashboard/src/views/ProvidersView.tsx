@@ -80,43 +80,32 @@ function ClientSetupCard({
     <Paper className="settings-panel provider-route">
       <Group justify="space-between" align="flex-start">
         <div>
-          <Text className="eyebrow">
-            {codex ? 'Saved ChatGPT sign-in' : 'Saved claude.ai sign-in'}
-          </Text>
           <Title order={2}>{name}</Title>
+          <Text className="provider-route-subtitle">
+            {codex ? 'Uses the saved ChatGPT sign-in' : 'Uses the saved claude.ai sign-in'}
+          </Text>
         </div>
         <StatusLabel state={route.ready ? 'ready' : 'unavailable'} />
       </Group>
-      <Text>
-        {codex
-          ? 'Use the ChatGPT login already managed by Codex CLI. Keep your current model setting.'
-          : 'Use the claude.ai login already managed by Claude Code. Keep your current model setting.'}
-      </Text>
-      <dl className="receipt-list">
-        <Fact
-          label="Check sign-in"
-          value={<code>{codex ? 'codex login status' : 'claude auth status'}</code>}
-        />
-        <Fact
-          label={codex ? 'Config key' : 'Environment variable'}
-          value={<code>{codex ? 'model_provider' : 'ANTHROPIC_BASE_URL'}</code>}
-        />
-        <Fact label="Local route" value={<code>{route.route_prefix}</code>} />
-      </dl>
       <BaseUrl route={route} label={codex ? route.name : name} onCopy={onCopyBaseUrl} />
-      <Text className="safe-note">
-        <ShieldCheck size={15} />
-        {codex
-          ? ' Codex CLI keeps the saved ChatGPT login and sends it with requests. No API key is needed for this route.'
-          : ' Claude Code keeps the saved claude.ai login and sends it with requests. No API key is needed for this route.'}
-      </Text>
       <details className="notary-details">
         <summary>Setup {name}</summary>
         <Text>
           {codex
-            ? 'Add this named provider to ~/.codex/config.toml. Do not add env_key, then run Codex normally.'
-            : 'Run Claude Code with its API-key overrides removed so it uses the saved claude.ai login.'}
+            ? 'Add this named provider to ~/.codex/config.toml. Do not add env_key, then run Codex normally. Keep your current model setting.'
+            : 'Run Claude Code with its API-key overrides removed so it uses the saved claude.ai login. Keep your current model setting.'}
         </Text>
+        <dl className="receipt-list">
+          <Fact
+            label="Check sign-in"
+            value={<code>{codex ? 'codex login status' : 'claude auth status'}</code>}
+          />
+          <Fact
+            label={codex ? 'Config key' : 'Environment variable'}
+            value={<code>{codex ? 'model_provider' : 'ANTHROPIC_BASE_URL'}</code>}
+          />
+          <Fact label="Local route" value={<code>{route.route_prefix}</code>} />
+        </dl>
         <pre className="json-view">{setup}</pre>
         <Button
           variant="outline"
@@ -241,13 +230,12 @@ export function ProvidersView({
       ) : (
         <>
           <section className="settings-group" aria-labelledby="ai-tools-title">
-            <Text className="eyebrow">Recommended</Text>
             <Title order={2} id="ai-tools-title" className="settings-group-title">
               Connect your AI tool
             </Title>
             <Text className="provider-boundary-note">
-              Codex CLI and Claude Code keep their own saved product sign-ins. This setup changes
-              only their loopback endpoint and does not move those logins into Exalto Capture.
+              Point the tool at its local route. It keeps its own sign-in and model setting; no API
+              key is needed and nothing moves into Exalto Capture.
             </Text>
             <div className="provider-route-list provider-client-list">
               {codexRoute && (
@@ -269,7 +257,6 @@ export function ProvidersView({
             </div>
           </section>
           <section className="settings-group" aria-labelledby="api-routes-title">
-            <Text className="eyebrow">API and SDK clients</Text>
             <Title order={2} id="api-routes-title" className="settings-group-title">
               Use a provider base URL
             </Title>

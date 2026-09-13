@@ -618,9 +618,10 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
 
 .dashboard-shell--embedded .mantine-Button-root { padding-inline: 14px; }
 .dashboard-shell--embedded .trace-filters {
-  min-height: 66px;
+  min-height: 52px;
   flex: 0 0 auto;
-  padding: 13px 20px;
+  padding: 12px 20px;
+  background: var(--raised);
 }
 .dashboard-shell--embedded .trace-empty-workspace {
   display: grid;
@@ -824,4 +825,320 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
   .dashboard-shell--embedded .operation-inspector { padding: 20px 16px 30px; }
   .dashboard-shell--embedded .trace-message { grid-template-columns: 1fr; }
   .dashboard-shell--embedded .settings-panel { padding-inline: 18px; }
+}
+
+/* macOS shell: section headers and field names are sentence-case secondary text.
+   Uppercase tracked mono survives only inside evidence receipts and transcripts. */
+.dashboard-shell--embedded .eyebrow,
+.dashboard-shell--embedded .admin-context-label,
+.dashboard-shell--embedded .trace-lifecycle-label,
+.dashboard-shell--embedded .metadata-grid dt,
+.dashboard-shell--embedded .receipt-list dt,
+.dashboard-shell--embedded .sharing-facts dt,
+.dashboard-shell--embedded .share-control-label,
+.dashboard-shell--embedded .share-progress-timeline li,
+.dashboard-shell--embedded .settings-notary-source dt,
+.dashboard-shell--embedded .local-notary-facts dt,
+.dashboard-shell--embedded .local-notary-state,
+.dashboard-shell--embedded .local-notary-selected,
+.dashboard-shell--embedded .local-notary-key > span,
+.dashboard-shell--embedded .settings-notaries-heading > p,
+.dashboard-shell--embedded .sample-data-label,
+.dashboard-shell--embedded .trace-inference-label,
+.dashboard-shell--embedded .account-connection-facts dt,
+.dashboard-shell--embedded .proof-work footer {
+  font-family: var(--ui-font);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.dashboard-shell--embedded .status-label {
+  letter-spacing: 0;
+  text-transform: capitalize;
+}
+
+/* macOS shell: control geometry. 6px radius, 28px toolbar and button height,
+   a recessed segmented control, pill switches, rounded menus and dialogs. */
+.dashboard-shell--embedded .mantine-Button-root,
+.dashboard-shell--embedded .mantine-Input-input,
+.dashboard-shell--embedded .axis-select-trigger,
+:root[data-shell='desktop'] .axis-local-dialog [data-slot='alert-dialog-action'],
+:root[data-shell='desktop'] .axis-local-dialog [data-slot='alert-dialog-cancel'] {
+  min-height: 28px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.dashboard-shell--embedded .mantine-Button-root { padding-inline: 12px; font-weight: 500; }
+.dashboard-shell--embedded .mantine-Button-root:not([data-variant]),
+.dashboard-shell--embedded .mantine-Button-root[data-variant='filled'],
+:root[data-shell='desktop'] .axis-local-dialog [data-slot='alert-dialog-action'] { font-weight: 600; }
+.dashboard-shell--embedded .mantine-Input-input:focus,
+.dashboard-shell--embedded .axis-select-trigger:focus-visible {
+  outline-width: 3px;
+  outline-offset: 0;
+  outline-color: color-mix(in srgb, var(--action) 45%, transparent);
+}
+.dashboard-shell--embedded .mantine-ActionIcon-root { border-radius: 6px; }
+.dashboard-shell--embedded .trace-filters .mantine-TextInput-input { border-radius: 7px; }
+
+.dashboard-shell--embedded .trace-state-filter {
+  gap: 2px;
+  padding: 2px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--subtle);
+  overflow: visible;
+}
+.dashboard-shell--embedded .trace-state-filter button {
+  min-height: 24px;
+  padding-inline: 12px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  font: 500 12px var(--ui-font);
+}
+.dashboard-shell--embedded .trace-state-filter button + button { border-left: 0; }
+.dashboard-shell--embedded .trace-state-filter button:hover:not(.is-active) { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.dashboard-shell--embedded .trace-state-filter button.is-active {
+  background: var(--raised);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18), 0 0 0 .5px rgba(0, 0, 0, .08);
+}
+
+.dashboard-shell--embedded .mantine-Switch-track,
+.dashboard-shell--embedded .mantine-Switch-thumb,
+.dashboard-shell--embedded .capture-mode-setting .mantine-Switch-track,
+.dashboard-shell--embedded .capture-mode-setting .mantine-Switch-thumb { border-radius: 999px; }
+.dashboard-shell--embedded .mantine-Switch-thumb > * { display: none; }
+
+:root[data-shell='desktop'] .axis-select-content {
+  padding: 4px;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .28), 0 0 0 .5px rgba(0, 0, 0, .12);
+}
+:root[data-shell='desktop'] .axis-select-content [data-slot='select-item'] { min-height: 26px; border-radius: 5px; }
+:root[data-shell='desktop'] .axis-local-dialog {
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .35), 0 0 0 .5px rgba(0, 0, 0, .15);
+}
+.dashboard-shell--embedded .notary-details summary,
+.dashboard-shell--embedded .otlp-details summary { border-radius: 6px; }
+
+/* Menus. The browser workspace keeps its square, flat surfaces; the desktop
+   shell rounds them and adds the system's soft shadow (see the desktop block). */
+.mantine-Menu-dropdown {
+  padding: 4px;
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  background: var(--raised);
+  color: var(--ink);
+  box-shadow: none;
+}
+.mantine-Menu-item { min-height: 26px; border-radius: 0; font-size: 12px; }
+.mantine-Menu-item:hover:not(:disabled), .mantine-Menu-item[data-hovered] { background: var(--subtle); }
+.mantine-Menu-item[data-disabled] { color: var(--muted); }
+.mantine-Menu-label { padding-inline: 10px; color: var(--muted); font-size: 11px; white-space: normal; }
+.dashboard-shell--embedded .mantine-Menu-dropdown {
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .28), 0 0 0 .5px rgba(0, 0, 0, .12);
+}
+.dashboard-shell--embedded .mantine-Menu-item { border-radius: 5px; font-size: 13px; }
+
+/* macOS shell: Settings as grouped forms. A 13px group header, rounded
+   inset groups on the raised surface, label-left value-right rows, and
+   controls on the right, the way System Settings lays out a pane. */
+.dashboard-shell--embedded .settings-page {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 18px 24px 48px;
+}
+.dashboard-shell--embedded .settings-group + .settings-group { margin-top: 28px; }
+.dashboard-shell--embedded .settings-group-title {
+  margin: 0 0 8px;
+  padding: 0 4px;
+  border: 0;
+  color: var(--ink);
+  font: 600 13px/1.3 var(--ui-font);
+  letter-spacing: 0;
+}
+.dashboard-shell--embedded .settings-subgroup-grid,
+.dashboard-shell--embedded .settings-flat-group,
+.dashboard-shell--embedded .settings-group > .settings-panel,
+.dashboard-shell--embedded .settings-group > .account-connection-card,
+.dashboard-shell--embedded .settings-group > .capture-mode-setting {
+  overflow: hidden;
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+  background: var(--raised);
+}
+.dashboard-shell--embedded .settings-group > * + * { margin-top: 12px; }
+.dashboard-shell--embedded .settings-subgroup-grid > .settings-panel {
+  border: 0;
+  border-right: 1px solid var(--rule-soft);
+  border-radius: 0;
+  background: transparent;
+}
+.dashboard-shell--embedded .settings-subgroup-grid > .settings-panel:last-child { border-right: 0; }
+.dashboard-shell--embedded .settings-panel { padding: 14px 16px 16px; }
+.dashboard-shell--embedded .settings-panel .eyebrow { display: none; }
+.dashboard-shell--embedded .settings-panel h2 {
+  margin: 0 0 4px;
+  font: 600 13px/1.35 var(--ui-font);
+  letter-spacing: 0;
+}
+.dashboard-shell--embedded .settings-panel > p:not(.eyebrow) {
+  max-width: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.dashboard-shell--embedded .settings-page .receipt-list {
+  display: block;
+  margin: 6px 0 0;
+  border-top: 0;
+}
+.dashboard-shell--embedded .settings-page .receipt-list > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.dashboard-shell--embedded .settings-page .receipt-list > div:last-child { border-bottom: 0; }
+.dashboard-shell--embedded .settings-page .receipt-list dt {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font: 400 13px/1.4 var(--ui-font);
+}
+.dashboard-shell--embedded .settings-page .receipt-list dd {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.dashboard-shell--embedded .settings-page .safe-note {
+  margin: 10px 0 0;
+  padding: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.dashboard-shell--embedded .settings-panel .mantine-Group-root:has(> .mantine-Button-root),
+.dashboard-shell--embedded .settings-panel > .mantine-Button-root { margin-top: 10px; }
+.dashboard-shell--embedded .capture-mode-setting {
+  min-height: 0;
+  margin-top: 0;
+  padding: 12px 16px;
+}
+.dashboard-shell--embedded .capture-mode-setting .mantine-Text-root[data-fw] { font-size: 13px; }
+.dashboard-shell--embedded .capture-mode-setting > div > p:last-child {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.dashboard-shell--embedded .settings-page .account-connection-card { padding: 14px 16px 16px; gap: 12px; }
+.dashboard-shell--embedded .settings-page .account-connection-card h2 { margin: 0; font: 600 13px/1.35 var(--ui-font); letter-spacing: 0; }
+.dashboard-shell--embedded .settings-page .account-connection-card .eyebrow { display: none; }
+.dashboard-shell--embedded .settings-page .account-local-boundary { font-size: 12px; }
+.dashboard-shell--embedded .settings-panel:not(:has(> h2)) .eyebrow {
+  display: block;
+  margin: 0 0 4px;
+  color: var(--ink);
+  font: 600 13px/1.35 var(--ui-font);
+}
+.dashboard-shell--embedded .settings-page .account-connection-card > .mantine-Text-root { font-size: 13px; line-height: 1.5; }
+.dashboard-shell--embedded .capture-mode-setting > div > .mantine-Text-root:first-child { font-size: 13px; font-weight: 600; }
+
+/* macOS shell: the AI connections tab uses the same grouped form as Preferences. */
+.dashboard-shell--embedded .providers-page {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 18px 24px 48px;
+}
+.dashboard-shell--embedded .providers-page .settings-group + .settings-group { margin-top: 28px; }
+.dashboard-shell--embedded .providers-page .settings-group-title {
+  margin: 0 0 4px;
+  padding: 0 4px;
+  border: 0;
+  color: var(--ink);
+  font: 600 13px/1.3 var(--ui-font);
+  letter-spacing: 0;
+}
+.dashboard-shell--embedded .provider-boundary-note {
+  margin: 0 0 8px;
+  padding: 0 4px;
+  border: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.dashboard-shell--embedded .provider-route-list {
+  overflow: hidden;
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+  background: var(--raised);
+  gap: 0;
+}
+.dashboard-shell--embedded .provider-route-list .provider-route {
+  padding: 14px 16px 16px;
+  border: 0;
+  border-right: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+  border-radius: 0;
+  background: transparent;
+}
+.dashboard-shell--embedded .provider-route-list .provider-route:nth-child(2n) { border-right: 0; }
+.dashboard-shell--embedded .provider-route-list .provider-route:nth-last-child(-n + 2) { border-bottom: 0; }
+.dashboard-shell--embedded .provider-route h2 {
+  margin: 0;
+  font: 600 13px/1.35 var(--ui-font);
+  letter-spacing: 0;
+}
+.dashboard-shell--embedded .provider-route .eyebrow { margin-bottom: 2px; }
+.dashboard-shell--embedded .provider-route-subtitle { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.dashboard-shell--embedded .provider-route > .mantine-Text-root:not(.eyebrow):not(.provider-route-subtitle),
+.dashboard-shell--embedded .provider-route .notary-details .mantine-Text-root { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.dashboard-shell--embedded .provider-route .safe-note { margin: 10px 0 0; padding: 8px 0 0; font-size: 12px; }
+.dashboard-shell--embedded .provider-route .notary-details { margin-top: 12px; padding-top: 10px; }
+.dashboard-shell--embedded .provider-route .notary-details summary { font-size: 12.5px; }
+.dashboard-shell--embedded .provider-route .receipt-list { display: block; margin: 8px 0 0; border-top: 0; }
+.dashboard-shell--embedded .provider-route .receipt-list > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.dashboard-shell--embedded .provider-route .receipt-list dt { color: var(--ink); font: 400 12.5px/1.4 var(--ui-font); }
+.dashboard-shell--embedded .provider-route .receipt-list dd { font-size: 12.5px; text-align: right; }
+.dashboard-shell--embedded .provider-route .json-view { margin-top: 10px; padding: 12px 14px; border-radius: 8px; max-height: none; }
+.dashboard-shell--embedded .provider-route .notary-details .mantine-Button-root { margin-top: 10px; }
+
+/* macOS shell: dialogs present as sheets from the top edge of the pane. */
+:root[data-shell='desktop'] .axis-local-dialog {
+  top: 0;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  translate: -50% 0;
+  animation: desktop-sheet-in 220ms cubic-bezier(.2, .8, .2, 1);
+}
+:root[data-shell='desktop'] .axis-local-dialog[data-state='closed'] { animation: desktop-sheet-out 160ms ease-in forwards; }
+:root[data-shell='desktop'] [data-slot='alert-dialog-overlay'] { background: rgba(0, 0, 0, .28); }
+@keyframes desktop-sheet-in {
+  from { opacity: 0; translate: -50% -16px; }
+  to { opacity: 1; translate: -50% 0; }
+}
+@keyframes desktop-sheet-out {
+  from { opacity: 1; translate: -50% 0; }
+  to { opacity: 0; translate: -50% -16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-shell='desktop'] .axis-local-dialog { animation: none; }
 }

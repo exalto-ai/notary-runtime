@@ -55,12 +55,6 @@ async function chat() {
   await expect.element(page.getByLabelText('Model', { exact: true })).toHaveValue('offline-test-model');
   return open;
 }
-async function consent() {
-  await userEvent.click(
-    page.getByRole('checkbox', { name: /I understand sending/ }),
-  );
-}
-
 test('saves a key through native storage and clears the field without browser persistence', async () => {
   render(<ProviderConnections />);
   await userEvent.selectOptions(
@@ -132,7 +126,7 @@ test('links with a device code and cancels pending authorization when the panel 
   expect(bridge.cancelChatgptLogin).toHaveBeenCalledWith('test-login');
 });
 
-test('requires cost consent, streams multi-turn messages, and opens the exact Trace', async () => {
+test('streams multi-turn messages and opens the exact Trace', async () => {
   vi.mocked(bridge.sendChat).mockImplementation(
     async (_id, _connection, _model, _messages, onDelta) => {
       onDelta('First ');
@@ -145,10 +139,6 @@ test('requires cost consent, streams multi-turn messages, and opens the exact Tr
   );
   const open = await chat();
   await userEvent.fill(page.getByLabelText('Message'), 'First question');
-  await expect
-    .element(page.getByRole('button', { name: 'Send', exact: true }))
-    .toBeDisabled();
-  await consent();
   await userEvent.click(
     page.getByRole('button', { name: 'Send', exact: true }),
   );
@@ -177,7 +167,6 @@ test('keeps an unconfirmed capture distinct from a completed response', async ()
     traces: [{ id: 'trc-pending', captured: false }],
   });
   await chat();
-  await consent();
   await userEvent.fill(page.getByLabelText('Message'), 'Test');
   await userEvent.click(
     page.getByRole('button', { name: 'Send', exact: true }),
@@ -198,7 +187,6 @@ test('shows expired credentials without claiming capture and allows a fresh conv
     traces: [],
   });
   await chat();
-  await consent();
   await userEvent.fill(page.getByLabelText('Message'), 'Test');
   await userEvent.click(
     page.getByRole('button', { name: 'Send', exact: true }),
@@ -223,7 +211,6 @@ test('stops the exact active request and retains its partial response', async ()
     },
   );
   await chat();
-  await consent();
   await userEvent.fill(page.getByLabelText('Message'), 'Test');
   await userEvent.click(
     page.getByRole('button', { name: 'Send', exact: true }),

@@ -95,8 +95,6 @@
   padding: 0 18px 9px;
   color: var(--night-muted);
   font: 600 var(--text-caption)/1.2 var(--font-text);
-  letter-spacing: .09em;
-  text-transform: uppercase;
 }
 
 .setup-ledger {
@@ -323,9 +321,9 @@
 }
 
 .exalto-onboarding .mac-button {
-  min-height: 30px;
+  min-height: var(--control-height);
   border: 1px solid var(--separator);
-  border-radius: 4px;
+  border-radius: var(--control-radius);
   background: var(--surface);
   box-shadow: none;
   color: var(--text);
@@ -636,8 +634,6 @@
   color: var(--blue);
   font: 600 var(--text-caption)/1.6 var(--font-text);
   font-style: normal;
-  letter-spacing: .06em;
-  text-transform: uppercase;
 }
 
 .exalto-onboarding .notary-boundary {
@@ -661,8 +657,6 @@
 .exalto-onboarding .notary-boundary dt {
   color: var(--tertiary);
   font: 600 var(--text-caption)/1.2 var(--font-text);
-  letter-spacing: .06em;
-  text-transform: uppercase;
 }
 
 .exalto-onboarding .notary-boundary dd {
@@ -703,8 +697,6 @@
   color: var(--tertiary);
   font: 600 var(--text-caption)/1.2 var(--font-text);
   font-style: normal;
-  letter-spacing: .05em;
-  text-transform: uppercase;
 }
 
 .exalto-onboarding .advanced-notaries > p {
@@ -718,26 +710,25 @@
 
 /* Where to chat */
 
+/* Segmented control: a recessed track with a raised selected segment. */
 .exalto-onboarding .client-picker {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  overflow: hidden;
-  border: 1px solid var(--separator);
-  border-radius: 4px;
-  background: var(--surface);
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--surface-secondary);
 }
 
 .exalto-onboarding .client-picker > button {
-  min-height: 34px;
-  padding: 6px 10px;
+  min-height: 24px;
+  padding: 3px 10px;
   border: 0;
-  border-radius: 0;
+  border-radius: 5px;
   background: transparent;
   color: var(--secondary);
   font: 500 var(--text-body)/1.2 var(--font-text);
 }
-
-.exalto-onboarding .client-picker > button + button { border-left: 1px solid var(--separator); }
 
 .exalto-onboarding .client-picker > button:hover:not(:disabled):not(.is-selected) {
   background: var(--surface-hover);
@@ -745,8 +736,10 @@
 }
 
 .exalto-onboarding .client-picker > button.is-selected {
-  background: var(--blue);
-  color: var(--on-blue);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .16), 0 0 0 .5px rgba(0, 0, 0, .06);
 }
 
 .exalto-onboarding .harness-description {
@@ -929,8 +922,6 @@
 .exalto-onboarding .credential-import > label {
   color: var(--tertiary);
   font: 600 var(--text-caption)/1.2 var(--font-text);
-  letter-spacing: .05em;
-  text-transform: uppercase;
 }
 
 .exalto-onboarding .credential-import > div {
@@ -1099,8 +1090,6 @@
 .exalto-onboarding .ready-summary dt {
   color: var(--tertiary);
   font: 600 var(--text-caption)/1.2 var(--font-text);
-  letter-spacing: .05em;
-  text-transform: uppercase;
 }
 
 .exalto-onboarding .ready-summary dd {

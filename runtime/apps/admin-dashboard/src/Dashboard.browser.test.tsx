@@ -345,9 +345,9 @@ describe('Notary admin dashboard', () => {
         .element(timeline.getByText(progress[0].toUpperCase() + progress.slice(1)))
         .toHaveAttribute('aria-current', 'step');
       await expect.element(page.getByRole('button', { name: 'Stop sharing' })).toBeVisible();
-      await expect
-        .element(page.getByRole('button', { name: 'Delete', exact: true }))
-        .toBeDisabled();
+      await page.getByRole('button', { name: 'More actions' }).click();
+      await expect.element(page.getByRole('menuitem', { name: 'Delete Trace…' })).toBeDisabled();
+      await userEvent.keyboard('{Escape}');
       cleanup();
     }
   });
@@ -423,7 +423,8 @@ describe('Notary admin dashboard', () => {
     const deleteTrace = vi.fn((id: string) => fixture.deleteTrace(id));
     renderDashboard(`/traces/${traceId}`, { ...fixture, deleteTrace });
 
-    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('menuitem', { name: 'Delete Trace…' }).click();
     const dialog = page.getByRole('alertdialog');
     await expect.element(dialog.getByRole('heading', { name: 'Delete this Trace?' })).toBeVisible();
     await dialog.getByRole('button', { name: 'Delete Trace' }).click();
@@ -439,7 +440,8 @@ describe('Notary admin dashboard', () => {
     const deleteTrace = vi.fn((id: string) => fixture.deleteTrace(id));
     renderDashboard(`/traces/${traceId}`, { ...fixture, deleteTrace });
 
-    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('menuitem', { name: 'Delete Trace…' }).click();
     const dialog = page.getByRole('alertdialog');
     await dialog.getByRole('button', { name: 'Cancel' }).click();
 
@@ -1584,7 +1586,9 @@ describe('Notary admin dashboard', () => {
     await expect
       .element(page.getByRole('button', { name: 'Stop sharing' }))
       .not.toBeInTheDocument();
-    await expect.element(page.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'More actions' }).click();
+    await expect.element(page.getByRole('menuitem', { name: 'Delete Trace…' })).toBeEnabled();
+    await userEvent.keyboard('{Escape}');
     await page.getByRole('button', { name: 'Manage access' }).click();
     await page.getByLabelText('Share expiration').click();
     await page.getByRole('option', { name: '7 days from now' }).click();

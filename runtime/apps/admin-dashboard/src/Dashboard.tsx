@@ -251,6 +251,15 @@ export function Dashboard({
     desktopSettings,
     onDesktopSettingsAction,
   );
+  // Portalled surfaces (dialogs, menus, select menus) render outside the shell
+  // element, so the desktop treatment is keyed off a root attribute as well.
+  useEffect(() => {
+    if (!embedded) return;
+    document.documentElement.dataset.shell = 'desktop';
+    return () => {
+      delete document.documentElement.dataset.shell;
+    };
+  }, [embedded]);
   useEffect(() => {
     if (!embedded) return;
     const publishRoute = () => {
@@ -260,8 +269,19 @@ export function Dashboard({
       );
     };
     const receiveReadyRequest = (event: MessageEvent) => {
-      if (event.source === window.parent && event.data?.type === 'notary:desktop-ready-request') {
+      if (event.source !== window.parent) return;
+      if (event.data?.type === 'notary:desktop-ready-request') {
         publishRoute();
+      } else if (
+        event.data?.type === 'notary:desktop-command' &&
+        event.data.payload?.command === 'find'
+      ) {
+        // The desktop shell's View > Find: focus the view's search or identifier field.
+        const field = document.querySelector<HTMLInputElement>(
+          'input[aria-label="Search traces"], input[aria-label="Activity Trace ID"]',
+        );
+        field?.focus();
+        field?.select();
       }
     };
     window.addEventListener('message', receiveReadyRequest);

@@ -2,6 +2,7 @@ import {
   ActionIcon,
   Button,
   Group,
+  Menu,
   Paper,
   ScrollArea,
   Tabs,
@@ -18,6 +19,7 @@ import {
   Copy,
   Database,
   Download,
+  Ellipsis,
   FileJson2,
   Play,
   RefreshCw,
@@ -747,16 +749,25 @@ function DeleteTraceAction({
   });
   return (
     <>
-      <Button
-        variant="subtle"
-        color="red"
-        leftSection={<Trash2 size={15} />}
-        disabled={Boolean(blockReason)}
-        title={blockReason ?? 'Delete this local Trace'}
-        onClick={() => setConfirmationOpen(true)}
-      >
-        Delete
-      </Button>
+      <Menu position="bottom-end" width={220} withinPortal>
+        <Menu.Target>
+          <Button variant="outline" leftSection={<Ellipsis size={15} />} aria-label="More actions">
+            More
+          </Button>
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Item
+            color="red"
+            leftSection={<Trash2 size={14} />}
+            disabled={Boolean(blockReason)}
+            title={blockReason ?? undefined}
+            onClick={() => setConfirmationOpen(true)}
+          >
+            Delete Trace…
+          </Menu.Item>
+          {blockReason && <Menu.Label>{blockReason}</Menu.Label>}
+        </Menu.Dropdown>
+      </Menu>
       <AlertDialog
         open={confirmationOpen}
         onOpenChange={(open) => {
