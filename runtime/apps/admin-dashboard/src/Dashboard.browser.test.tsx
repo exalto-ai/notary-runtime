@@ -920,7 +920,10 @@ describe('Notary admin dashboard', () => {
       expect.stringContaining('ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic'),
     );
     await expect
-      .element(page.getByText(/optional onboarding test can hold a pasted key in memory/).first())
+      .element(page.getByText(/holds a pasted key in memory for one setup session only/).first())
+      .toBeVisible();
+    await expect
+      .element(page.getByText(/never stores or substitutes the key/).first())
       .toBeVisible();
     await expect
       .poll(
@@ -929,7 +932,7 @@ describe('Notary admin dashboard', () => {
             (card) => card.querySelector('h2')?.textContent === 'OpenAI',
           )?.textContent,
       )
-      .toContain('never saves it');
+      .toContain('Keep OPENAI_API_KEY in the originating client.');
     await expect
       .poll(
         () =>
@@ -937,7 +940,7 @@ describe('Notary admin dashboard', () => {
             (card) => card.querySelector('h2')?.textContent === 'DeepSeek',
           )?.textContent,
       )
-      .toContain('does not store or substitute it');
+      .toContain('Keep DEEPSEEK_API_KEY in the originating client.');
   });
 
   test('builds signed-in client setup from the advertised route URLs', async () => {

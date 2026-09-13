@@ -105,8 +105,7 @@ export function ProviderConnections({
         <span>Saved on this Mac</span>
       </div>
       <p className="panel-lead">
-        These credentials are used only by the chat in Capture. External Codex
-        and Claude sessions keep their own sign-in.
+        These credentials are used only by the chat in Capture.
       </p>
       {connections.length === 0 ? (
         <p className="connection-empty">
@@ -282,10 +281,8 @@ export function ProviderConnections({
         </p>
       )}
       <p className="chat-fine-print">
-        API keys are encrypted in your local vault. Codex manages its linked
-        login in a separate local session. Removing a connection deletes its saved credential,
-        not existing Traces, and does not revoke it at the provider. Private
-        captures may retain encrypted credential bytes.
+        Removing a connection deletes its saved credential, not existing Traces, and does not
+        revoke it at the provider. Private captures may retain encrypted credential bytes.
       </p>
     </section>
   );

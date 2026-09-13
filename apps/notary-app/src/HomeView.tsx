@@ -60,7 +60,7 @@ export function HomeView({
           <span className="section-label">Local recorder</span>
           <h1>{recording ? 'Capturing' : 'Capture is off'}</h1>
           <p>{recording
-            ? 'Make a request in a connected AI client. New traces stay private on this Mac.'
+            ? 'Make a request in a connected AI client.'
             : 'Start capturing before your next request. Requests sent while capture is off cannot be sealed later.'}</p>
         </div>
       </div>

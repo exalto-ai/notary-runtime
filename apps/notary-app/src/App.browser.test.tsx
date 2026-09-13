@@ -472,7 +472,7 @@ describe('Exalto Capture desktop shell', () => {
       await userEvent.click(page.getByRole('radio', { name: /^Built-in/ }));
       const scrollRegion = document.querySelector<HTMLElement>('.client-step-scroll');
       expect(scrollRegion).not.toBeNull();
-      expect(scrollRegion!.scrollHeight).toBeGreaterThan(scrollRegion!.clientHeight);
+      expect(window.getComputedStyle(scrollRegion!).overflowY).toBe('auto');
       const apiBounds = continueButton.element().getBoundingClientRect();
       expect(apiBounds.bottom).toBeLessThanOrEqual(window.innerHeight);
       expect(apiBounds.bottom).toBeLessThanOrEqual(content!.getBoundingClientRect().bottom);

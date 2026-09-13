@@ -145,7 +145,6 @@ function ApiRouteCard({
   status: Status;
   onCopyBaseUrl: (label: string, value: string) => void;
 }) {
-  const supportsOnboardingTest = ['openai', 'anthropic', 'openrouter'].includes(route.id);
   return (
     <Paper className="settings-panel provider-route">
       <Group justify="space-between" align="flex-start">
@@ -160,11 +159,6 @@ function ApiRouteCard({
         <ShieldCheck size={15} />
         <span>
           Keep <code>{apiKeyEnvironment[route.id] ?? 'API_KEY'}</code> in the originating client.
-          Exalto Capture does not store or substitute it.
-          {supportsOnboardingTest
-            ? ' Its optional onboarding test can hold a pasted key in memory for one setup session, but never saves it.'
-            : ''}{' '}
-          Model selection stays in the client.
         </span>
       </Text>
       <Text className="provider-setup-note">{setupNote(route.id)}</Text>
@@ -281,9 +275,9 @@ export function ProvidersView({
             </Title>
             <Text className="provider-boundary-note">
               Choose a provider route only when configuring an API or SDK client. Replace its base
-              URL, then keep its API key and model configuration in that client. The optional Exalto
-              Capture onboarding test can hold a pasted key only in memory for the current setup
-              session; it does not save the key or create a second credential path.
+              URL and keep the API key and model selection in that client; Exalto Capture never
+              stores or substitutes the key. The optional onboarding test holds a pasted key in
+              memory for one setup session only.
             </Text>
             <div className="provider-route-list provider-api-list">
               {apiRoutes.map((route) => (
