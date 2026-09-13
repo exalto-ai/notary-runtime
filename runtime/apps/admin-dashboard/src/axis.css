@@ -99,7 +99,9 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
 
 .dashboard-main { height: calc(100dvh - 54px); overflow: auto; }.view-page { width: 100%; max-width: none; min-height: 100%; margin: 0; padding: 0 16px 34px; }
 
-.mantine-Button-root { min-height: 34px; border: 1px solid var(--action-fill); border-radius: 0; background: var(--action-fill); color: var(--action-contrast); font-size: 12px; font-weight: 600; }.mantine-Button-root[data-variant='outline'] { border-color: var(--rule); background: transparent; color: var(--ink); }.mantine-Button-root[data-variant='subtle'] { border-color: transparent; background: transparent; color: var(--action-ink); }.mantine-Button-root:hover { filter: none; opacity: 1; border-color: var(--action-fill-hover); background: var(--action-fill-hover); }.mantine-Button-root[data-variant='outline']:hover, .mantine-Button-root[data-variant='subtle']:hover { background: var(--subtle); color: var(--ink); }.mantine-Input-input { min-height: 34px; border-color: var(--rule); border-radius: 0; background: transparent; color: var(--ink); font-size: 12px; }.mantine-Input-input:focus { border-color: var(--action); outline: 2px solid var(--action); outline-offset: 1px; }.mantine-Modal-content, .mantine-Drawer-content { border: 1px solid var(--rule); border-radius: 0; background: var(--raised); color: var(--ink); }.mantine-Modal-content { box-shadow: none; }.mantine-Modal-overlay { background: rgba(0, 0, 0, .55); backdrop-filter: none; }
+.mantine-Button-root { min-height: 34px; border: 1px solid var(--action-fill); border-radius: 0; background: var(--action-fill); color: var(--action-contrast); font-size: 12px; font-weight: 600; }.mantine-Button-root[data-variant='outline'] { border-color: var(--rule); background: transparent; color: var(--ink); }.mantine-Button-root[data-variant='subtle'] { border-color: transparent; background: transparent; color: var(--action-ink); }
+.mantine-Button-root[data-variant='light'] { border-color: var(--action); background: var(--action-soft); color: var(--action-ink); }
+.mantine-Button-root[data-variant='light']:hover { border-color: var(--action); background: var(--action-soft); color: var(--action-ink); }.mantine-Button-root:hover { filter: none; opacity: 1; border-color: var(--action-fill-hover); background: var(--action-fill-hover); }.mantine-Button-root[data-variant='outline']:hover, .mantine-Button-root[data-variant='subtle']:hover { background: var(--subtle); color: var(--ink); }.mantine-Input-input { min-height: 34px; border-color: var(--rule); border-radius: 0; background: transparent; color: var(--ink); font-size: 12px; }.mantine-Input-input:focus { border-color: var(--action); outline: 2px solid var(--action); outline-offset: 1px; }.mantine-Modal-content, .mantine-Drawer-content { border: 1px solid var(--rule); border-radius: 0; background: var(--raised); color: var(--ink); }.mantine-Modal-content { box-shadow: none; }.mantine-Modal-overlay { background: rgba(0, 0, 0, .55); backdrop-filter: none; }
 
 /* Overview presents the local service as a state strip, not a row of feature cards. */
 .service-grid { margin-top: 0; border: 0; border-bottom: 1px solid var(--rule); }.service-fact { min-height: 96px; padding: 13px 15px; border: 0; border-right: 1px solid var(--rule); border-bottom: 0; background: transparent; }.service-fact:last-child { border-right: 0; }.service-fact h3 { margin: 13px 0 1px; font-family: var(--ui-font); font-size: 18px; font-weight: 600; letter-spacing: -.025em; }.service-fact > p:not(.eyebrow) { color: var(--muted); font-size: 11px; }.service-fact .status-label { display: none; }.overview-work { grid-template-columns: minmax(0, 1fr) 300px; gap: 0; margin-top: 26px; border-bottom: 1px solid var(--rule); }.overview-work > div { padding-right: 20px; }.count-strip { margin-top: 8px; border-color: var(--rule); }.count-strip button { min-height: 90px; padding: 10px 8px; border-color: var(--rule); }.count-strip button:hover { background: var(--subtle); }.count-strip b { margin-top: auto; font-family: var(--ui-font); font-size: 28px; }.count-marker { height: 3px; width: 20px; background: var(--muted); }.count-marker--ready, .count-marker--active { border: 0; background: var(--action); }.count-marker--danger { background: var(--danger); }.next-action { margin: 0; padding: 14px 16px; border: 0; border-left: 1px solid var(--rule); background: transparent; color: var(--ink); }.next-action h2 { margin: 20px 0 8px; font-family: var(--ui-font); font-size: 19px; font-weight: 600; }.next-action > p:not(.eyebrow) { color: var(--body-copy, var(--muted)); font-size: 12px; }.next-action .mantine-Button-root { margin-top: 12px; }.recent-section { margin-top: 26px; padding-top: 0; border-top: 0; }.recent-section h2 { margin-top: 2px; font-family: var(--ui-font); font-size: 20px; font-weight: 600; }
@@ -273,6 +275,8 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
 .next-action .mantine-Button-root:hover { border-color: var(--action-fill-hover); background: var(--action-fill-hover); color: var(--action-contrast); }
 .axis-local-dialog [data-slot='alert-dialog-action'] { background: var(--action-fill); color: var(--action-contrast); }
 .axis-local-dialog [data-slot='alert-dialog-action']:hover { background: var(--action-fill-hover); }
+.axis-local-dialog [data-slot='alert-dialog-action'].is-destructive { background: var(--danger); color: #fff; }
+.axis-local-dialog [data-slot='alert-dialog-action'].is-destructive:hover { background: color-mix(in srgb, var(--danger) 85%, var(--ink)); }
 
 /* Every list/inspector workspace starts from the same rail and shares one persisted divider. */
 .resizable-split {
@@ -510,10 +514,6 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
 .trace-state-filter { border-radius: 4px; overflow: hidden; }
 .trace-state-filter button { background: var(--raised); }
 .trace-state-filter button.is-active { background: var(--action-fill); color: var(--action-contrast); }
-.trace-more-filters.mantine-Button-root {
-  --button-color: var(--action-contrast);
-  --button-hover-color: var(--action-contrast);
-}
 
 .capture-row:hover,
 .operation-row:hover { background: var(--subtle); }
@@ -640,6 +640,7 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
   height: auto;
   min-height: 0;
   flex: 1 1 auto;
+  margin: 0;
   padding-top: 0;
 }
 .dashboard-shell--embedded .trace-state-filter button {
@@ -651,7 +652,7 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
 .dashboard-shell--embedded .capture-row {
   min-height: 72px;
   gap: 5px 14px;
-  padding: 12px 16px;
+  padding: 12px 20px;
 }
 .dashboard-shell--embedded .capture-row-copy { gap: 4px; }
 .dashboard-shell--embedded .capture-row-copy b {
@@ -677,9 +678,9 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
 .dashboard-shell--embedded .inspector h2,
 .dashboard-shell--embedded .trace-inspector h2 {
   margin-block: 8px 5px;
-  font-size: 27px;
-  line-height: 1.12;
-  letter-spacing: -.025em;
+  font-size: 20px;
+  line-height: 1.25;
+  letter-spacing: -.02em;
 }
 .dashboard-shell--embedded .trace-head-facts {
   margin-top: 10px;

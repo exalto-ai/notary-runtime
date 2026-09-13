@@ -248,14 +248,12 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
     };
   }, [refresh]);
 
-  const goBack = async () => {
+  // Leaving a step backwards undoes anything that step changed on the way in.
+  // Returns false when the current step could not be left safely.
+  const leaveStepBackwards = async () => {
     invalidateTestWork();
     setError(null);
-    if (step === 'account') {
-      setTestStatus('idle');
-      setStep('client');
-      return;
-    }
+    if (step === 'account') setTestStatus('idle');
     if (step === 'test') {
       setBusy(true);
       try {
@@ -263,7 +261,7 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
       } catch (caught) {
         setError(`Could not restore your capture setting: ${errorMessage(caught)}`);
         setBusy(false);
-        return;
+        return false;
       }
       setBusy(false);
     }
@@ -272,7 +270,22 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
       setPassphrase('');
       setPassphraseConfirmation('');
     }
-    setStep(onboardingSteps[Math.max(0, stepIndex - 1)]);
+    return true;
+  };
+
+  const goBack = async () => {
+    if (!(await leaveStepBackwards())) return;
+    // The disposable test is prepared on entry, so Back from Account returns to the tool choice.
+    setStep(step === 'account' ? 'client' : onboardingSteps[Math.max(0, stepIndex - 1)]);
+  };
+
+  const canReturnTo = (target: OnboardingStep) =>
+    onboardingSteps.indexOf(target) < stepIndex && target !== 'test';
+
+  const goToStep = async (target: OnboardingStep) => {
+    if (!canReturnTo(target) || busy || testStatus === 'checking') return;
+    if (!(await leaveStepBackwards())) return;
+    setStep(target);
   };
 
   const configureProtection = async () => {
@@ -508,15 +521,30 @@ export function Onboarding({ state, refresh, onFinish, initialStep = 'welcome', 
       </div>
       <span className="setup-rail-label">Setup</span>
       <ol className="setup-ledger" aria-label={`Setup step ${stepIndex + 1} of ${onboardingSteps.length}`}>
-        {onboardingSteps.map((item, index) => <li
-          key={item}
-          className={index < stepIndex ? 'is-done' : index === stepIndex ? 'is-current' : ''}
-          aria-current={index === stepIndex ? 'step' : undefined}
-        >
-          <span className="ledger-mark">{index < stepIndex ? <Check size={11} /> : index + 1}</span>
-          <span className="ledger-name">{stepNames[item]}</span>
-          {index <= stepIndex && decisions[item] && <span className="ledger-value">{decisions[item]}</span>}
-        </li>)}
+        {onboardingSteps.map((item, index) => {
+          const content = <>
+            <span className="ledger-mark">{index < stepIndex ? <Check size={11} /> : index + 1}</span>
+            <span className="ledger-name">{stepNames[item]}</span>
+            {index <= stepIndex && decisions[item] && <span className="ledger-value">{decisions[item]}</span>}
+          </>;
+          return <li
+            key={item}
+            className={index < stepIndex ? 'is-done' : index === stepIndex ? 'is-current' : ''}
+            aria-current={index === stepIndex ? 'step' : undefined}
+          >
+            {canReturnTo(item)
+              ? <button
+                type="button"
+                className="ledger-step"
+                onClick={() => void goToStep(item)}
+                disabled={navigationBusy}
+                aria-label={`Return to ${stepNames[item]}`}
+              >
+                {content}
+              </button>
+              : content}
+          </li>;
+        })}
       </ol>
     </aside>
     <section className={`onboarding-content${step === 'client' ? ' is-client-step' : ''}`}>

@@ -1078,7 +1078,10 @@ mod tests {
     };
 
     use aws_sdk_s3::primitives::ByteStream;
-    use testcontainers_modules::{minio::MinIO, testcontainers::runners::AsyncRunner as _};
+    use testcontainers_modules::{
+        minio::MinIO,
+        testcontainers::{ImageExt as _, runners::AsyncRunner as _},
+    };
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
     use super::*;
@@ -1434,7 +1437,12 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires Docker and a disposable MinIO container"]
     async fn minio_conforms_and_detects_missing_corrupt_and_oversized_objects() {
-        let server = MinIO::default().start().await.expect("start MinIO");
+        // Docker Hub no longer serves this image; use the same release on Quay.
+        let server = MinIO::default()
+            .with_name("quay.io/minio/minio")
+            .start()
+            .await
+            .expect("start MinIO");
         let port = server.get_host_port_ipv4(9000).await.expect("MinIO port");
         let endpoint = format!("http://127.0.0.1:{port}");
         let store = S3ArtifactStore::new(config(&endpoint, true), credentials()).unwrap();

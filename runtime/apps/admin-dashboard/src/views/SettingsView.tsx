@@ -299,27 +299,27 @@ export function AccountConnectionCard({
       className={`account-connection-card${compact ? ' account-connection-card--compact' : ''}`}
       aria-labelledby={compact ? undefined : 'local-account-title'}
     >
-      <Group justify="space-between" align="flex-start">
-        <div>
-          <Text className="eyebrow">Account</Text>
-          {!compact && (
+      {!compact && (
+        <Group justify="space-between" align="flex-start">
+          <div>
+            <Text className="eyebrow">Account</Text>
             <Title id="local-account-title" order={2}>
               Hosted account connection
             </Title>
-          )}
-        </div>
-        <StatusLabel
-          state={
-            connected
-              ? 'ready'
-              : unavailable
-                ? 'unavailable'
-                : api?.connection_state === 'reauthorization_required'
-                  ? 'expired'
-                  : 'muted'
-          }
-        />
-      </Group>
+          </div>
+          <StatusLabel
+            state={
+              connected
+                ? 'ready'
+                : unavailable
+                  ? 'unavailable'
+                  : api?.connection_state === 'reauthorization_required'
+                    ? 'expired'
+                    : 'muted'
+            }
+          />
+        </Group>
+      )}
       {account.isLoading ? (
         <Loader size="sm" />
       ) : connected && api ? (
@@ -435,7 +435,7 @@ export function AccountConnectionCard({
           </Text>
           <Group>
             <Button
-              variant="outline"
+              variant={compact ? 'filled' : 'outline'}
               loading={begin.isPending}
               disabled={Boolean(started) || begin.isPending || poll.isPending}
               onClick={startAuthorization}
@@ -501,9 +501,11 @@ export function AccountConnectionCard({
           </Group>
         </div>
       )}
-      <Text className="account-local-boundary">
-        Connecting an account does not upload or share local traces.
-      </Text>
+      {!compact && (
+        <Text className="account-local-boundary">
+          Connecting an account does not upload or share local traces.
+        </Text>
+      )}
       <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
         <AlertDialogContent className="axis-local-dialog">
           <AlertDialogHeader>
@@ -897,6 +899,8 @@ export function EmbeddedSettingsView({
           />
         </Paper>
         <Paper className="settings-panel embedded-update-settings">
+          <Text className="eyebrow">Updates</Text>
+          <Title order={2}>Software updates</Title>
           <dl className="receipt-list">
             <Fact label="Current version" value={desktopSettings?.app_version ?? status.version} />
             <Fact

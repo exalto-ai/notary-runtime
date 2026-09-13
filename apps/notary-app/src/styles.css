@@ -675,9 +675,8 @@ h1, h2, p { margin: 0; }
   border: 0;
   background: transparent;
   color: var(--tertiary);
-  font: 600 var(--text-caption)/1.2 var(--body-font);
-  letter-spacing: .035em;
-  text-transform: uppercase;
+  font: 600 var(--text-label)/1.2 var(--body-font);
+  letter-spacing: -.005em;
 }
 .native-window .settings-subnav button:hover { color: var(--text); }
 .native-window .settings-subnav button.is-selected { color: var(--text); }

@@ -157,12 +157,15 @@ function ApiRouteCard({
       </Group>
       <BaseUrl route={route} label={route.name} onCopy={onCopyBaseUrl} />
       <Text className="safe-note">
-        <ShieldCheck size={15} /> Keep <code>{apiKeyEnvironment[route.id] ?? 'API_KEY'}</code> in
-        the originating client. Exalto Capture does not store or substitute it.
-        {supportsOnboardingTest
-          ? ' Its optional onboarding test can hold a pasted key in memory for one setup session, but never saves it.'
-          : ''}{' '}
-        Model selection stays in the client.
+        <ShieldCheck size={15} />
+        <span>
+          Keep <code>{apiKeyEnvironment[route.id] ?? 'API_KEY'}</code> in the originating client.
+          Exalto Capture does not store or substitute it.
+          {supportsOnboardingTest
+            ? ' Its optional onboarding test can hold a pasted key in memory for one setup session, but never saves it.'
+            : ''}{' '}
+          Model selection stays in the client.
+        </span>
       </Text>
       <Text className="provider-setup-note">{setupNote(route.id)}</Text>
       <details className="notary-details">

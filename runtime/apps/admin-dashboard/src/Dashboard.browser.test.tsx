@@ -159,6 +159,29 @@ describe('Notary admin dashboard', () => {
       .toBeVisible();
   });
 
+  test('shortens a long role-prefixed prompt preview into the trace title', async () => {
+    const fixture = createFixtureApi();
+    const longPrompt: TraceSummary = {
+      ...structuredClone(fixtureCaptures[0]),
+      prompt_preview:
+        'developer: You are a conversational assistant in Exalto Capture. Answer the user messages. Do not use tools, inspect files, or take actions outside this conversation.',
+    };
+    const api: LocalApi = {
+      ...fixture,
+      traces: async () => ({ items: [longPrompt], next_cursor: null }),
+      trace: async () => ({ ...(await fixture.trace(longPrompt.trace_id)), ...longPrompt }),
+    };
+    renderDashboard(`/traces/${longPrompt.trace_id}`, api);
+    const title = page.getByRole('heading', {
+      name: 'You are a conversational assistant in Exalto Capture. Answer the user messages…',
+      exact: true,
+    });
+    await expect.element(title).toBeVisible();
+    await expect
+      .element(page.getByRole('heading', { name: /^developer: You are a conversational/ }))
+      .not.toBeInTheDocument();
+  });
+
   test('loads another trace cursor without downloading the catalog', async () => {
     const fixture = createFixtureApi();
     const samples = (await fixture.traces({ limit: 200 })).items;

@@ -109,10 +109,12 @@ export function EmptyState({
   icon: Icon = Archive,
   title,
   copy,
+  action,
 }: {
   icon?: typeof Archive;
   title: string;
   copy: string;
+  action?: ReactNode;
 }) {
   return (
     <Center className="empty-state">
@@ -120,6 +122,7 @@ export function EmptyState({
         <Icon aria-hidden="true" />
         <Title order={3}>{title}</Title>
         <Text>{copy}</Text>
+        {action}
       </Stack>
     </Center>
   );

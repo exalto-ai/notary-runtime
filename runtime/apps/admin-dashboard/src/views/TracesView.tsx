@@ -160,9 +160,20 @@ function traceDisplayStatus(trace: TraceSummary) {
   return trace.status ?? trace.state ?? 'unknown';
 }
 
+const TRACE_TITLE_LIMIT = 80;
+
 function traceTitle(trace: TraceSummary) {
-  const preview = trace.prompt_preview?.replace(/\s+/g, ' ').trim();
-  if (preview) return preview;
+  const preview = trace.prompt_preview
+    ?.replace(/\s+/g, ' ')
+    .replace(/^(system|developer|user|assistant)\s*:\s*/i, '')
+    .trim();
+  if (preview) {
+    if (preview.length <= TRACE_TITLE_LIMIT) return preview;
+    const clipped = preview.slice(0, TRACE_TITLE_LIMIT);
+    const boundary = clipped.lastIndexOf(' ');
+    const head = boundary > TRACE_TITLE_LIMIT / 2 ? clipped.slice(0, boundary) : clipped;
+    return `${head.replace(/[\s.,;:]+$/, '')}…`;
+  }
   const providerNames: Record<string, string> = {
     anthropic: 'Anthropic',
     deepseek: 'DeepSeek',
@@ -491,6 +502,9 @@ export function TracesView({
           <div className="trace-filter-primary">
             <TextInput
               aria-label="Search traces"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               placeholder="Search traces"
               leftSection={<Search size={15} />}
               value={query}
@@ -536,7 +550,7 @@ export function TracesView({
             />
             <Button
               className="trace-more-filters"
-              variant={moreOpen || operationalStatus || model || streaming ? 'light' : 'default'}
+              variant={moreOpen || operationalStatus || model || streaming ? 'light' : 'outline'}
               onClick={() => setMoreOpen((open) => !open)}
               aria-expanded={moreOpen}
             >
@@ -547,6 +561,9 @@ export function TracesView({
             <div className="trace-filter-more">
               <TextInput
                 aria-label="Model filter"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 placeholder="All models"
                 value={model}
                 onChange={(event) => setModel(event.currentTarget.value)}
@@ -746,7 +763,7 @@ function DeleteTraceAction({
           if (!deleteTrace.isPending) setConfirmationOpen(open);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className="axis-local-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this Trace?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -757,6 +774,7 @@ function DeleteTraceAction({
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleteTrace.isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              className="is-destructive"
               disabled={deleteTrace.isPending}
               onClick={() => deleteTrace.mutate()}
             >
@@ -1741,6 +1759,16 @@ function NotarizedTraceInspector({
                     ? verificationFailure
                     : 'Verification replays the provider adapter and checks every authenticated artifact.'
                 }
+                action={
+                  <Button
+                    variant="outline"
+                    leftSection={<ShieldCheck size={15} />}
+                    loading={verify.isPending}
+                    onClick={() => verify.mutate()}
+                  >
+                    {verificationFailure ? 'Verify again' : 'Verify locally'}
+                  </Button>
+                }
               />
             )}
           </div>
@@ -1773,7 +1801,20 @@ function NotarizedTraceInspector({
               />
               <Fact label="Trace SHA-256" value={traceDigest} />
             </dl>
-            <pre className="json-view">{JSON.stringify(trace.data.trace, null, 2)}</pre>
+            <details className="notary-details otlp-details">
+              <summary>Raw OpenTelemetry trace</summary>
+              <Button
+                variant="outline"
+                size="xs"
+                leftSection={<Copy size={13} />}
+                onClick={() =>
+                  void navigator.clipboard.writeText(JSON.stringify(trace.data.trace, null, 2))
+                }
+              >
+                Copy JSON
+              </Button>
+              <pre className="json-view">{JSON.stringify(trace.data.trace, null, 2)}</pre>
+            </details>
           </div>
         </Tabs.Panel>
       </Tabs>
@@ -1783,7 +1824,13 @@ function NotarizedTraceInspector({
           if (!open && !saveShare.isPending) setShareDialogMode(null);
         }}
       >
-        <AlertDialogContent className="trace-share-dialog">
+        <AlertDialogContent
+          className={
+            accountConnected
+              ? 'axis-local-dialog trace-share-dialog'
+              : 'axis-local-dialog trace-share-dialog--connect'
+          }
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {!accountConnected

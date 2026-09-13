@@ -99,6 +99,7 @@ code, pre, .mono-id, .mono-time { font-family: var(--mono); }
 .inspector { padding: 25px; }
 .inspector-head { align-items: flex-start; border-bottom: 1px solid var(--rule); display: flex; gap: 20px; justify-content: space-between; padding-bottom: 23px; }
 .inspector h2 { font-size: 27px; letter-spacing: -.025em; margin: 7px 0; }
+.inspector.capture-inspector h2, .trace-inspector h2 { -webkit-box-orient: vertical; display: -webkit-box; font-size: 20px; letter-spacing: -.03em; line-height: 1.25; overflow: hidden; overflow-wrap: anywhere; -webkit-line-clamp: 2; }
 .mono-id { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .trace-head-facts { color: var(--muted); font-size: 11px; margin: 8px 0 3px; }
 .trace-id-row { margin-top: 4px; }
@@ -143,14 +144,15 @@ code, pre, .mono-id, .mono-time { font-family: var(--mono); }
 .receipt-list { display: grid; gap: 14px; grid-template-columns: repeat(2, 1fr); margin: 0 0 24px; }
 .attempt-history { border-top: 1px solid var(--rule); margin: 22px 0; padding-top: 20px; }
 .safe-note { align-items: flex-start; background: var(--subtle); display: flex; gap: 10px; margin: 18px 0; padding: 13px; }
+.safe-note > svg { flex: none; margin-top: 2px; }
 
 .trace-layout { display: grid; gap: 24px; grid-template-columns: minmax(290px, .65fr) minmax(600px, 1.35fr); margin-top: 26px; }
 .trace-list { background: var(--raised); border: 1px solid var(--rule); list-style: none; margin-bottom: 0; margin-top: 0; padding: 0; }
 .trace-inspector { background: var(--raised); border: 1px solid var(--rule); min-width: 0; padding: 24px; }
-.trace-inspector h2 { font-size: 20px; letter-spacing: -.045em; }
 .trace-share-status { align-items: center; background: var(--subtle); border: 1px solid var(--rule); display: flex; gap: 18px; justify-content: space-between; margin-top: 18px; padding: 14px 16px; }
 .trace-share-status > div > p:last-child { color: var(--muted); font-size: 12px; margin-top: 4px; }
 .trace-share-dialog { width: min(960px, calc(100vw - 32px)) !important; max-width: 960px !important; max-height: calc(100dvh - 32px); overflow-y: auto; }
+.trace-share-dialog--connect { width: min(480px, calc(100vw - 32px)) !important; max-width: 480px !important; }
 .trace-share-review { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr); gap: 24px; min-height: 0; }
 .trace-share-disclosure { min-width: 0; padding-right: 24px; border-right: 1px solid var(--rule); }
 .trace-share-disclosure .trace-transcript { max-height: 430px; margin-top: 8px; overflow-y: auto; }
@@ -313,6 +315,8 @@ code, pre, .mono-id, .mono-time { font-family: var(--mono); }
 .embedded-notaries .receipt-list, .embedded-update-settings .receipt-list { margin-top: 20px; }
 .notary-details { border-top: 1px solid var(--rule); margin-top: 20px; padding-top: 12px; }
 .notary-details summary { cursor: pointer; font-size: 12px; font-weight: 700; }
+.otlp-details > .mantine-Button-root { margin-top: 12px; }
+.otlp-details .json-view { margin-top: 12px; max-height: none; }
 .notary-detail-record { border-top: 1px solid var(--rule); margin-top: 12px; padding-top: 16px; }
 .notary-detail-record h3 { font-size: 16px; letter-spacing: -.02em; margin: 0; }
 .notary-detail-record p { color: var(--muted); font-size: 11px; }

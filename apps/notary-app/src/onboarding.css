@@ -4,8 +4,8 @@
  * geometry and carries the setup ledger: the steps, and the decision each
  * finished step recorded. A single paper sheet carries the work, with the
  * primary action always parked on a fixed footer so a 980x680 window never
- * hides it. Setup deliberately runs in light mode; it is a first-run sheet,
- * not a workspace. */
+ * hides it. Setup follows the system appearance like the rest of the app, so
+ * opening it from a dark workspace does not flash a light sheet. */
 
 .exalto-onboarding {
   --window: #f5f3ec;
@@ -32,6 +32,9 @@
   --night-ink: #f5f3ec;
   --night-muted: #9aa8b7;
   --phosphor: #35e39b;
+  --blue-rule: rgba(30, 74, 115, .4);
+  --on-blue: #fff;
+  --on-green: #fff;
   --column: 640px;
   --gutter: max(24px, calc((100% - var(--column)) / 2));
   color: var(--text);
@@ -114,6 +117,32 @@
   border-radius: 4px;
   color: var(--night-muted);
 }
+
+.setup-ledger li:has(> .ledger-step) { display: block; padding: 0; }
+
+.ledger-step {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ledger-step:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .06);
+  color: var(--night-ink);
+}
+
+.ledger-step:disabled { cursor: default; }
 
 .setup-ledger li.is-current {
   background: rgba(255, 255, 255, .1);
@@ -212,7 +241,7 @@
 }
 
 .exalto-onboarding .onboarding-close:hover:not(:disabled) {
-  border-color: rgba(30, 74, 115, .4);
+  border-color: var(--blue-rule);
   color: var(--blue);
 }
 
@@ -304,7 +333,7 @@
 }
 
 .exalto-onboarding .mac-button:hover:not(:disabled) {
-  border-color: rgba(30, 74, 115, .4);
+  border-color: var(--blue-rule);
   background: var(--window);
   color: var(--blue);
 }
@@ -319,7 +348,7 @@
 .exalto-onboarding .mac-button.is-primary:hover:not(:disabled) {
   border-color: var(--blue);
   background: var(--blue);
-  color: #fff;
+  color: var(--on-blue);
 }
 
 .exalto-onboarding .mac-button.is-primary:hover:not(:disabled) {
@@ -591,7 +620,7 @@
   place-items: center;
   border-radius: 3px;
   background: var(--blue);
-  color: #fff;
+  color: var(--on-blue);
 }
 
 .exalto-onboarding .notary-choice strong { font: 600 var(--text-body)/1.3 var(--font-text); }
@@ -717,7 +746,7 @@
 
 .exalto-onboarding .client-picker > button.is-selected {
   background: var(--blue);
-  color: #fff;
+  color: var(--on-blue);
 }
 
 .exalto-onboarding .harness-description {
@@ -859,7 +888,7 @@
 
 .exalto-onboarding .api-provider-picker button.is-selected {
   background: var(--blue);
-  color: #fff;
+  color: var(--on-blue);
 }
 
 .exalto-onboarding .api-key-instructions dl {
@@ -1032,7 +1061,7 @@
   margin: 0 0 12px;
   border-radius: 3px;
   background: var(--green);
-  color: #fff;
+  color: var(--on-green);
   box-shadow: none;
 }
 
@@ -1175,4 +1204,33 @@
   .exalto-onboarding *,
   .exalto-onboarding *::before,
   .exalto-onboarding *::after { transition: none !important; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .exalto-onboarding {
+    --window: #101820;
+    --surface: #17222c;
+    --surface-secondary: #202d38;
+    --surface-hover: rgba(109, 158, 201, .1);
+    --text: #f1efe8;
+    --secondary: #bac1c9;
+    --tertiary: #929ca7;
+    --separator: rgba(232, 237, 241, .18);
+    --separator-soft: rgba(232, 237, 241, .1);
+    --blue: #74a7d2;
+    --blue-hover: #8bb9df;
+    --blue-soft: rgba(116, 167, 210, .13);
+    --blue-rule: rgba(116, 167, 210, .5);
+    --green: #35e39b;
+    --green-soft: rgba(53, 227, 155, .1);
+    --orange: #e2a461;
+    --orange-soft: rgba(226, 164, 97, .12);
+    --orange-rule: rgba(226, 164, 97, .4);
+    --red: #e87561;
+    --red-soft: rgba(232, 117, 97, .12);
+    --night: #07111b;
+    --on-blue: #07111b;
+    --on-green: #07111b;
+    color-scheme: dark;
+  }
 }
