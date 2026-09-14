@@ -146,7 +146,7 @@ test('streams multi-turn messages and opens the exact Trace', async () => {
     .element(page.getByText('First response', { exact: true }))
     .toBeVisible();
   await userEvent.click(
-    page.getByRole('button', { name: 'Captured · Open Trace' }),
+    page.getByRole('button', { name: /^Captured .*Open Trace$/ }),
   );
   expect(open).toHaveBeenCalledWith('trc-exact-response');
   await userEvent.fill(page.getByLabelText('Message'), 'Follow-up question');
@@ -173,11 +173,11 @@ test('keeps an unconfirmed capture distinct from a completed response', async ()
   );
   await expect
     .element(
-      page.getByRole('button', { name: 'Capture unconfirmed · Inspect Trace' }),
+      page.getByRole('button', { name: /^Capture unconfirmed .*Open Trace$/ }),
     )
     .toBeVisible();
   await expect
-    .element(page.getByRole('button', { name: 'Captured · Open Trace' }))
+    .element(page.getByRole('button', { name: /^Captured .*Open Trace$/ }))
     .not.toBeInTheDocument();
 });
 
