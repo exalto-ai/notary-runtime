@@ -6,6 +6,13 @@ listener. Codex CLI and Claude Code can keep their saved product sign-ins. API
 and SDK clients send their existing provider key. In every case, replace only
 the base URL.
 
+This setup explicitly trusts localhost. Clients trust the service listening on
+the configured loopback address and send provider credentials through it
+without a separate TLS or daemon-identity check. Exalto Capture therefore uses
+a compatible service that is already running, regardless of whether the app or
+another local tool launched it. Run this profile only on a trusted single-user
+workstation.
+
 ## Route map
 
 | Provider | Local SDK base URL | Upstream host | Typical operation |

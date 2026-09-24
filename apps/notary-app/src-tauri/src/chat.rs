@@ -289,9 +289,9 @@ pub(crate) async fn send_chat(
     let mut ids = vec![];
     let result = async {
         let _lifecycle = process.lifecycle.lock().await;
-        if !super::daemon::managed_daemon_is_healthy(&process).await {
-            return Err("Built-in chat requires the bundled local service. Stop any separately managed service, then start Capture’s service.".into());
-        }
+        // Provider clients already trust the fixed loopback route. Desktop process
+        // ownership controls lifecycle actions, not whether a healthy local service
+        // may carry a chat request.
         let status = super::service_client::read_admin_status().await.map_err(|_| "Start the local capture service before sending.")?;
         if !status.capture_enabled { return Err("Turn on capture before sending a message.".into()); }
         if connection_id == "chatgpt" { return super::codex_chat::exchange(&codex, &model, &messages, &events, &mut ids, &mut cancellation).await; }

@@ -10,6 +10,15 @@ vault, artifacts, and durable operation state. The short-lived
 | Provider proxy | `http://127.0.0.1:8787` | Receives provider-compatible requests and creates private captures. |
 | Administration | `http://127.0.0.1:8788` | Serves the dashboard, health check, OpenAPI document, and `/v1` API. |
 
+The default workstation profile explicitly trusts localhost. Clients trust the
+service bound to these fixed loopback addresses; there is no TLS certificate or
+separate daemon-identity handshake. The provider listener receives provider
+credentials in their normal HTTP headers, so use this profile only on a trusted
+single-user machine where untrusted local processes cannot preempt the listener.
+Desktop process ownership determines whether Exalto Capture may stop, restart,
+or update a service. It does not determine whether the service may carry local
+provider traffic.
+
 Both addresses must be distinct and loopback-only. The separation prevents a
 program that can send model requests through the proxy from automatically
 receiving access to capture management. An `/admin` path on the proxy would
