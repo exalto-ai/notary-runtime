@@ -175,11 +175,11 @@ function ApiRouteCard({
 export function ProvidersView({
   api,
   status,
-  embedded,
+  showHeading = true,
 }: {
   api: LocalApi;
   status: Status;
-  embedded: boolean;
+  showHeading?: boolean;
 }) {
   const providers = useQuery({ queryKey: ['providers'], queryFn: api.providers, retry: false });
   const isCluster = status.runtime_profile === 'cluster';
@@ -204,7 +204,7 @@ export function ProvidersView({
   const apiRoutes = routes.filter((route) => route.id !== 'openai_codex');
   return (
     <div className="view-page providers-page">
-      {!embedded && (
+      {showHeading && (
         <header className="view-heading">
           <div>
             <Text className="eyebrow">{isCluster ? 'Cluster admin' : 'Local admin'}</Text>

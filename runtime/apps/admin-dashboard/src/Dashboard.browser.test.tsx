@@ -36,7 +36,6 @@ const desktopSettings: DesktopSettingsState = {
 function renderDashboard(
   hash = '/overview',
   api: LocalApi = createFixtureApi(),
-  embedded = false,
   settings: DesktopSettingsState | null = null,
   onDesktopSettingsAction?: (action: DesktopSettingsAction) => void,
 ) {
@@ -44,12 +43,11 @@ function renderDashboard(
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <MantineProvider theme={theme} defaultColorScheme="auto">
-      <Notifications />
+      <Notifications transitionDuration={0} />
       <QueryClientProvider client={queryClient}>
         <Dashboard
           api={api}
           fixture
-          embedded={embedded}
           desktopSettings={settings}
           onDesktopSettingsAction={onDesktopSettingsAction}
         />
@@ -116,15 +114,17 @@ describe('Notary admin dashboard', () => {
 
   test('keeps lifecycle primary while placing operational filters under More filters', async () => {
     renderDashboard('/traces?status=notarizing');
-    await expect.element(page.getByRole('button', { name: 'All', exact: true })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Captured', exact: true })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Sealed', exact: true })).toBeVisible();
+    await expect.element(page.getByText('All', { exact: true }).first()).toBeVisible();
+    await expect.element(page.getByText('Captured', { exact: true }).first()).toBeVisible();
+    await expect.element(page.getByText('Sealed', { exact: true }).first()).toBeVisible();
     await expect.element(page.getByRole('combobox', { name: 'Provider filter' })).toBeVisible();
     await expect.element(page.getByRole('combobox', { name: 'Trace time filter' })).toBeVisible();
     await expect
       .element(page.getByRole('combobox', { name: 'Operational status filter' }))
       .toBeVisible();
-    await expect.element(page.getByText('Sealing', { exact: true }).first()).toBeVisible();
+    await expect
+      .element(page.getByRole('combobox', { name: 'Operational status filter' }))
+      .toHaveValue('Sealing');
 
     cleanup();
     renderDashboard('/traces');
@@ -240,10 +240,10 @@ describe('Notary admin dashboard', () => {
       .element(page.getByText('Raw HTTP header values and provider credentials'))
       .toBeVisible();
     await expect.element(page.getByText(/Unlisted is not private/)).toBeVisible();
-    await page.getByLabelText('Share visibility').click();
+    await page.getByRole('combobox', { name: 'Share visibility' }).click();
     await page.getByRole('option', { name: 'Listed · public discovery' }).click();
     await page.getByLabelText('Optional password').fill('evidence-pass');
-    await page.getByLabelText('Share expiration').click();
+    await page.getByRole('combobox', { name: 'Share expiration' }).click();
     await page.getByRole('option', { name: '7 days' }).click();
     await page.getByRole('button', { name: 'Share trace' }).click();
     await expect.element(page.getByText('Verifying', { exact: true })).toBeVisible();
@@ -425,7 +425,7 @@ describe('Notary admin dashboard', () => {
 
     await page.getByRole('button', { name: 'More actions' }).click();
     await page.getByRole('menuitem', { name: 'Delete Trace…' }).click();
-    const dialog = page.getByRole('alertdialog');
+    const dialog = page.getByRole('dialog');
     await expect.element(dialog.getByRole('heading', { name: 'Delete this Trace?' })).toBeVisible();
     await dialog.getByRole('button', { name: 'Delete Trace' }).click();
 
@@ -442,7 +442,7 @@ describe('Notary admin dashboard', () => {
 
     await page.getByRole('button', { name: 'More actions' }).click();
     await page.getByRole('menuitem', { name: 'Delete Trace…' }).click();
-    const dialog = page.getByRole('alertdialog');
+    const dialog = page.getByRole('dialog');
     await dialog.getByRole('button', { name: 'Cancel' }).click();
 
     expect(deleteTrace).not.toHaveBeenCalled();
@@ -504,7 +504,7 @@ describe('Notary admin dashboard', () => {
     await expect.poll(() => startNotarization).toHaveBeenCalledTimes(1);
     expect(startNotarization).toHaveBeenCalledWith(traceId);
     await expect.element(page.getByText('Waiting for proof worker', { exact: true })).toBeVisible();
-    expect(window.location.hash).toBe(`#/traces/${traceId}?action=first-proof`);
+    expect(window.location.hash).toBe(`#/traces/${traceId}`);
 
     await page.getByRole('tab', { name: 'Summary' }).click();
     await page.getByRole('tab', { name: 'Sealing' }).click();
@@ -644,27 +644,17 @@ describe('Notary admin dashboard', () => {
     expect(verify).toHaveBeenCalledTimes(1);
   });
 
-  test('reports the exact consumed first-proof handoff to the embedded desktop shell', async () => {
+  test('keeps first-proof handoff inside the rendered desktop tree', async () => {
     const fixture = createFixtureApi();
     const traceId = 'trc-20260727-research-brief';
     const postMessage = vi.spyOn(window.parent, 'postMessage');
 
-    renderDashboard(`/traces/${traceId}?action=first-proof`, fixture, true);
+    renderDashboard(`/traces/${traceId}?action=first-proof`, fixture);
 
     await expect
-      .poll(() =>
-        postMessage.mock.calls.some(
-          ([message]) =>
-            typeof message === 'object' &&
-            message !== null &&
-            'type' in message &&
-            message.type === 'notary:desktop-trace-action-consumed' &&
-            'payload' in message &&
-            (message.payload as { traceId?: unknown; action?: unknown }).traceId === traceId &&
-            (message.payload as { action?: unknown }).action === 'first-proof',
-        ),
-      )
-      .toBe(true);
+      .element(page.getByText('Your first proof is sealed and verified.', { exact: true }))
+      .toBeVisible();
+    expect(postMessage).not.toHaveBeenCalled();
   });
 
   test('does not celebrate a terminal verification result that did not pass', async () => {
@@ -787,7 +777,7 @@ describe('Notary admin dashboard', () => {
       ...fixture,
       traces: async () => ({ items: [], next_cursor: null }),
     };
-    renderDashboard('/traces', emptyApi, true);
+    renderDashboard('/traces', emptyApi);
     await expect
       .element(page.getByRole('heading', { name: 'No traces have been captured yet.' }))
       .toBeVisible();
@@ -795,13 +785,13 @@ describe('Notary admin dashboard', () => {
     expect(document.querySelector('.empty-state')?.parentElement).toHaveClass(
       'trace-empty-workspace',
     );
-    await page.getByRole('button', { name: 'Captured', exact: true }).click();
+    await page.getByText('Captured', { exact: true }).first().click();
     await expect
       .element(
         page.getByRole('heading', { name: 'No traces are currently in the Captured state.' }),
       )
       .toBeVisible();
-    await page.getByRole('button', { name: 'Sealed', exact: true }).click();
+    await page.getByText('Sealed', { exact: true }).first().click();
     await expect
       .element(page.getByRole('heading', { name: 'No traces have been sealed yet.' }))
       .toBeVisible();
@@ -840,7 +830,7 @@ describe('Notary admin dashboard', () => {
       },
     };
     renderDashboard('/traces', api);
-    await page.getByLabelText('Trace time filter').click();
+    await page.getByRole('combobox', { name: 'Trace time filter' }).click();
     await page.getByRole('option', { name: 'Last 24 hours' }).click();
     await expect.poll(() => filters.at(-1)?.created_from_unix_ms).toBeTypeOf('number');
   });
@@ -986,7 +976,8 @@ describe('Notary admin dashboard', () => {
     const api = createFixtureApi();
     renderDashboard('/settings', api);
     const toggle = page.getByRole('switch', { name: 'Capture requests' });
-    await toggle.click();
+    await expect.element(toggle).toBeVisible();
+    (toggle.element() as HTMLInputElement).click();
     await expect.element(toggle).not.toBeChecked();
     await expect
       .element(page.getByText('Off, requests still pass through', { exact: false }))
@@ -1097,7 +1088,7 @@ describe('Notary admin dashboard', () => {
         throw new LocalApiError(401, 'unauthorized', 'Unauthorized');
       },
     };
-    renderDashboard('/overview', api, true);
+    renderDashboard('/overview', api);
     await expect.element(page.getByText('Exalto Capture', { exact: true })).toBeVisible();
     await expect
       .element(page.getByText('Exalto Capture administration', { exact: true }))
@@ -1125,54 +1116,16 @@ describe('Notary admin dashboard', () => {
     await expect.element(page.getByText('Online', { exact: true })).not.toBeInTheDocument();
   });
 
-  test('uses the same route content in embedded mode without standalone navigation', async () => {
-    const postMessage = vi.spyOn(window.parent, 'postMessage');
-    renderDashboard('/providers', createFixtureApi(), true);
+  test('keeps the standalone dashboard navigation with its route content', async () => {
+    renderDashboard('/providers', createFixtureApi());
     await expect.element(page.getByRole('heading', { name: 'OpenAI', exact: true })).toBeVisible();
-    await expect
-      .element(page.getByRole('heading', { name: 'AI connections' }))
-      .not.toBeInTheDocument();
-    await expect
-      .element(page.getByRole('navigation', { name: 'Admin dashboard' }))
-      .not.toBeInTheDocument();
-    await expect
-      .poll(() =>
-        postMessage.mock.calls.some(
-          ([message]) =>
-            typeof message === 'object' &&
-            message !== null &&
-            'type' in message &&
-            message.type === 'notary:desktop-route-change' &&
-            'payload' in message &&
-            (message.payload as { view?: unknown }).view === 'providers',
-        ),
-      )
-      .toBe(true);
-    postMessage.mockClear();
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        source: window.parent,
-        data: { type: 'notary:desktop-ready-request' },
-      }),
-    );
-    await expect
-      .poll(() =>
-        postMessage.mock.calls.some(
-          ([message]) =>
-            typeof message === 'object' &&
-            message !== null &&
-            'type' in message &&
-            message.type === 'notary:desktop-route-change' &&
-            'payload' in message &&
-            (message.payload as { view?: unknown }).view === 'providers',
-        ),
-      )
-      .toBe(true);
+    await expect.element(page.getByRole('heading', { name: 'AI connections' })).toBeVisible();
+    await expect.element(page.getByRole('navigation', { name: 'Admin dashboard' })).toBeVisible();
   });
 
-  test('uses exactly four Settings groups in embedded desktop mode', async () => {
+  test('uses exactly four Settings groups in the desktop surface', async () => {
     const actions: DesktopSettingsAction[] = [];
-    renderDashboard('/settings', createFixtureApi(), true, desktopSettings, (action) =>
+    renderDashboard('/settings', createFixtureApi(), desktopSettings, (action) =>
       actions.push(action),
     );
     await expect
@@ -1181,7 +1134,7 @@ describe('Notary admin dashboard', () => {
           (heading) => heading.textContent,
         ),
       )
-      .toEqual(['Connections', 'Privacy & storage', 'App', 'Advanced']);
+      .toEqual(['Sealing & account', 'Privacy & storage', 'App', 'Advanced']);
     await expect
       .element(page.getByRole('switch', { name: 'Open Exalto Capture at sign-in' }))
       .toBeChecked();
@@ -1191,7 +1144,11 @@ describe('Notary admin dashboard', () => {
     await expect
       .element(page.getByText('Menu-bar controller', { exact: true }))
       .not.toBeInTheDocument();
-    await page.getByRole('switch', { name: 'Open Exalto Capture at sign-in' }).click();
+    (
+      page
+        .getByRole('switch', { name: 'Open Exalto Capture at sign-in' })
+        .element() as HTMLInputElement
+    ).click();
     await page.getByRole('button', { name: 'Check now' }).click();
     await page.getByRole('button', { name: 'Restart to update' }).click();
     expect(actions).toEqual([
@@ -1201,11 +1158,13 @@ describe('Notary admin dashboard', () => {
     ]);
   });
 
-  test('shows embedded account, local data, sealing service, updates, and advanced consequences', async () => {
-    renderDashboard('/settings', createFixtureApi(), true, desktopSettings);
+  test('shows desktop account, local data, sealing service, updates, and advanced consequences', async () => {
+    renderDashboard('/settings', createFixtureApi(), desktopSettings);
     await expect.element(page.getByText('Sample User', { exact: true })).toBeVisible();
     await expect.element(page.getByText(/does not upload or share local traces/)).toBeVisible();
-    await expect.element(page.getByText('Local data', { exact: true })).toBeVisible();
+    await expect
+      .element(page.getByRole('heading', { name: 'Protected by Keychain', exact: true }))
+      .toBeVisible();
     await expect
       .element(page.getByText(/not protected by the private-capture vault/))
       .toBeVisible();
@@ -1242,7 +1201,7 @@ describe('Notary admin dashboard', () => {
         })),
       }),
     };
-    renderDashboard('/settings', thirdParty, true, desktopSettings);
+    renderDashboard('/settings', thirdParty, desktopSettings);
     await expect.element(page.getByRole('heading', { name: 'Northstar Seal' })).toBeVisible();
     await expect.element(page.getByText('Exalto Seal', { exact: true })).not.toBeInTheDocument();
 
@@ -1263,7 +1222,7 @@ describe('Notary admin dashboard', () => {
         ],
       }),
     };
-    renderDashboard('/settings', explicit, true, desktopSettings);
+    renderDashboard('/settings', explicit, desktopSettings);
     await expect
       .element(page.getByRole('heading', { name: 'Configured sealing service' }))
       .toBeVisible();
@@ -1282,7 +1241,7 @@ describe('Notary admin dashboard', () => {
         links: (await fixture.account()).links,
       }),
     };
-    renderDashboard('/settings', api, true, {
+    renderDashboard('/settings', api, {
       ...desktopSettings,
       update: { ...readyUpdate, phase: 'ready' },
       restart_block_reason: 'Wait for the active seal to finish before restarting to update.',
@@ -1435,11 +1394,11 @@ describe('Notary admin dashboard', () => {
 
     await page.getByRole('button', { name: 'Manage access' }).click();
     await expect.element(page.getByRole('heading', { name: 'Manage access' })).toBeVisible();
-    await page.getByLabelText('Share visibility').click();
+    await page.getByRole('combobox', { name: 'Share visibility' }).click();
     await page.getByRole('option', { name: 'Unlisted · link access' }).click();
-    await page.getByLabelText('Password protection').click();
+    await page.getByRole('combobox', { name: 'Password protection' }).click();
     await page.getByRole('option', { name: 'Remove password' }).click();
-    await page.getByLabelText('Share expiration').click();
+    await page.getByRole('combobox', { name: 'Share expiration' }).click();
     await page.getByRole('option', { name: 'No expiration' }).click();
     await page.getByRole('button', { name: 'Save access' }).click();
 
@@ -1480,6 +1439,7 @@ describe('Notary admin dashboard', () => {
     await expect.element(page.getByText('Verifying', { exact: true }).first()).toBeVisible();
 
     cleanup();
+    notifications.clean();
     const rejectedFixture = createFixtureApi({
       initialShare: {
         traceId,
@@ -1590,7 +1550,7 @@ describe('Notary admin dashboard', () => {
     await expect.element(page.getByRole('menuitem', { name: 'Delete Trace…' })).toBeEnabled();
     await userEvent.keyboard('{Escape}');
     await page.getByRole('button', { name: 'Manage access' }).click();
-    await page.getByLabelText('Share expiration').click();
+    await page.getByRole('combobox', { name: 'Share expiration' }).click();
     await page.getByRole('option', { name: '7 days from now' }).click();
     await page.getByRole('button', { name: 'Save access' }).click();
     await expect
@@ -1621,9 +1581,9 @@ describe('Notary admin dashboard', () => {
 
     await page.getByRole('button', { name: 'Resume sharing' }).click();
     await expect
-      .element(page.getByLabelText('Share expiration'))
-      .toHaveTextContent('No expiration');
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Resume sharing' }).click();
+      .element(page.getByRole('combobox', { name: 'Share expiration' }))
+      .toHaveValue('No expiration');
+    await page.getByRole('dialog').getByRole('button', { name: 'Resume sharing' }).click();
     expect(requestedSettings).toEqual({
       visibility: 'unlisted',
       expires_in_days: 0,
@@ -1685,20 +1645,22 @@ describe('Notary admin dashboard', () => {
     await expect
       .element(page.getByRole('heading', { name: 'Stop sharing this Trace?' }))
       .toBeVisible();
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Stop sharing' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Stop sharing' }).click();
     await expect
       .element(page.getByRole('button', { name: 'Stop sharing' }))
       .not.toBeInTheDocument();
     await expect.element(page.getByText('Public access is disabled for this share.')).toBeVisible();
+    notifications.clean();
 
     await page.getByRole('button', { name: 'Manage access' }).click();
     await page.getByRole('button', { name: 'Save access' }).click();
     await expect.element(page.getByText('Public access is disabled for this share.')).toBeVisible();
     expect(resharedSettings.at(-1)).toEqual({ visibility: 'unlisted' });
+    notifications.clean();
 
     await page.getByRole('button', { name: 'Resume sharing' }).click();
     await expect.element(page.getByRole('heading', { name: 'Resume sharing' })).toBeVisible();
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Resume sharing' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Resume sharing' }).click();
     await expect.element(page.getByRole('button', { name: 'Copy link' })).toBeVisible();
     expect(resharedSettings.at(-1)).toEqual({ visibility: 'unlisted', reactivate: true });
   });

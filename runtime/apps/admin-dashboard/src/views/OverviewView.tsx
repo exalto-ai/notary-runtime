@@ -13,14 +13,20 @@ export function OverviewView({
   api,
   status,
   navigate,
+  hideActivity = false,
 }: {
   api: LocalApi;
   status: Status;
   navigate: (route: Route) => void;
+  hideActivity?: boolean;
 }) {
   const isCluster = status.runtime_profile === 'cluster';
   const queryClient = useQueryClient();
-  const events = useQuery({ queryKey: ['events'], queryFn: () => api.events() });
+  const events = useQuery({
+    queryKey: ['events'],
+    queryFn: () => api.events(),
+    enabled: !hideActivity,
+  });
   const enableCapture = useMutation({
     mutationFn: () => api.updateCaptureSetting(true),
     onSuccess: () => {
@@ -121,24 +127,26 @@ export function OverviewView({
           </Button>
         </Paper>
       </section>
-      <section className="recent-section">
-        <Group justify="space-between">
-          <div>
-            <Text className="eyebrow">Recent activity</Text>
-            <Title order={2}>What changed</Title>
-          </div>
-          <Button variant="subtle" onClick={() => navigate({ view: 'activity' })}>
-            All activity
-          </Button>
-        </Group>
-        {events.isLoading ? (
-          <LoadingState />
-        ) : events.error ? (
-          <QueryError error={events.error} title="Recent activity is unavailable" />
-        ) : (
-          <EventList events={events.data?.items.slice(0, 4) ?? []} navigate={navigate} />
-        )}
-      </section>
+      {!hideActivity && (
+        <section className="recent-section">
+          <Group justify="space-between">
+            <div>
+              <Text className="eyebrow">Recent activity</Text>
+              <Title order={2}>What changed</Title>
+            </div>
+            <Button variant="subtle" onClick={() => navigate({ view: 'activity' })}>
+              All activity
+            </Button>
+          </Group>
+          {events.isLoading ? (
+            <LoadingState />
+          ) : events.error ? (
+            <QueryError error={events.error} title="Recent activity is unavailable" />
+          ) : (
+            <EventList events={events.data?.items.slice(0, 4) ?? []} navigate={navigate} />
+          )}
+        </section>
+      )}
     </div>
   );
 }

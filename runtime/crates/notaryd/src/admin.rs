@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::{Mutex, Notify, watch};
 use tower_http::{
+    cors::CorsLayer,
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     sensitive_headers::SetSensitiveRequestHeadersLayer,
     trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer},
@@ -80,6 +81,12 @@ const NOTARY_TRUST_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(3);
 const NOTARY_TRANSPORT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const NOTARY_READINESS_CACHE_TTL: Duration = Duration::from_secs(15);
 const DASHBOARD_HEADER: &str = "x-notary-request";
+const DESKTOP_API_ORIGINS: [&str; 4] = [
+    "http://127.0.0.1:1420",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
+];
 const DASHBOARD_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 #[cfg(not(debug_assertions))]
 const DESKTOP_DASHBOARD_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'self' tauri://localhost http://tauri.localhost https://tauri.localhost";
@@ -287,6 +294,7 @@ pub(crate) fn router(state: AdminState) -> Result<Router> {
         .merge(protected)
         .method_not_allowed_fallback(|| async { StatusCode::NOT_FOUND })
         .layer(DefaultBodyLimit::max(1024 * 1024))
+        .layer(desktop_api_cors())
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::new(
             header::HeaderName::from_static("x-request-id"),
@@ -309,6 +317,31 @@ pub(crate) fn router(state: AdminState) -> Result<Router> {
             header::AUTHORIZATION,
         )))
         .with_state(state))
+}
+
+fn desktop_api_cors() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(tower_http::cors::AllowOrigin::predicate(
+            |origin, _request_parts| {
+                DESKTOP_API_ORIGINS.iter().any(|allowed| {
+                    origin
+                        .to_str()
+                        .is_ok_and(|value| value.eq_ignore_ascii_case(allowed))
+                })
+            },
+        ))
+        .allow_methods([
+            http::Method::GET,
+            http::Method::POST,
+            http::Method::PUT,
+            http::Method::DELETE,
+            http::Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::HeaderName::from_static(DASHBOARD_HEADER),
+        ])
 }
 
 #[derive(Deserialize)]
@@ -5610,6 +5643,64 @@ mod tests {
             DESKTOP_DASHBOARD_CSP
                 .split_ascii_whitespace()
                 .any(|origin| origin == "http://127.0.0.1:1420")
+        );
+    }
+
+    #[tokio::test]
+    async fn desktop_api_cors_allows_the_tauri_origins_and_required_headers() {
+        let directory = tempfile::tempdir().unwrap();
+        let response = router(state(directory.path()).await)
+            .unwrap()
+            .oneshot(
+                Request::options("/v1/status")
+                    .header(header::ORIGIN, "tauri://localhost")
+                    .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                    .header(
+                        header::ACCESS_CONTROL_REQUEST_HEADERS,
+                        "authorization, content-type, x-notary-request",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&HeaderValue::from_static("tauri://localhost"))
+        );
+        assert!(
+            response
+                .headers()
+                .contains_key(header::ACCESS_CONTROL_ALLOW_METHODS)
+        );
+        assert!(
+            response
+                .headers()
+                .contains_key(header::ACCESS_CONTROL_ALLOW_HEADERS)
+        );
+    }
+
+    #[tokio::test]
+    async fn desktop_api_cors_does_not_allow_untrusted_origins() {
+        let directory = tempfile::tempdir().unwrap();
+        let response = router(state(directory.path()).await)
+            .unwrap()
+            .oneshot(
+                Request::options("/v1/status")
+                    .header(header::ORIGIN, "https://evil.example")
+                    .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            !response
+                .headers()
+                .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN)
         );
     }
 }

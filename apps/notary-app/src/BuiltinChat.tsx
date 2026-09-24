@@ -10,6 +10,7 @@ import {
   type DesktopState,
 } from './bridge';
 import * as bridge from './builtinBridge';
+import { AxisSelect } from '../../../runtime/apps/admin-dashboard/src/shared';
 import './chat.css';
 const names = {
   chatgpt: 'ChatGPT plan',
@@ -161,24 +162,22 @@ export function ProviderConnections({
         </ul>
       )}
       <div className="connection-form">
-        <label className="connection-select">
+        <div className="connection-select">
           <span>Add or replace</span>
-          <select
-            aria-label="Connection type"
+          <AxisSelect
+            ariaLabel="Connection type"
             value={provider}
             disabled={blocked || !!login}
-            onChange={(e) => {
+            clearable={false}
+            placeholder="Choose a connection"
+            data={Object.entries(names).map(([value, label]) => ({ value, label }))}
+            onChange={(value) => {
+              if (!value) return;
               setKey('');
-              setProvider(e.target.value as bridge.ConnectionId);
+              setProvider(value as bridge.ConnectionId);
             }}
-          >
-            {Object.entries(names).map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
+          />
+        </div>
         {provider === 'chatgpt' ? (
           <>
             <p>
@@ -455,36 +454,40 @@ export function BuiltinChat({
       <header className="chat-bar" data-tauri-drag-region="deep">
         {connections.length > 0 ? (
           <>
-            <label className="chat-field">
+            <div className="chat-field">
               <span>Use</span>
-              <select
-                aria-label="Chat connection"
+              <AxisSelect
+                ariaLabel="Chat connection"
                 value={selected}
                 disabled={busy || exchanges.length > 0}
-                onChange={(e) => {
-                  setSelected(e.target.value as bridge.ConnectionId);
+                clearable={false}
+                placeholder="Choose a connection"
+                data={connections.map((connection) => ({
+                  value: connection.id,
+                  label: names[connection.id],
+                }))}
+                onChange={(value) => {
+                  if (!value) return;
+                  setSelected(value as bridge.ConnectionId);
                   setModel('');
                 }}
-              >
-                {connections.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {names[c.id]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="chat-field is-model">
+              />
+            </div>
+            <div className="chat-field is-model">
               <span>Model</span>
-              <select
-                aria-label="Model"
-                value={model}
+              <AxisSelect
+                ariaLabel="Model"
+                value={model || null}
                 disabled={busy || exchanges.length > 0 || modelsLoading}
-                onChange={(e) => setModel(e.target.value)}
-              >
-                {!model && <option value="">{modelsLoading ? 'Loading models…' : 'No models available'}</option>}
-                {models.map((item) => <option key={item.id} value={item.id}>{item.name}{item.is_default ? ' (default)' : ''}</option>)}
-              </select>
-            </label>
+                clearable={false}
+                placeholder={modelsLoading ? 'Loading models…' : 'No models available'}
+                data={models.map((item) => ({
+                  value: item.id,
+                  label: `${item.name}${item.is_default ? ' (default)' : ''}`,
+                }))}
+                onChange={(value) => setModel(value ?? '')}
+              />
+            </div>
           </>
         ) : (
           <h1>Chat</h1>

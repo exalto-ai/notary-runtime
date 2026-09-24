@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MantineProvider } from '@mantine/core';
+import { Notifications } from '@mantine/notifications';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import '@mantine/core/styles.css';
+import '@mantine/notifications/styles.css';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import {
   checkForUpdates,
@@ -28,12 +33,14 @@ import {
 } from './product';
 import { Sidebar } from './Shell';
 import { SettingsView } from './SettingsView';
+import type { DashboardRoute } from '../../../runtime/apps/admin-dashboard/src/routes';
+import { exaltoTheme } from '../../../runtime/apps/admin-dashboard/src/theme';
 
 export const SENSITIVE_INPUT_RESET_EVENT = 'exalto:sensitive-input-reset';
 export const CAPTURE_STATE_CHANGED_EVENT = 'exalto:capture-state-changed';
 export const DISPOSABLE_TEST_STOPPED_MESSAGE = 'The disposable test stopped when setup closed. Prepare it again when you are ready.';
 
-function App() {
+function AppContent() {
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
   const requestedView = query.get('view') as View | null;
   const [view, setView] = useState<View>(requestedView && requestedView in viewMeta ? requestedView : 'home');
@@ -47,7 +54,6 @@ function App() {
   const [serviceStartError, setServiceStartError] = useState<string | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const lastWorkspaceRoute = useRef<WorkspaceView | null>(null);
-  const [workspaceNavigationRevision, setWorkspaceNavigationRevision] = useState(0);
   const [sensitiveInputGeneration, setSensitiveInputGeneration] = useState(0);
   const [setupResumeError, setSetupResumeError] = useState<string | null>(null);
   const disposableTestInProgress = useRef(false);
@@ -85,7 +91,6 @@ function App() {
     setTraceConstraint(null);
     setTraceTarget(target);
     setView('traces');
-    setWorkspaceNavigationRevision((current) => current + 1);
   }, [setupOpen, state?.onboarding_complete]);
 
   useEffect(() => {
@@ -121,7 +126,7 @@ function App() {
     };
   }, [setupOpen, state?.onboarding_complete]);
 
-  // Menu-bar View commands. New Chat and Find are handled by the view that owns them.
+  // Menu-bar View commands. The desktop tree owns navigation and search.
   useEffect(() => {
     if (!isTauri()) return;
     let disposed = false;
@@ -133,13 +138,16 @@ function App() {
         setTraceConstraint(null);
         setTraceTarget(null);
         setView(target);
-        if (workspaceRoutes[target]) {
-          setWorkspaceNavigationRevision((current) => current + 1);
-        }
       } else if (target === 'new-chat') {
         setTraceConstraint(null);
         setTraceTarget(null);
         setView('chat');
+      } else if (target === 'find') {
+        const field = document.querySelector<HTMLInputElement>(
+          'input[aria-label="Search traces"], input[aria-label="Activity Trace ID"]',
+        );
+        field?.focus();
+        field?.select();
       }
     }).then((stopListening) => {
       if (disposed) stopListening();
@@ -360,13 +368,20 @@ function App() {
     setTraceConstraint(null);
     setTraceTarget(null);
     setView(next);
-    if (workspaceRoutes[next]) {
-      setWorkspaceNavigationRevision((current) => current + 1);
-    }
   };
-  const syncWorkspaceRoute = (next: View) => {
-    setTraceConstraint(null);
-    setTraceTarget(null);
+  const syncWorkspaceRoute = (next: View, dashboardRoute?: DashboardRoute) => {
+    const filters = dashboardRoute?.filters;
+    const constraint = next === 'traces'
+      ? filters?.state
+        ? `state=${filters.state}` as TraceConstraint
+        : filters?.status
+          ? `status=${filters.status}` as TraceConstraint
+          : null
+      : null;
+    setTraceConstraint(constraint);
+    setTraceTarget(next === 'traces' && dashboardRoute?.id
+      ? { traceId: dashboardRoute.id, action: dashboardRoute.action }
+      : null);
     setView(next);
   };
   const openTraces = (constraint: TraceConstraint) => {
@@ -374,12 +389,6 @@ function App() {
     setTraceTarget(null);
     setView('traces');
   };
-  const allowLegacyWorkspace = Boolean(
-    !state.managed_by_desktop
-    && state.daemon_build_id
-    && state.daemon_build_id !== state.app_build_id,
-  );
-
   return (
     <div className="native-window" key={`shell-${sensitiveInputGeneration}`}>
       <Sidebar
@@ -388,38 +397,24 @@ function App() {
         onNavigate={navigate}
       />
       <section className="window-content">
-        <main className={`native-content ${route ? 'has-workspace' : ''} ${(view === 'settings' || view === 'providers' || view === 'activity') ? 'has-settings-subnav' : ''} ${view === 'home' ? 'has-view-toolbar' : ''}`}>
+        <main className={`native-content ${route ? 'has-workspace' : ''} ${view === 'home' ? 'has-view-toolbar' : ''}`}>
           {view === 'home' && (
             <header className="view-toolbar" data-tauri-drag-region="deep">
               <h1 data-tauri-drag-region>Overview</h1>
             </header>
           )}
-          {(view === 'settings' || view === 'providers' || view === 'activity') && (
-            <nav className="settings-subnav" aria-label="Settings sections" data-tauri-drag-region="deep">
-              <button
-                type="button"
-                className={view === 'settings' ? 'is-selected' : ''}
-                onClick={() => navigate('settings')}
-              >
-                Preferences
-              </button>
-              <button
-                type="button"
-                className={view === 'providers' ? 'is-selected' : ''}
-                onClick={() => navigate('providers')}
-              >
-                AI connections
-              </button>
-              <button
-                type="button"
-                className={view === 'activity' ? 'is-selected' : ''}
-                onClick={() => navigate('activity')}
-              >
-                Activity log
-              </button>
-              <span className="settings-subnav-spacer" />
-              {view === 'providers' && <button className="settings-subnav-action" type="button" onClick={() => setSetupOpen(true)}>Connection setup</button>}
-            </nav>
+          {route && (
+            <header className="native-page-header" data-tauri-drag-region="deep">
+              <div>
+                <h1 data-tauri-drag-region>{viewMeta[view].title}</h1>
+                <p>{viewMeta[view].subtitle}</p>
+              </div>
+              {view === 'providers' && (
+                <button className="mac-button is-primary" type="button" onClick={() => setSetupOpen(true)}>
+                  Connection setup
+                </button>
+              )}
+            </header>
           )}
           <div className="chat-view-container" hidden={view !== 'chat'}><BuiltinChat state={state} refresh={refresh} onOpenTrace={(id) => { setTraceTarget({ traceId: id }); setTraceConstraint(null); setView('traces'); }} /></div>
           {view === 'home' && (
@@ -437,8 +432,6 @@ function App() {
           )}
           {lastWorkspaceRoute.current && <div className="workspace-view-container" hidden={!route}><SettingsView
             route={lastWorkspaceRoute.current}
-            active={Boolean(route)}
-            navigationRequest={workspaceNavigationRevision}
             constraint={route === 'traces' ? traceConstraint : null}
             traceTarget={route === 'traces' ? traceTarget : null}
             onTraceActionConsumed={(traceId, action) => {
@@ -455,11 +448,24 @@ function App() {
             onRestartToUpdate={() => void restartToUpdate()}
             onStartService={startLocalServiceFromWorkspace}
             onNavigate={syncWorkspaceRoute}
-            allowLegacyWorkspace={allowLegacyWorkspace}
           /></div>}
         </main>
       </section>
     </div>
+  );
+}
+
+function App() {
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: { queries: { staleTime: 2_000, retry: 1, refetchOnWindowFocus: true } },
+  }));
+  return (
+    <MantineProvider theme={exaltoTheme} defaultColorScheme="auto">
+      <Notifications position="bottom-right" />
+      <QueryClientProvider client={queryClient}>
+        <AppContent />
+      </QueryClientProvider>
+    </MantineProvider>
   );
 }
 

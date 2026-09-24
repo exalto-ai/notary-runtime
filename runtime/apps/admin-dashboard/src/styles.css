@@ -72,11 +72,8 @@ code, pre, .mono-id, .mono-time { font-family: var(--mono); }
 .activity-filter-more { background: var(--subtle); border: 1px solid var(--rule); display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(180px, 1fr)); margin-top: 10px; padding: 10px; }
 .trace-filters { border-bottom: 1px solid var(--rule); padding: 18px 0; }
 .trace-filter-primary { align-items: center; display: grid; gap: 10px; grid-template-columns: minmax(200px, 1.5fr) auto minmax(140px, .7fr) minmax(130px, .65fr) auto auto; }
-.trace-filter-more { background: var(--subtle); border: 1px solid var(--rule); display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(150px, 1fr)); margin-top: 10px; padding: 10px; }
-.trace-state-filter { border: 1px solid var(--rule); display: flex; }
-.trace-state-filter button { background: var(--raised); border: 0; color: var(--muted); font: 600 12px var(--ui-font); min-height: 34px; padding: 0 12px; }
-.trace-state-filter button + button { border-left: 1px solid var(--rule); }
-.trace-state-filter button.is-active { background: var(--ink); color: var(--raised); }
+.trace-filter-more { background: var(--subtle); border: 1px solid var(--rule); display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 10px; padding: 10px; }
+.trace-state-filter { width: max-content; }
 .master-detail { display: grid; gap: 24px; grid-template-columns: minmax(310px, .8fr) minmax(480px, 1.2fr); height: calc(100vh - 290px); min-height: 540px; padding-top: 20px; }
 .master-list { border: 1px solid var(--rule); background: var(--raised); }
 .capture-list { display: grid; list-style: none; margin: 0; padding: 0; }
@@ -310,9 +307,9 @@ code, pre, .mono-id, .mono-time { font-family: var(--mono); }
 .settings-flat-group .capture-mode-setting:last-child { border-bottom: 0; }
 .settings-subgroup-grid { border-left: 1px solid var(--rule); border-top: 1px solid var(--rule); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .settings-subgroup-grid > .settings-panel { border-left: 0; border-top: 0; }
-.settings-page--embedded .settings-panel { min-height: 0; }
+.settings-page--desktop .settings-panel { min-height: 0; }
 .account-local-boundary { border-top: 1px solid var(--rule); color: var(--muted); font-size: 11px; padding-top: 10px; }
-.embedded-notaries .receipt-list, .embedded-update-settings .receipt-list { margin-top: 20px; }
+.desktop-notaries .receipt-list, .desktop-update-settings .receipt-list { margin-top: 20px; }
 .notary-details { border-top: 1px solid var(--rule); margin-top: 20px; padding-top: 12px; }
 .notary-details summary { cursor: pointer; font-size: 12px; font-weight: 700; }
 .otlp-details > .mantine-Button-root { margin-top: 12px; }

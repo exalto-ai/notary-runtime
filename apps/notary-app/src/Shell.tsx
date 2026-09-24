@@ -1,16 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { FileCheck2, MessageSquare, Radio, RefreshCw, Settings, Square } from 'lucide-react';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { isTauri, type DesktopState } from './bridge';
+import { FileCheck2, MessageSquare, Radio, Settings, Unplug } from 'lucide-react';
+import type { DesktopState } from './bridge';
 import notaryMark from './notary-mark.svg';
 import { Symbol } from './Symbol';
 import {
   DISPLAY_NAME,
-  viewMeta,
-  type TraceTarget,
-  type TraceConstraint,
   type View,
-  type WorkspaceView,
 } from './product';
 
 export function Sidebar({ state, view, onNavigate }: {
@@ -29,7 +23,8 @@ export function Sidebar({ state, view, onNavigate }: {
       symbol: 'doc.text',
       count: traceCount,
     },
-    { view: 'settings', label: 'Settings', icon: Settings, symbol: 'gearshape' },
+    { view: 'providers', label: 'Connections', icon: Unplug, symbol: 'point.3.connected.trianglepath.dotted' },
+    { view: 'settings', label: 'Preferences', icon: Settings, symbol: 'gearshape' },
   ];
 
   return <aside className="native-sidebar">
@@ -43,7 +38,7 @@ export function Sidebar({ state, view, onNavigate }: {
         {items.map(({ view: itemView, label, icon: Icon, symbol, count }) => <button
           key={itemView}
           type="button"
-          className={view === itemView || (itemView === 'settings' && (view === 'providers' || view === 'activity')) ? 'is-selected' : ''}
+          className={view === itemView ? 'is-selected' : ''}
           onClick={() => onNavigate(itemView)}
         >
           <Symbol name={symbol} fallback={Icon} size={16} />
@@ -53,210 +48,6 @@ export function Sidebar({ state, view, onNavigate }: {
       </div>
     </nav>
   </aside>;
-}
-
-export function WorkspaceFrame({
-  route,
-  active = true,
-  navigationRequest = 0,
-  constraint = null,
-  traceTarget = null,
-  running,
-  serviceError = null,
-  desktopSettings,
-  onDesktopSettingsAction,
-  onRouteChange,
-  onTraceActionConsumed,
-  onStartService,
-  serviceStarting = false,
-  loadTimeoutMs = 7000,
-  workspaceSource,
-  allowLegacyFrameLoadFallback = false,
-}: {
-  route: WorkspaceView;
-  active?: boolean;
-  navigationRequest?: number;
-  constraint?: TraceConstraint | null;
-  traceTarget?: TraceTarget | null;
-  running: boolean;
-  serviceError?: string | null;
-  desktopSettings?: DesktopSettingsPayload;
-  onDesktopSettingsAction?: (action: DesktopSettingsAction) => void;
-  onRouteChange?: (view: View) => void;
-  onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
-  onStartService?: () => void;
-  serviceStarting?: boolean;
-  loadTimeoutMs?: number;
-  workspaceSource?: string;
-  allowLegacyFrameLoadFallback?: boolean;
-}) {
-  const [loaded, setLoaded] = useState(false);
-  const [frameLoaded, setFrameLoaded] = useState(false);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const frame = useRef<HTMLIFrameElement>(null);
-  const embeddedRoute = useRef<View | null>(null);
-  const workspaceOrigin = 'http://127.0.0.1:8788';
-  const traceDestination = route === 'traces' && traceTarget
-    ? `${route}/${encodeURIComponent(traceTarget.traceId)}${traceTarget.action ? `?action=${traceTarget.action}` : ''}`
-    : `${route}${constraint ? `?${constraint}` : ''}`;
-  const requestedSource = workspaceSource
-    ?? `${workspaceOrigin}/dashboard?embedded=desktop#/${traceDestination}`;
-  const lastParentRequest = useRef({ route, source: requestedSource, navigationRequest });
-  const [navigation, setNavigation] = useState({ source: requestedSource, revision: 0 });
-
-  // View > Find reaches the search field inside the workspace frame.
-  useEffect(() => {
-    if (!isTauri()) return;
-    let disposed = false;
-    let unlisten: UnlistenFn | null = null;
-    void listen<string>('exalto:menu', (event) => {
-      if (event.payload !== 'find') return;
-      frame.current?.contentWindow?.postMessage(
-        { type: 'notary:desktop-command', payload: { command: 'find' } },
-        workspaceOrigin,
-      );
-    }).then((stopListening) => {
-      if (disposed) stopListening();
-      else unlisten = stopListening;
-    });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
-
-  const sendDesktopSettings = () => {
-    if (!desktopSettings) return;
-    frame.current?.contentWindow?.postMessage(
-      { type: 'notary:desktop-settings', payload: desktopSettings },
-      workspaceOrigin,
-    );
-  };
-
-  useEffect(() => {
-    if (
-      lastParentRequest.current.route === route
-      && lastParentRequest.current.source === requestedSource
-      && lastParentRequest.current.navigationRequest === navigationRequest
-      && embeddedRoute.current === null
-    ) {
-      return;
-    }
-    const explicitNavigation = lastParentRequest.current.navigationRequest !== navigationRequest;
-    lastParentRequest.current = { route, source: requestedSource, navigationRequest };
-    if (!explicitNavigation && embeddedRoute.current === route) {
-      embeddedRoute.current = null;
-      return;
-    }
-    embeddedRoute.current = null;
-    // Reassigning the same hash also returns from an internally opened trace detail.
-    // Keep the browsing context: changing only the fragment is SPA navigation.
-    if (frame.current && frame.current.src === requestedSource) frame.current.src = requestedSource;
-    setNavigation((current) => ({ ...current, source: requestedSource }));
-  }, [requestedSource, route, navigationRequest]);
-  const documentSource = navigation.source.split('#')[0];
-  useEffect(() => {
-    setLoaded(false);
-    setFrameLoaded(false);
-    setLoadFailed(false);
-  }, [documentSource, navigation.revision, running]);
-  useEffect(() => {
-    if (!allowLegacyFrameLoadFallback || !running || !frameLoaded || loaded || loadFailed) return;
-    const delay = Math.min(1500, Math.max(100, Math.floor(loadTimeoutMs / 2)));
-    const timeout = window.setTimeout(() => setLoaded(true), delay);
-    return () => window.clearTimeout(timeout);
-  }, [allowLegacyFrameLoadFallback, frameLoaded, loadFailed, loaded, loadTimeoutMs, running]);
-  useEffect(() => {
-    if (!running || loaded || loadFailed) return;
-    const timeout = window.setTimeout(() => setLoadFailed(true), loadTimeoutMs);
-    return () => window.clearTimeout(timeout);
-  }, [loadFailed, loaded, loadTimeoutMs, navigation, running]);
-  useEffect(sendDesktopSettings, [desktopSettings]);
-  useLayoutEffect(() => {
-    const receive = (event: MessageEvent) => {
-      if (
-        event.origin !== workspaceOrigin ||
-        event.source !== frame.current?.contentWindow
-      ) {
-        return;
-      }
-      setLoaded(true);
-      setLoadFailed(false);
-      if (event.data?.type === 'notary:desktop-settings-ready') sendDesktopSettings();
-      if (
-        onDesktopSettingsAction &&
-        event.data?.type === 'notary:desktop-settings-action' &&
-        isDesktopSettingsAction(event.data.payload)
-      ) {
-        onDesktopSettingsAction(event.data.payload);
-      }
-      if (active && event.data?.type === 'notary:desktop-route-change' && onRouteChange) {
-        const nextView = desktopViewFromDashboardRoute(event.data.payload);
-        if (!nextView || nextView === route) return;
-        embeddedRoute.current = nextView;
-        onRouteChange(nextView);
-      }
-      if (
-        event.data?.type === 'notary:desktop-trace-action-consumed'
-        && isConsumedTraceAction(event.data.payload)
-        && onTraceActionConsumed
-      ) {
-        embeddedRoute.current = route;
-        onTraceActionConsumed(event.data.payload.traceId, event.data.payload.action);
-      }
-    };
-    window.addEventListener('message', receive);
-    return () => window.removeEventListener('message', receive);
-  }, [active, desktopSettings, onDesktopSettingsAction, onRouteChange, onTraceActionConsumed, route]);
-
-  if (!running) {
-    return <EmptyPanel
-      icon={<Square size={26} />}
-      title="Local service is off"
-      copy="Start the local service to inspect private traces and connections. Capture remains off."
-      notice={serviceError}
-      action={onStartService && <button className="mac-button is-primary" type="button" onClick={onStartService} disabled={serviceStarting}>
-        {serviceStarting ? 'Starting local service…' : 'Start local service'}
-      </button>}
-    />;
-  }
-
-  if (loadFailed) {
-    return <EmptyPanel
-      icon={<Square size={26} />}
-      title="Local workspace didn't respond"
-      copy="The local service is running, but its workspace did not answer. Retry now. If this continues, restart the local service."
-      action={<button
-        className="mac-button is-primary"
-        type="button"
-        onClick={() => setNavigation((current) => ({
-          source: current.source,
-          revision: current.revision + 1,
-        }))}
-      >
-        <RefreshCw size={14} /> Retry local workspace
-      </button>}
-    />;
-  }
-
-  return <div className="workspace-frame">
-    {!loaded && <div className="workspace-loading"><span className="spinner" />Loading local workspace…</div>}
-    <iframe
-      ref={frame}
-      key={`${documentSource}:${navigation.revision}`}
-      src={navigation.source}
-      title={`${viewMeta[route].title} workspace`}
-      onError={() => setLoadFailed(true)}
-      onLoad={() => {
-        setFrameLoaded(true);
-        frame.current?.contentWindow?.postMessage(
-          { type: 'notary:desktop-ready-request' },
-          workspaceOrigin,
-        );
-        sendDesktopSettings();
-      }}
-    />
-  </div>;
 }
 
 export type DesktopSettingsPayload = {
@@ -284,41 +75,3 @@ export type DesktopSettingsAction =
   | { action: 'set_launch_at_login'; enabled: boolean }
   | { action: 'check_for_updates' }
   | { action: 'restart_to_update' };
-
-function isDesktopSettingsAction(value: unknown): value is DesktopSettingsAction {
-  if (!value || typeof value !== 'object' || !('action' in value)) return false;
-  const action = (value as { action?: unknown }).action;
-  if (action === 'check_for_updates' || action === 'restart_to_update') return true;
-  return action === 'set_launch_at_login' && typeof (value as { enabled?: unknown }).enabled === 'boolean';
-}
-
-function desktopViewFromDashboardRoute(value: unknown): View | null {
-  if (!value || typeof value !== 'object' || !('view' in value)) return null;
-  const view = (value as { view?: unknown }).view;
-  if (view === 'overview') return 'home';
-  if (view === 'traces' || view === 'activity' || view === 'providers' || view === 'settings') {
-    return view;
-  }
-  return null;
-}
-
-function isConsumedTraceAction(
-  value: unknown,
-): value is { traceId: string; action: 'first-proof' } {
-  if (!value || typeof value !== 'object') return false;
-  const payload = value as { traceId?: unknown; action?: unknown };
-  return typeof payload.traceId === 'string'
-    && payload.traceId.startsWith('trc-')
-    && payload.traceId.length <= 256
-    && payload.action === 'first-proof';
-}
-
-function EmptyPanel({ icon, title, copy, notice, action }: { icon: ReactNode; title: string; copy: string; notice?: string | null; action?: ReactNode }) {
-  return <div className="empty-panel">
-    <span>{icon}</span>
-    <h2>{title}</h2>
-    <p>{copy}</p>
-    {notice && <div className="native-notice service-start-notice" role="alert">{notice}</div>}
-    {action}
-  </div>;
-}

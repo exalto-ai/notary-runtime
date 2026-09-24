@@ -1,9 +1,12 @@
 import { cleanup, render } from '@testing-library/react';
+import { MantineProvider } from '@mantine/core';
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { BuiltinChat, ProviderConnections } from './BuiltinChat';
 import * as bridge from './builtinBridge';
 import { getDesktopState } from './bridge';
+import { exaltoTheme } from '../../../runtime/apps/admin-dashboard/src/theme';
 import './styles.css';
 vi.mock('./builtinBridge', () => ({
   listConnections: vi.fn(),
@@ -40,9 +43,14 @@ afterEach(() => {
   localStorage.clear();
   window.history.replaceState({}, '', '/');
 });
+
+function renderWithTheme(view: ReactNode) {
+  return render(<MantineProvider theme={exaltoTheme}>{view}</MantineProvider>);
+}
+
 async function chat() {
   const open = vi.fn();
-  render(
+  renderWithTheme(
     <BuiltinChat
       state={await getDesktopState()}
       refresh={async () => undefined}
@@ -50,17 +58,22 @@ async function chat() {
     />,
   );
   await expect
-    .element(page.getByLabelText('Chat connection'))
-    .toHaveValue('openai');
-  await expect.element(page.getByLabelText('Model', { exact: true })).toHaveValue('offline-test-model');
+    .element(page.getByRole('combobox', { name: 'Chat connection' }))
+    .toHaveValue('OpenAI API');
+  await expect.element(page.getByRole('combobox', { name: 'Model' })).toHaveValue('Test model (default)');
   return open;
 }
+
+test('uses the shared Mantine selects in the chat toolbar', async () => {
+  await chat();
+  expect(document.querySelectorAll('.chat-bar select')).toHaveLength(0);
+  expect(document.querySelectorAll('.chat-bar .axis-select-trigger')).toHaveLength(2);
+});
+
 test('saves a key through native storage and clears the field without browser persistence', async () => {
-  render(<ProviderConnections />);
-  await userEvent.selectOptions(
-    page.getByLabelText('Connection type'),
-    'openai',
-  );
+  renderWithTheme(<ProviderConnections />);
+  await page.getByRole('combobox', { name: 'Connection type' }).click();
+  await page.getByRole('option', { name: 'OpenAI API' }).click();
   await userEvent.fill(
     page.getByLabelText('OpenAI API key'),
     'sk-explicit-user-secret',
@@ -86,11 +99,9 @@ test('does not pretend to save a key when the vault is locked', async () => {
   vi.mocked(bridge.saveConnection).mockRejectedValue(
     new Error('Unlock the vault before managing connections.'),
   );
-  render(<ProviderConnections />);
-  await userEvent.selectOptions(
-    page.getByLabelText('Connection type'),
-    'anthropic',
-  );
+  renderWithTheme(<ProviderConnections />);
+  await page.getByRole('combobox', { name: 'Connection type' }).click();
+  await page.getByRole('option', { name: 'Anthropic API' }).click();
   await userEvent.fill(
     page.getByLabelText('Anthropic API key'),
     'sk-offline-secret',
@@ -110,7 +121,7 @@ test('links with a device code and cancels pending authorization when the panel 
     user_code: 'ABCD-EFGH',
     verification_url: 'https://auth.openai.com/codex/device',
   });
-  const view = render(<ProviderConnections />);
+  const view = renderWithTheme(<ProviderConnections />);
   await userEvent.click(
     page.getByRole('button', { name: 'Link ChatGPT plan' }),
   );
@@ -238,28 +249,29 @@ test('loads connection models and selects the catalog default automatically', as
     { id: 'first-model', name: 'First model', is_default: false },
     { id: 'preferred-model', name: 'Preferred model', is_default: true },
   ]);
-  render(<BuiltinChat state={await getDesktopState()} refresh={async () => undefined} onOpenTrace={() => undefined} />);
-  await expect.element(page.getByLabelText('Model', { exact: true })).toHaveValue('preferred-model');
+  renderWithTheme(<BuiltinChat state={await getDesktopState()} refresh={async () => undefined} onOpenTrace={() => undefined} />);
+  await expect.element(page.getByRole('combobox', { name: 'Model' })).toHaveValue('Preferred model (default)');
   expect(bridge.listModels).toHaveBeenCalledWith('openai');
-  await userEvent.selectOptions(page.getByLabelText('Model', { exact: true }), 'first-model');
-  await expect.element(page.getByLabelText('Model', { exact: true })).toHaveValue('first-model');
+  await page.getByRole('combobox', { name: 'Model' }).click();
+  await page.getByRole('option', { name: 'First model' }).click();
+  await expect.element(page.getByRole('combobox', { name: 'Model' })).toHaveValue('First model');
 });
 
 test('model discovery failure can be retried without inventing an available model', async () => {
   vi.mocked(bridge.listModels).mockRejectedValueOnce(new Error('Model service unavailable.'));
-  render(<BuiltinChat state={await getDesktopState()} refresh={async () => undefined} onOpenTrace={() => undefined} />);
+  renderWithTheme(<BuiltinChat state={await getDesktopState()} refresh={async () => undefined} onOpenTrace={() => undefined} />);
   await expect.element(page.getByRole('alert')).toHaveTextContent('Model service unavailable.');
-  await expect.element(page.getByLabelText('Model', { exact: true })).toHaveValue('');
+  await expect.element(page.getByRole('combobox', { name: 'Model' })).toHaveValue('');
   await expect.element(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
   await userEvent.click(page.getByRole('button', { name: 'Retry models' }));
-  await expect.element(page.getByLabelText('Model', { exact: true })).toHaveValue('offline-test-model');
+  await expect.element(page.getByRole('combobox', { name: 'Model' })).toHaveValue('Test model (default)');
 });
 
 
 test('locked connections do not load credentials in the background and unlock is explicit', async () => {
   vi.mocked(bridge.listConnections).mockResolvedValue([{ id: 'openai', status: 'locked' }]);
   vi.mocked(bridge.unlockConnections).mockResolvedValue(undefined);
-  render(<BuiltinChat state={await getDesktopState()} refresh={async () => undefined} onOpenTrace={() => undefined} />);
+  renderWithTheme(<BuiltinChat state={await getDesktopState()} refresh={async () => undefined} onOpenTrace={() => undefined} />);
   await expect.element(page.getByRole('alert')).toHaveTextContent('Unlock the vault in Connections');
   expect(bridge.listModels).not.toHaveBeenCalled();
   expect(bridge.unlockConnections).not.toHaveBeenCalled();

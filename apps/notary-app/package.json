@@ -16,6 +16,10 @@
     "tauri:build:signed:debug": "node scripts/signed-local.mjs"
   },
   "dependencies": {
+    "@mantine/core": "^9.6.1",
+    "@mantine/hooks": "^9.6.1",
+    "@mantine/notifications": "^9.6.1",
+    "@tanstack/react-query": "^5.103.1",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "lucide-react": "^0.539.0",

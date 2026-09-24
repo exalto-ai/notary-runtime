@@ -1,5 +1,5 @@
 import { act, cleanup, render } from '@testing-library/react';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import App, {
   DISPOSABLE_TEST_STOPPED_MESSAGE,
@@ -7,8 +7,41 @@ import App, {
 } from './App';
 import { createDisposableTestMarker } from './Onboarding';
 import { formatBytes, pendingFirstProofTarget, persistPendingFirstProof } from './product';
-import { WorkspaceFrame } from './Shell';
 import './styles.css';
+
+const browserTraceSummary = (traceId = 'trc-browser-detail') => ({
+  trace_id: traceId,
+  created_at_unix_ms: Date.now() - 1_000,
+  completed_at_unix_ms: Date.now(),
+  provider: 'openai',
+  operation: '/v1/responses',
+  requested_model: 'gpt-5.2',
+  response_model: 'gpt-5.2',
+  http_status: 200,
+  streaming: false,
+  request_bytes: 512,
+  response_bytes: 1_024,
+  duration_ms: 250,
+  state: 'captured',
+  status: null,
+  notarization_eligible: true,
+  notarization_ineligibility_code: null,
+  prompt_preview: 'A browser test prompt.',
+  prompt_preview_truncated: false,
+  output_preview: 'A browser test response.',
+  output_preview_truncated: false,
+});
+
+const browserTraceDetail = (traceId: string) => ({
+  ...browserTraceSummary(traceId),
+  artifacts: [{
+    kind: 'capture_checkpoint',
+    size_bytes: 1_024,
+    sha256: 'a'.repeat(64),
+  }],
+  notarization: null,
+  share: null,
+});
 
 function renderApp(query: string) {
   window.history.replaceState({}, '', `/${query}`);
@@ -20,8 +53,93 @@ function renderApp(query: string) {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   localStorage.clear();
   window.history.replaceState({}, '', '/');
+});
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const requestUrl = typeof input === 'string'
+      ? new URL(input, window.location.origin)
+      : input instanceof URL
+        ? input
+        : new URL(input.url, window.location.origin);
+    const path = requestUrl.pathname;
+    const response = (value: unknown, status = 200) => new Response(
+      JSON.stringify(value),
+      { status, headers: { 'content-type': 'application/json' } },
+    );
+    if (path === '/v1/session') return new Response(null, { status: 204 });
+    if (path === '/admin-api/v1/status') {
+      return response({ error: { code: 'service_unavailable', message: 'The local service is off.' } }, 503);
+    }
+    if (path === '/v1/status') {
+      return response({
+        version: '0.1.9',
+        build_id: 'browser-test',
+        runtime_profile: 'local',
+        instance_id: null,
+        incarnation_id: null,
+        lifecycle: 'ready',
+        capture_enabled: false,
+        proxy_listener: '127.0.0.1:8787',
+        admin_listener: '127.0.0.1:8788',
+        proxy_origin: 'http://127.0.0.1:8787',
+        admin_origin: 'http://127.0.0.1:8788',
+        metadata_backend: 'sqlite',
+        metadata_status: 'ready',
+        artifact_backend: 'filesystem',
+        artifact_status: 'ready',
+        vault: 'OS vault',
+        notary: 'registry',
+        preview_chars: 1_000,
+        counts: {
+          captured: 3,
+          notarizing: 1,
+          notarized: 8,
+          needs_attention: 2,
+          capturing: 0,
+          capture_failed: 0,
+        },
+        updates: {
+          enabled: false,
+          current_build_id: 'browser-test',
+          latest_build_id: null,
+          update_available: false,
+          last_checked_unix_ms: null,
+          error_code: null,
+        },
+      });
+    }
+    if (path === '/v1/traces') {
+      return response({ items: [browserTraceSummary()], next_cursor: null });
+    }
+    if (/^\/v1\/traces\/[^/]+\/notarizations$/.test(path)) {
+      return response({ operation_id: 'op-browser-proof', deduplicated: false, state: 'queued' }, 202);
+    }
+    if (/^\/v1\/traces\/[^/]+$/.test(path)) {
+      return response(browserTraceDetail(decodeURIComponent(path.split('/').at(-1) ?? 'trc-browser-detail')));
+    }
+    if (path === '/v1/activity') return response({ items: [], next_cursor: null, high_water: null });
+    if (path === '/v1/providers') {
+      return response({ providers: [{
+        id: 'openai',
+        name: 'OpenAI',
+        host: 'api.openai.com',
+        client_api: 'OpenAI Responses and Chat Completions',
+        route_prefix: '/openai',
+        proxy_base_url: 'http://127.0.0.1:8787/openai',
+        ready: true,
+      }] });
+    }
+    if (path === '/v1/notaries') {
+      return response({ source: 'registry', registry_source: null, generation: null, active_key_id: null, notaries: [] });
+    }
+    if (path === '/v1/account') return response({ signed_in: false, connection_state: 'disconnected' });
+    if (path === '/v1/settings/capture') return response({ enabled: false });
+    return response({});
+  }));
 });
 
 describe('Exalto Capture desktop shell', () => {
@@ -33,7 +151,7 @@ describe('Exalto Capture desktop shell', () => {
           node.textContent?.replace(/\d+$/, ''),
         ),
       )
-      .toEqual(['Overview', 'Chat', 'Traces', 'Settings']);
+      .toEqual(['Overview', 'Chat', 'Traces', 'Connections', 'Preferences']);
     await expect.element(page.getByText('Captures', { exact: true })).not.toBeInTheDocument();
     await expect.element(page.getByText('Finalizations', { exact: true })).not.toBeInTheDocument();
     await expect.element(page.getByText('Share', { exact: true })).not.toBeInTheDocument();
@@ -68,239 +186,67 @@ describe('Exalto Capture desktop shell', () => {
 
     for (const [label, constraint] of expected) {
       await userEvent.click(page.getByRole('button', { name: new RegExp(label) }));
-      await expect
-        .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')?.src)
-        .toContain(`#/traces?${constraint}`);
+      await expect.element(page.getByPlaceholder('Search traces')).toBeVisible();
+      expect(document.querySelector('.workspace-frame')).toBeNull();
+      expect(document.querySelector('.inline-dashboard-page')).not.toBeNull();
+      if (constraint.startsWith('state=')) {
+        const labelName = constraint === 'state=notarized' ? 'Sealed' : 'Captured';
+        await expect.element(page.getByRole('radio', { name: labelName, exact: true })).toBeChecked();
+      } else {
+        await expect.element(page.getByRole('button', { name: 'More filters' })).toHaveAttribute('aria-expanded', 'true');
+        await expect
+          .element(page.getByRole('combobox', { name: 'Operational status filter' }))
+          .toHaveValue(label);
+      }
       await userEvent.click(page.getByRole('button', { name: 'Overview' }));
     }
-  });
-
-  test('opens an exact sealed Trace action inside the desktop shell', async () => {
-    render(
-      <WorkspaceFrame
-        route="traces"
-        traceTarget={{ traceId: 'trc-browser-first-proof', action: 'first-proof' }}
-        running
-        workspaceSource={undefined}
-      />,
-    );
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')?.src)
-      .toContain('#/traces/trc-browser-first-proof?action=first-proof');
   });
 
   test('resumes and consumes a pending first-proof handoff across app restarts', async () => {
     persistPendingFirstProof({ traceId: 'trc-browser-resume-proof', action: 'first-proof' });
     renderApp('?screen=capture-off');
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')?.src)
-      .toContain('#/traces/trc-browser-resume-proof?action=first-proof');
-    const frame = document.querySelector<HTMLIFrameElement>('.workspace-frame iframe');
-    if (!frame?.contentWindow) throw new Error('Workspace frame is missing');
-
-    window.dispatchEvent(new MessageEvent('message', {
-      origin: 'http://127.0.0.1:8788',
-      source: frame.contentWindow,
-      data: {
-        type: 'notary:desktop-trace-action-consumed',
-        payload: { traceId: 'trc-browser-resume-proof', action: 'first-proof' },
-      },
-    }));
-
+    await expect.element(page.getByText('Trace ID · trc-browser-resume-proof')).toBeVisible();
+    expect(document.querySelector('.workspace-frame')).toBeNull();
+    expect(document.querySelector('.inline-dashboard-page')).not.toBeNull();
     await expect.poll(pendingFirstProofTarget).toBeNull();
-    expect(document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')).toBe(frame);
   });
 
   test('keeps service-backed workspaces inside the desktop shell', async () => {
     renderApp('?screen=capture-on&view=providers');
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')?.src)
-      .toContain('/dashboard?embedded=desktop#/providers');
+    await expect.element(page.getByRole('heading', { name: 'Connect your AI tool' })).toBeVisible();
+    expect(document.querySelector('.workspace-frame')).toBeNull();
+    expect(document.querySelector('.inline-dashboard-page')).not.toBeNull();
     await userEvent.click(page.getByRole('button', { name: 'Connection setup' }));
     await expect.element(page.getByRole('heading', { name: 'Where would you like to chat?' })).toBeVisible();
     await userEvent.click(page.getByRole('button', { name: 'Done' }));
-    await userEvent.click(page.getByRole('button', { name: 'Activity log' }));
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')?.src)
-      .toContain('/dashboard?embedded=desktop#/activity');
+    await userEvent.click(page.getByRole('button', { name: 'Preferences' }));
+    await expect.element(page.getByRole('heading', { name: 'Preferences' })).toBeVisible();
+    expect(document.querySelector('.settings-subnav')).toBeNull();
+    expect(document.querySelector('.workspace-frame')).toBeNull();
   });
 
-  test('keeps one ready workspace through Traces, Settings, and Chat navigation', async () => {
+  test('keeps native navigation in charge of service-backed views', async () => {
     renderApp('?screen=capture-on&view=traces');
-    await expect.poll(() => document.querySelector('.workspace-frame iframe')).toBeTruthy();
-    const frame = document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')!;
-    const contentWindow = frame.contentWindow;
-    window.dispatchEvent(new MessageEvent('message', {
-      origin: 'http://127.0.0.1:8788', source: contentWindow,
-      data: { type: 'notary:desktop-settings-ready' },
-    }));
-    await expect.element(page.getByText('Loading local workspace…')).not.toBeInTheDocument();
-    for (const label of ['Settings', 'Chat', 'Traces', 'Settings', 'Traces']) {
+    await expect.element(page.getByPlaceholder('Search traces')).toBeVisible();
+    expect(document.querySelector('.workspace-frame')).toBeNull();
+    for (const label of ['Preferences', 'Chat', 'Traces', 'Connections', 'Preferences', 'Traces']) {
       await userEvent.click(page.getByRole('button', { name: new RegExp(`^${label}`) }));
-      expect(document.querySelector('.workspace-frame iframe')).toBe(frame);
-      expect(frame.contentWindow).toBe(contentWindow);
-      await expect.element(page.getByText('Loading local workspace…')).not.toBeInTheDocument();
+      expect(document.querySelector('.workspace-frame')).toBeNull();
     }
-    expect(frame.src).toContain('#/traces');
+    await expect.element(page.getByPlaceholder('Search traces')).toBeVisible();
   });
 
-  test('replaces an unresponsive local workspace spinner with a retry action', async () => {
-    render(
-      <WorkspaceFrame
-        route="traces"
-        running
-        loadTimeoutMs={250}
-        workspaceSource="data:text/html,<title>silent%20workspace</title>"
-      />,
-    );
-    await expect.element(page.getByText('Loading local workspace…')).toBeVisible();
-    await expect
-      .element(page.getByRole('heading', { name: "Local workspace didn't respond" }))
-      .toBeVisible();
-    await expect
-      .element(page.getByRole('button', { name: 'Retry local workspace' }))
-      .toBeVisible();
-
-    await userEvent.click(page.getByRole('button', { name: 'Retry local workspace' }));
-    expect(document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')).not.toBeNull();
-  });
-
-  test('requires a fresh workspace response after the local service restarts', async () => {
-    const source = 'data:text/html,<title>silent%20workspace</title>';
-    const view = render(
-      <WorkspaceFrame route="traces" running loadTimeoutMs={1_000} workspaceSource={source} />,
-    );
-    const frame = document.querySelector<HTMLIFrameElement>('.workspace-frame iframe');
-    expect(frame?.contentWindow).not.toBeNull();
-    await act(async () => {
-      window.dispatchEvent(new MessageEvent('message', {
-        origin: 'http://127.0.0.1:8788',
-        source: frame?.contentWindow,
-        data: { type: 'notary:desktop-route-change', payload: { view: 'traces' } },
-      }));
-    });
-    await expect.element(page.getByText('Loading local workspace…')).not.toBeInTheDocument();
-
-    view.rerender(
-      <WorkspaceFrame route="traces" running={false} loadTimeoutMs={250} workspaceSource={source} />,
-    );
-    await expect.element(page.getByRole('heading', { name: 'Local service is off' })).toBeVisible();
-    view.rerender(
-      <WorkspaceFrame route="traces" running loadTimeoutMs={250} workspaceSource={source} />,
-    );
-    await expect.element(page.getByText('Loading local workspace…')).toBeVisible();
-    await expect
-      .element(page.getByRole('heading', { name: "Local workspace didn't respond" }))
-      .toBeVisible();
-  });
-
-  test('allows a bounded frame-load fallback for a known older external workspace', async () => {
-    render(
-      <WorkspaceFrame
-        route="traces"
-        running
-        loadTimeoutMs={300}
-        workspaceSource="data:text/html,<title>legacy%20workspace</title>"
-        allowLegacyFrameLoadFallback
-      />,
-    );
-    await expect.element(page.getByText('Loading local workspace…')).toBeVisible();
-    await expect.element(page.getByText('Loading local workspace…')).not.toBeInTheDocument();
-    await expect
-      .element(page.getByRole('heading', { name: "Local workspace didn't respond" }))
-      .not.toBeInTheDocument();
-  });
-
-  test('keeps native navigation synchronized with routes opened inside the workspace', async () => {
-    renderApp('?screen=capture-on&view=traces');
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')?.src)
-      .toContain('/dashboard?embedded=desktop#/traces');
-    const frame = document.querySelector<HTMLIFrameElement>('.workspace-frame iframe');
-    if (!frame?.contentWindow) throw new Error('Workspace frame is missing');
-    const initialSource = frame.getAttribute('src');
-
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        origin: 'http://127.0.0.1:8788',
-        source: frame.contentWindow,
-        data: {
-          type: 'notary:desktop-route-change',
-          payload: { view: 'activity' },
-        },
-      }),
-    );
-
-    await expect.element(page.getByRole('button', { name: 'Activity log' })).toHaveClass('is-selected');
-    expect(document.querySelector('.native-toolbar')).toBeNull();
-    expect(document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')).toBe(frame);
-    expect(frame.getAttribute('src')).toBe(initialSource);
-
-    await userEvent.click(page.getByRole('button', { name: /^Traces/ }));
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe'))
-      .toBe(frame);
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')?.src)
-      .toMatch(/#\/traces$/);
-  });
-
-  test('returns from an embedded trace detail when Traces is clicked again', async () => {
-    renderApp('?screen=capture-on&view=traces');
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe'))
-      .toBeTruthy();
-    const frame = document.querySelector<HTMLIFrameElement>('.workspace-frame iframe');
-    if (!frame?.contentWindow) throw new Error('Workspace frame is missing');
-
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        origin: 'http://127.0.0.1:8788',
-        source: frame.contentWindow,
-        data: {
-          type: 'notary:desktop-route-change',
-          payload: { view: 'traces', detail: 'trc-browser-detail' },
-        },
-      }),
-    );
-
-    await userEvent.click(page.getByRole('button', { name: /^Traces/ }));
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe'))
-      .toBe(frame);
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')?.src)
-      .toMatch(/#\/traces$/);
-  });
-
-  test('clears a Trace count filter after the embedded route confirms Traces', async () => {
+  test('clears a Trace count filter when the native Traces destination is selected again', async () => {
     renderApp('?screen=capture-on');
     await userEvent.click(page.getByRole('button', { name: /Captured/ }));
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')?.src)
-      .toContain('#/traces?state=captured');
-    const frame = document.querySelector<HTMLIFrameElement>('.workspace-frame iframe');
-    if (!frame?.contentWindow) throw new Error('Workspace frame is missing');
-
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        origin: 'http://127.0.0.1:8788',
-        source: frame.contentWindow,
-        data: {
-          type: 'notary:desktop-route-change',
-          payload: { view: 'traces' },
-        },
-      }),
-    );
+    await expect.element(page.getByRole('radio', { name: 'Captured', exact: true })).toBeChecked();
     await userEvent.click(page.getByRole('button', { name: /^Traces/ }));
-
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe')?.src)
-      .toMatch(/#\/traces$/);
+    await expect.element(page.getByRole('radio', { name: 'All', exact: true })).toBeChecked();
+    expect(document.querySelector('.workspace-frame')).toBeNull();
   });
 
   test('keeps the primary capture control on Capture', async () => {
-    renderApp('?view=activity');
+    renderApp('?screen=service-off&view=traces');
     await expect.element(page.getByText('Start the local service to inspect private traces and connections. Capture remains off.')).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Start local service' })).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Start capturing' })).not.toBeInTheDocument();
@@ -309,7 +255,7 @@ describe('Exalto Capture desktop shell', () => {
   });
 
   test('shows start failures beside the retry action on every offline workspace', async () => {
-    for (const view of ['traces', 'providers', 'activity'] as const) {
+    for (const view of ['traces', 'providers'] as const) {
       renderApp(`?screen=service-off&view=${view}&service-start=fail`);
       await userEvent.click(page.getByRole('button', { name: 'Start local service' }));
       await expect.element(page.getByRole('alert')).toHaveTextContent('could not start');
@@ -515,7 +461,8 @@ describe('Exalto Capture desktop shell', () => {
     renderApp('?screen=capture-on&view=providers');
     await userEvent.click(page.getByRole('button', { name: 'Connection setup' }));
     await userEvent.click(page.getByRole('radio', { name: /^Built-in/ }));
-    await userEvent.selectOptions(page.getByLabelText('Connection type'), 'openai');
+    await page.getByRole('combobox', { name: 'Connection type' }).click();
+    await page.getByRole('option', { name: 'OpenAI API' }).click();
     const openAiKey = page.getByLabelText('OpenAI API key');
     await userEvent.fill(openAiKey, 'unsaved provider secret');
 
@@ -523,23 +470,21 @@ describe('Exalto Capture desktop shell', () => {
       window.dispatchEvent(new Event(SENSITIVE_INPUT_RESET_EVENT));
     });
     await userEvent.click(page.getByRole('radio', { name: /^Built-in/ }));
-    await userEvent.selectOptions(page.getByLabelText('Connection type'), 'openai');
+    await page.getByRole('combobox', { name: 'Connection type' }).click();
+    await page.getByRole('option', { name: 'OpenAI API' }).click();
     await expect
       .element(page.getByLabelText('OpenAI API key'))
       .toHaveValue('');
 
     cleanup();
     renderApp('?screen=capture-on&view=traces');
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe'))
-      .not.toBeNull();
-    const originalWorkspace = document.querySelector<HTMLIFrameElement>('.workspace-frame iframe');
+    await expect.element(page.getByPlaceholder('Search traces')).toBeVisible();
+    expect(document.querySelector('.workspace-frame')).toBeNull();
     await act(async () => {
       window.dispatchEvent(new Event(SENSITIVE_INPUT_RESET_EVENT));
     });
-    await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.workspace-frame iframe'))
-      .not.toBe(originalWorkspace);
+    await expect.element(page.getByPlaceholder('Search traces')).toBeVisible();
+    expect(document.querySelector('.workspace-frame')).toBeNull();
 
     cleanup();
     renderApp('?screen=onboarding');
@@ -559,26 +504,20 @@ describe('Exalto Capture desktop shell', () => {
     await expect.element(page.getByRole('heading', { name: 'Unlock private traces on this Mac' })).toBeVisible();
   });
 
-  test('uses one embedded desktop-and-service Settings surface', async () => {
+  test('uses one native desktop-and-service Settings surface', async () => {
     renderApp('?screen=capture-on&view=settings&update=ready');
+    await expect.element(page.getByRole('heading', { name: 'Preferences', exact: true })).toBeVisible();
+    await expect.element(page.getByRole('heading', { name: 'Sealing & account', exact: true })).toBeVisible();
+    await expect.element(page.getByRole('heading', { name: 'AI connections', exact: true })).not.toBeInTheDocument();
+    expect(document.querySelector('.workspace-frame')).toBeNull();
+    expect(document.querySelector('.inline-dashboard-page')).not.toBeNull();
     await expect
-      .poll(() => document.querySelector<HTMLIFrameElement>('.embedded-settings-page iframe')?.src)
-      .toContain('/dashboard?embedded=desktop#/settings');
-    expect(document.querySelectorAll('.embedded-settings-page iframe')).toHaveLength(1);
-    await expect.element(page.getByText('Menu-bar controller', { exact: true })).not.toBeInTheDocument();
-    await expect.element(page.getByRole('heading', { name: 'Service settings' })).not.toBeInTheDocument();
-    const frame = document.querySelector<HTMLIFrameElement>('.embedded-settings-page iframe');
-    if (!frame?.contentWindow) throw new Error('Settings frame is missing');
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        origin: 'http://127.0.0.1:8788',
-        source: frame.contentWindow,
-        data: {
-          type: 'notary:desktop-settings-action',
-          payload: { action: 'set_launch_at_login', enabled: true },
-        },
-      }),
-    );
+      .element(page.getByText('http://127.0.0.1:8788/v1/status', { exact: true }))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole('link', { name: 'Open generated OpenAPI' }))
+      .toHaveAttribute('href', 'http://127.0.0.1:8788/openapi.json');
+    (page.getByRole('switch', { name: 'Open Exalto Capture at sign-in' }).element() as HTMLInputElement).click();
     await expect.poll(() => localStorage.getItem('notary-launch-at-login')).toBe('true');
   });
 
@@ -590,7 +529,7 @@ describe('Exalto Capture desktop shell', () => {
           (heading) => heading.textContent,
         ),
       )
-      .toEqual(['Connections', 'Privacy & storage', 'App', 'Advanced']);
+      .toEqual(['Sealing & account', 'Privacy & storage', 'App', 'Advanced']);
     await expect.element(page.getByRole('switch', { name: 'Capture new requests' })).not.toBeInTheDocument();
     await expect.element(page.getByRole('button', { name: 'Start capturing' })).not.toBeInTheDocument();
     await expect.element(page.getByRole('button', { name: 'Start local service' })).toBeVisible();

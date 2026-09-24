@@ -4,6 +4,7 @@ import {
   Button,
   Group,
   Loader,
+  Modal,
   Paper,
   SimpleGrid,
   Switch,
@@ -17,16 +18,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CodeXml, Copy, Moon, PanelLeft, ShieldCheck, Sun } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import type { AccountConnection, AccountConnectionStarted, LocalApi, Notary, Status } from '../api';
 import { LocalApiError } from '../api';
 import {
@@ -40,6 +31,7 @@ import {
   formatBytes,
   formatDate,
   LoadingState,
+  localModalClassNames,
   mutationError,
   QueryError,
   StatusLabel,
@@ -70,30 +62,6 @@ export type DesktopSettingsAction =
   | { action: 'set_launch_at_login'; enabled: boolean }
   | { action: 'check_for_updates' }
   | { action: 'restart_to_update' };
-
-export function useDesktopSettingsBridge(
-  embedded: boolean,
-  suppliedState?: DesktopSettingsState | null,
-  suppliedAction?: (action: DesktopSettingsAction) => void,
-) {
-  const [bridgedState, setBridgedState] = useState<DesktopSettingsState | null>(null);
-  useEffect(() => {
-    if (!embedded || suppliedState) return;
-    const receive = (event: MessageEvent) => {
-      if (event.source !== window.parent || event.data?.type !== 'notary:desktop-settings') return;
-      setBridgedState(event.data.payload as DesktopSettingsState);
-    };
-    window.addEventListener('message', receive);
-    window.parent.postMessage({ type: 'notary:desktop-settings-ready' }, '*');
-    return () => window.removeEventListener('message', receive);
-  }, [embedded, suppliedState]);
-  const send = (action: DesktopSettingsAction) => {
-    if (suppliedAction) suppliedAction(action);
-    else
-      window.parent.postMessage({ type: 'notary:desktop-settings-action', payload: action }, '*');
-  };
-  return { state: suppliedState ?? bridgedState, send };
-}
 
 export type AccountConnectionController = ReturnType<typeof useAccountConnection>;
 
@@ -506,26 +474,31 @@ export function AccountConnectionCard({
           Connecting an account does not upload or share local traces.
         </Text>
       )}
-      <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
-        <AlertDialogContent className="axis-local-dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Disconnect this device?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This revokes only the local browser-approved session. It does not sign out the website
-              or delete your hosted account.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep connected</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={disconnect.isPending}
-              onClick={() => void disconnectAccount()}
-            >
-              {disconnect.isPending ? 'Disconnecting…' : 'Disconnect device'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <Modal
+        opened={disconnectOpen}
+        onClose={() => {
+          if (!disconnect.isPending) setDisconnectOpen(false);
+        }}
+        title="Disconnect this device?"
+        size={430}
+        classNames={localModalClassNames}
+        closeOnClickOutside={!disconnect.isPending}
+        closeOnEscape={!disconnect.isPending}
+        withCloseButton={!disconnect.isPending}
+      >
+        <Text className="axis-local-dialog-description">
+          This revokes only the local browser-approved session. It does not sign out the website or
+          delete your hosted account.
+        </Text>
+        <Group className="axis-local-dialog-footer" justify="flex-end">
+          <Button variant="default" onClick={() => setDisconnectOpen(false)}>
+            Keep connected
+          </Button>
+          <Button loading={disconnect.isPending} onClick={() => void disconnectAccount()}>
+            Disconnect device
+          </Button>
+        </Group>
+      </Modal>
     </section>
   );
 }
@@ -721,7 +694,7 @@ function SettingsGroup({
   );
 }
 
-function EmbeddedNotaries({ api }: { api: LocalApi }) {
+function DesktopNotaries({ api }: { api: LocalApi }) {
   const notaries = useQuery({ queryKey: ['notaries'], queryFn: api.notaries, retry: false });
   const records = orderNotaries(notaries.data?.notaries ?? [], notaries.data?.active_key_id);
   const active =
@@ -738,7 +711,7 @@ function EmbeddedNotaries({ api }: { api: LocalApi }) {
     return 'Registry sealing service';
   };
   return (
-    <Paper className="settings-panel embedded-notaries">
+    <Paper className="settings-panel desktop-notaries">
       <Text className="eyebrow">Sealing service</Text>
       {notaries.isLoading ? (
         <LoadingState label="Loading sealing service" />
@@ -809,20 +782,23 @@ function EmbeddedNotaries({ api }: { api: LocalApi }) {
   );
 }
 
-export function EmbeddedSettingsView({
+export function DesktopSettingsView({
   status,
   api,
+  apiBaseUrl,
   desktopSettings,
   onDesktopAction,
 }: {
   status: Status;
   api: LocalApi;
+  apiBaseUrl?: string;
   desktopSettings: DesktopSettingsState | null;
   onDesktopAction: (action: DesktopSettingsAction) => void;
 }) {
   const accountConnection = useAccountConnection(api);
-  const openApiUrl = `${window.location.origin}/openapi.json`;
-  const statusUrl = `${window.location.origin}/v1/status`;
+  const serviceOrigin = (apiBaseUrl ?? window.location.origin).replace(/\/$/, '');
+  const openApiUrl = `${serviceOrigin}/openapi.json`;
+  const statusUrl = `${serviceOrigin}/v1/status`;
   const copyOpenApi = async () => {
     await navigator.clipboard.writeText(openApiUrl);
     notifications.show({
@@ -835,19 +811,9 @@ export function EmbeddedSettingsView({
     Boolean(desktopSettings?.update_busy) ||
     ['checking', 'downloading', 'installing'].includes(update?.phase ?? '');
   return (
-    <div className="view-page settings-page settings-page--embedded">
-      <SettingsGroup id="settings-connections" title="Connections">
-        <div className="settings-subgroup-grid">
-          <Paper className="settings-panel">
-            <Text className="eyebrow">AI tools</Text>
-            <Title order={2}>AI connections</Title>
-            <Text>
-              Connect Codex CLI, Claude Code, or an API client from the AI connections tab.
-              Sign-ins, API keys, and model selection stay in the originating tool.
-            </Text>
-          </Paper>
-          <EmbeddedNotaries api={api} />
-        </div>
+    <div className="view-page settings-page settings-page--desktop">
+      <SettingsGroup id="settings-sealing" title="Sealing & account">
+        <DesktopNotaries api={api} />
         <AccountConnectionCard controller={accountConnection} />
       </SettingsGroup>
       <SettingsGroup id="settings-privacy" title="Privacy & storage">
@@ -896,7 +862,7 @@ export function EmbeddedSettingsView({
             }
           />
         </Paper>
-        <Paper className="settings-panel embedded-update-settings">
+        <Paper className="settings-panel desktop-update-settings">
           <Text className="eyebrow">Updates</Text>
           <Title order={2}>Software updates</Title>
           <dl className="receipt-list">
@@ -987,7 +953,7 @@ export function EmbeddedSettingsView({
             </div>
             <Button
               component="a"
-              href="/openapi.json"
+              href={openApiUrl}
               target="_blank"
               variant="outline"
               leftSection={<CodeXml size={15} />}

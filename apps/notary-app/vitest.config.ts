@@ -1,10 +1,11 @@
 import { playwright } from '@vitest/browser-playwright';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vitest/config';
+import { defineConfig, mergeConfig } from 'vitest/config';
+import viteConfig from './vite.config';
 
 const localBrowser = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
 
-export default defineConfig({
+export default mergeConfig(viteConfig, defineConfig({
   plugins: [react()],
   test: {
     include: ['src/**/*.browser.test.tsx'],
@@ -18,4 +19,4 @@ export default defineConfig({
       viewport: { width: 1280, height: 900 },
     },
   },
-});
+}));

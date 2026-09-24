@@ -54,7 +54,7 @@ tokio = { version = "1.45", features = ["full"] }
 tokio-stream = "0.1"
 toml = "0.8"
 tracing = "0.1"
-tower-http = { version = "0.7", features = ["limit", "request-id", "sensitive-headers", "trace"] }
+tower-http = { version = "0.7", features = ["cors", "limit", "request-id", "sensitive-headers", "trace"] }
 url = "2.5"
 utoipa = { version = "5.5", features = ["axum_extras", "uuid"] }
 uuid = { version = "1.16", features = ["v4"] }

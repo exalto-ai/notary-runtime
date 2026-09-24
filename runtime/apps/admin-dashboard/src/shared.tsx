@@ -1,22 +1,23 @@
-import { Button, Center, Loader, Stack, Text, Title } from '@mantine/core';
+import { Button, Center, Loader, Select, Stack, Text, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { Archive, RefreshCw, Unplug } from 'lucide-react';
+import { Archive, Check, RefreshCw, Unplug } from 'lucide-react';
 import type { ReactNode } from 'react';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { LocalApiError } from './api';
+
+export const localModalClassNames = {
+  overlay: 'axis-local-dialog-overlay',
+  content: 'axis-local-dialog',
+  header: 'axis-local-dialog-header',
+  title: 'axis-local-dialog-title',
+  body: 'axis-local-dialog-body',
+} as const;
 
 export function requiredValue<T>(value: T | null | undefined, label: string): T {
   if (value === null || value === undefined) throw new Error(`${label} is required`);
   return value;
 }
 
-export type AxisSelectOption = string | { value: string; label: ReactNode };
+export type AxisSelectOption = string | { value: string; label: string; content?: ReactNode };
 
 export function AxisSelect({
   value,
@@ -26,6 +27,7 @@ export function AxisSelect({
   ariaLabel,
   label,
   clearable = true,
+  disabled,
 }: {
   value: string | null;
   onChange: (value: string | null) => void;
@@ -34,31 +36,42 @@ export function AxisSelect({
   ariaLabel?: string;
   label?: string;
   clearable?: boolean;
+  disabled?: boolean;
 }) {
-  const allValue = '__axis_all__';
   const options = data.map((option) =>
     typeof option === 'string' ? { value: option, label: option } : option,
   );
+  const optionContent = new Map(
+    options.flatMap((option) => (option.content ? [[option.value, option.content] as const] : [])),
+  );
   return (
-    <div className="axis-select-field">
-      {label && <span className="axis-select-label">{label}</span>}
-      <Select
-        value={value ?? (clearable ? allValue : undefined)}
-        onValueChange={(next) => onChange(next === allValue ? null : next)}
-      >
-        <SelectTrigger className="axis-select-trigger" aria-label={ariaLabel ?? label}>
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent className="axis-select-content" position="popper" align="start">
-          {clearable && <SelectItem value={allValue}>{placeholder}</SelectItem>}
-          {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+    <Select
+      className="axis-select-field"
+      classNames={{
+        label: 'axis-select-label',
+        input: 'axis-select-trigger',
+        dropdown: 'axis-select-content',
+        option: 'axis-select-option',
+      }}
+      label={label}
+      aria-label={ariaLabel ?? label}
+      placeholder={placeholder}
+      data={options.map(({ value: optionValue, label: optionLabel }) => ({
+        value: optionValue,
+        label: optionLabel,
+      }))}
+      value={value}
+      onChange={onChange}
+      disabled={disabled}
+      clearable={clearable}
+      allowDeselect={clearable}
+      renderOption={({ option, checked }) => (
+        <span className="axis-select-option-content">
+          <span>{optionContent.get(option.value) ?? option.label}</span>
+          {checked && <Check className="axis-select-option-check" aria-hidden="true" />}
+        </span>
+      )}
+    />
   );
 }
 

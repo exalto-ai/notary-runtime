@@ -3,8 +3,10 @@ import {
   Button,
   Group,
   Menu,
+  Modal,
   Paper,
   ScrollArea,
+  SegmentedControl,
   Tabs,
   Text,
   TextInput,
@@ -36,16 +38,6 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import type {
   LocalApi,
   Operation,
@@ -67,6 +59,7 @@ import {
   formatBytes,
   formatDate,
   LoadingState,
+  localModalClassNames,
   mutationError,
   QueryError,
   requiredValue,
@@ -164,6 +157,17 @@ function traceDisplayStatus(trace: TraceSummary) {
 
 const TRACE_TITLE_LIMIT = 80;
 
+const providerNames: Record<string, string> = {
+  anthropic: 'Anthropic',
+  deepseek: 'DeepSeek',
+  openai: 'OpenAI',
+  openrouter: 'OpenRouter',
+};
+
+function providerDisplayName(provider: string) {
+  return providerNames[provider.toLowerCase()] ?? provider;
+}
+
 function traceTitle(trace: TraceSummary) {
   const preview = trace.prompt_preview
     ?.replace(/\s+/g, ' ')
@@ -176,15 +180,7 @@ function traceTitle(trace: TraceSummary) {
     const head = boundary > TRACE_TITLE_LIMIT / 2 ? clipped.slice(0, boundary) : clipped;
     return `${head.replace(/[\s.,;:]+$/, '')}…`;
   }
-  const providerNames: Record<string, string> = {
-    anthropic: 'Anthropic',
-    deepseek: 'DeepSeek',
-    openai: 'OpenAI',
-    openrouter: 'OpenRouter',
-  };
-  const provider = trace.provider
-    ? (providerNames[trace.provider.toLowerCase()] ?? trace.provider)
-    : 'Model provider';
+  const provider = trace.provider ? providerDisplayName(trace.provider) : 'Model provider';
   return `${provider} request`;
 }
 
@@ -406,6 +402,7 @@ export function TracesView({
   initialAction,
   initialFilters,
   navigate,
+  hideActivity = false,
   onTraceActionConsumed,
 }: {
   api: LocalApi;
@@ -413,6 +410,7 @@ export function TracesView({
   initialAction?: Route['action'];
   initialFilters?: Route['filters'];
   navigate: (route: Route) => void;
+  hideActivity?: boolean;
   onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
 }) {
   const [query, setQuery] = useState('');
@@ -512,29 +510,25 @@ export function TracesView({
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}
             />
-            <div className="trace-state-filter" role="group" aria-label="Trace state filter">
-              {[
-                [null, 'All'],
-                ['captured', 'Captured'],
-                ['notarized', 'Sealed'],
-              ].map(([value, label]) => (
-                <button
-                  key={label}
-                  type="button"
-                  className={traceState === value ? 'is-active' : ''}
-                  aria-pressed={traceState === value}
-                  onClick={() => setTraceState(value as TraceStateFilter | null)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              className="trace-state-filter"
+              aria-label="Trace state filter"
+              size="xs"
+              value={traceState ?? 'all'}
+              data={[
+                { value: 'all', label: 'All' },
+                { value: 'captured', label: 'Captured' },
+                { value: 'notarized', label: 'Sealed' },
+              ]}
+              onChange={(next) => setTraceState(next === 'all' ? null : (next as TraceStateFilter))}
+            />
             <AxisSelect
               ariaLabel="Provider filter"
               placeholder="All providers"
               data={['openai', 'anthropic', 'deepseek', 'openrouter'].map((value) => ({
                 value,
-                label: <ProviderIdentity provider={value} />,
+                label: providerDisplayName(value),
+                content: <ProviderIdentity provider={value} />,
               }))}
               value={provider}
               onChange={setProvider}
@@ -649,6 +643,7 @@ export function TracesView({
                 mobile={Boolean(mobile)}
                 onBack={() => navigate({ view: 'traces' })}
                 navigate={navigate}
+                hideActivity={hideActivity}
                 onTraceActionConsumed={onTraceActionConsumed}
               />
             ) : null}
@@ -698,6 +693,7 @@ function TraceInspector(props: {
   mobile: boolean;
   onBack: () => void;
   navigate: (route: Route) => void;
+  hideActivity?: boolean;
   onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
 }) {
   return props.capture.state === 'notarized' ? (
@@ -708,6 +704,7 @@ function TraceInspector(props: {
       mobile={props.mobile}
       onBack={props.onBack}
       navigate={props.navigate}
+      hideActivity={props.hideActivity}
       onTraceActionConsumed={props.onTraceActionConsumed}
     />
   ) : (
@@ -768,32 +765,35 @@ function DeleteTraceAction({
           {blockReason && <Menu.Label>{blockReason}</Menu.Label>}
         </Menu.Dropdown>
       </Menu>
-      <AlertDialog
-        open={confirmationOpen}
-        onOpenChange={(open) => {
-          if (!deleteTrace.isPending) setConfirmationOpen(open);
+      <Modal
+        opened={confirmationOpen}
+        onClose={() => {
+          if (!deleteTrace.isPending) setConfirmationOpen(false);
         }}
+        title="Delete this Trace?"
+        size={430}
+        classNames={localModalClassNames}
+        closeOnClickOutside={!deleteTrace.isPending}
+        closeOnEscape={!deleteTrace.isPending}
+        withCloseButton={!deleteTrace.isPending}
       >
-        <AlertDialogContent className="axis-local-dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this Trace?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently removes the private local Trace and its artifacts from this Mac. A
-              separately retained hosted Trace is not deleted. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteTrace.isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="is-destructive"
-              disabled={deleteTrace.isPending}
-              onClick={() => deleteTrace.mutate()}
-            >
-              {deleteTrace.isPending ? 'Deleting…' : 'Delete Trace'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <Text className="axis-local-dialog-description">
+          This permanently removes the private local Trace and its artifacts from this Mac. A
+          separately retained hosted Trace is not deleted. This action cannot be undone.
+        </Text>
+        <Group className="axis-local-dialog-footer" justify="flex-end">
+          <Button
+            variant="default"
+            disabled={deleteTrace.isPending}
+            onClick={() => setConfirmationOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button color="red" loading={deleteTrace.isPending} onClick={() => deleteTrace.mutate()}>
+            Delete Trace
+          </Button>
+        </Group>
+      </Modal>
     </>
   );
 }
@@ -805,6 +805,7 @@ function CapturedTraceInspector({
   mobile,
   onBack,
   navigate,
+  hideActivity = false,
   onTraceActionConsumed,
 }: {
   api: LocalApi;
@@ -813,19 +814,25 @@ function CapturedTraceInspector({
   mobile: boolean;
   onBack: () => void;
   navigate: (route: Route) => void;
+  hideActivity?: boolean;
   onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
 }) {
   const queryClient = useQueryClient();
   const handledInitialAction = useRef<string | null>(null);
   const consumedFirstProofAction = useRef<string | null>(null);
+  const [firstProofRequested, setFirstProofRequested] = useState(initialAction === 'first-proof');
   const [firstProofStartError, setFirstProofStartError] = useState<string | null>(null);
+  const firstProofActionKey = `${capture.trace_id}:first-proof`;
   const consumeFirstProofAction = () => {
-    if (initialAction !== 'first-proof') return;
+    if (!firstProofRequested) return;
     if (consumedFirstProofAction.current === capture.trace_id) return;
     consumedFirstProofAction.current = capture.trace_id;
     if (onTraceActionConsumed) onTraceActionConsumed(capture.trace_id, 'first-proof');
     else navigate({ view: 'traces', id: capture.trace_id });
   };
+  useEffect(() => {
+    if (initialAction === 'first-proof') setFirstProofRequested(true);
+  }, [initialAction]);
   const detail = useQuery({
     queryKey: ['capture', capture.trace_id],
     queryFn: () => api.trace(capture.trace_id),
@@ -835,6 +842,9 @@ function CapturedTraceInspector({
     mutationFn: () => api.startNotarization(capture.trace_id),
     onMutate: () => setFirstProofStartError(null),
     onSuccess: (result) => {
+      if (firstProofRequested) {
+        consumeFirstProofAction();
+      }
       notifications.show({
         title: result.deduplicated ? 'Already in the queue' : 'Sealing queued',
         message: result.deduplicated
@@ -849,12 +859,12 @@ function CapturedTraceInspector({
       navigate({
         view: 'traces',
         id: capture.trace_id,
-        action: initialAction === 'first-proof' ? initialAction : undefined,
+        action: initialAction === 'first-proof' ? undefined : initialAction,
       });
     },
     onError: (error) => {
       mutationError('Could not seal trace', error);
-      if (initialAction === 'first-proof') {
+      if (firstProofRequested) {
         setFirstProofStartError(
           'Automatic sealing could not start. Review the error, then choose Seal trace when you are ready to retry.',
         );
@@ -863,8 +873,7 @@ function CapturedTraceInspector({
     },
   });
   useEffect(() => {
-    if (initialAction !== 'first-proof' || !detail.data) return;
-    const actionKey = `${capture.trace_id}:${initialAction}`;
+    if (!firstProofRequested || !detail.data) return;
     const operationState = detail.data.notarization?.state;
     if (!capture.notarization_eligible) {
       setFirstProofStartError(
@@ -891,8 +900,8 @@ function CapturedTraceInspector({
     }
     if (capture.status === 'notarizing') return;
     if (capture.state === 'captured' && capture.status == null && !detail.data.notarization) {
-      if (handledInitialAction.current === actionKey) return;
-      handledInitialAction.current = actionKey;
+      if (handledInitialAction.current === firstProofActionKey) return;
+      handledInitialAction.current = firstProofActionKey;
       notarize.mutate();
       return;
     }
@@ -906,7 +915,7 @@ function CapturedTraceInspector({
     capture.status,
     capture.trace_id,
     detail.data,
-    initialAction,
+    firstProofRequested,
   ]);
   if (detail.isLoading) return <LoadingState />;
   if (detail.error) return <QueryError error={detail.error} title="Trace detail is unavailable" />;
@@ -965,7 +974,7 @@ function CapturedTraceInspector({
           <DeleteTraceAction api={api} capture={capture} navigate={navigate} />
         </Group>
       </div>
-      {initialAction === 'first-proof' && !firstProofStartError && (
+      {firstProofRequested && !firstProofStartError && (
         <Paper withBorder p="md" role="status" aria-live="polite">
           <Text className="eyebrow">Creating your first proof</Text>
           <Text fw={600}>Exalto Seal is sealing this disposable test Trace.</Text>
@@ -1054,8 +1063,10 @@ function CapturedTraceInspector({
               <OperationInspector
                 operation={value.notarization}
                 fixture={false}
-                onViewActivity={() =>
-                  navigate({ view: 'activity', filters: { traceId: capture.trace_id } })
+                onViewActivity={
+                  !hideActivity
+                    ? () => navigate({ view: 'activity', filters: { traceId: capture.trace_id } })
+                    : undefined
                 }
               />
             ) : (
@@ -1225,6 +1236,7 @@ function NotarizedTraceInspector({
   mobile,
   onBack,
   navigate,
+  hideActivity = false,
   onTraceActionConsumed,
 }: {
   api: LocalApi;
@@ -1233,6 +1245,7 @@ function NotarizedTraceInspector({
   mobile: boolean;
   onBack: () => void;
   navigate: (route: Route) => void;
+  hideActivity?: boolean;
   onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
 }) {
   const queryClient = useQueryClient();
@@ -1417,6 +1430,7 @@ function NotarizedTraceInspector({
   const stopShare = useMutation({
     mutationFn: () => api.stopSharing(captureId),
     onSuccess: (share) => {
+      setStopConfirmation(false);
       setShareRequested(true);
       queryClient.setQueryData(['share', captureId], share);
       queryClient.invalidateQueries({ queryKey: ['capture', captureId] });
@@ -1717,8 +1731,10 @@ function NotarizedTraceInspector({
               <OperationInspector
                 operation={detail.data.notarization}
                 fixture={false}
-                onViewActivity={() =>
-                  navigate({ view: 'activity', filters: { traceId: captureId } })
+                onViewActivity={
+                  !hideActivity
+                    ? () => navigate({ view: 'activity', filters: { traceId: captureId } })
+                    : undefined
                 }
               />
             ) : (
@@ -1829,193 +1845,201 @@ function NotarizedTraceInspector({
           </div>
         </Tabs.Panel>
       </Tabs>
-      <AlertDialog
-        open={shareDialogMode !== null}
-        onOpenChange={(open) => {
-          if (!open && !saveShare.isPending) setShareDialogMode(null);
+      <Modal
+        opened={shareDialogMode !== null}
+        onClose={() => {
+          if (!saveShare.isPending) setShareDialogMode(null);
         }}
+        title={
+          !accountConnected
+            ? 'Connect an account to share'
+            : shareDialogMode === 'manage'
+              ? 'Manage access'
+              : shareDialogMode === 'resume'
+                ? 'Resume sharing'
+                : shareDialogMode === 'retry'
+                  ? 'Review and retry sharing'
+                  : 'Review and share this Trace'
+        }
+        size={accountConnected ? 960 : 480}
+        classNames={{
+          ...localModalClassNames,
+          content: `axis-local-dialog ${accountConnected ? 'trace-share-dialog' : 'trace-share-dialog--connect'}`,
+        }}
+        closeOnClickOutside={!saveShare.isPending}
+        closeOnEscape={!saveShare.isPending}
+        withCloseButton={!saveShare.isPending}
       >
-        <AlertDialogContent
-          className={
-            accountConnected
-              ? 'axis-local-dialog trace-share-dialog'
-              : 'axis-local-dialog trace-share-dialog--connect'
-          }
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {!accountConnected
-                ? 'Connect an account to share'
-                : shareDialogMode === 'manage'
-                  ? 'Manage access'
-                  : shareDialogMode === 'resume'
-                    ? 'Resume sharing'
-                    : shareDialogMode === 'retry'
-                      ? 'Review and retry sharing'
-                      : 'Review and share this Trace'}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {!accountConnected
-                ? 'Connecting an account does not upload or share local evidence. After approval, this review will remain on the same Sealed Trace.'
-                : 'Review the exact conversation and tool content disclosed by the portable package, then choose access settings.'}
-            </AlertDialogDescription>
-            {accountConnected &&
-              shareDialogMode === 'retry' &&
-              activeShare?.progress === 'rejected' && (
-                <Text>
-                  Retry can override only a reviewed unexplained high-entropy finding. Known
-                  credential patterns and other disclosure-safety failures remain blocked.
+        <Text className="axis-local-dialog-description">
+          {!accountConnected
+            ? 'Connecting an account does not upload or share local evidence. After approval, this review will remain on the same Sealed Trace.'
+            : 'Review the exact conversation and tool content disclosed by the portable package, then choose access settings.'}
+        </Text>
+        {accountConnected &&
+          shareDialogMode === 'retry' &&
+          activeShare?.progress === 'rejected' && (
+            <Text className="axis-local-dialog-description">
+              Retry can override only a reviewed unexplained high-entropy finding. Known credential
+              patterns and other disclosure-safety failures remain blocked.
+            </Text>
+          )}
+        {!accountConnected ? (
+          <AccountConnectionCard controller={accountConnection} compact />
+        ) : (
+          <div className="trace-share-review">
+            <section className="trace-share-disclosure" aria-label="Disclosure review">
+              <Text className="eyebrow">Exact package disclosure</Text>
+              <TraceTranscriptView transcripts={transcripts} />
+            </section>
+            <aside className="trace-share-settings">
+              <dl className="sharing-facts">
+                <Fact label="Evidence state" value="Sealed" />
+                <Fact
+                  label="Publishing account"
+                  value={account ? accountDisplayName(account) : 'Exalto account'}
+                />
+                <Fact label="Hosted artifact" value="Exact portable .llmtrace package" />
+                <Fact label="Visible" value="Prompts, responses, and disclosed tool data" />
+                <Fact label="Hidden" value="Raw HTTP header values and provider credentials" />
+              </dl>
+              <AxisSelect
+                ariaLabel="Share visibility"
+                label="Visibility"
+                placeholder="Choose visibility"
+                data={[
+                  { value: 'unlisted', label: 'Unlisted · link access' },
+                  { value: 'listed', label: 'Listed · public discovery' },
+                ]}
+                value={shareVisibility}
+                onChange={(value) => setShareVisibility(value === 'listed' ? 'listed' : 'unlisted')}
+                clearable={false}
+              />
+              <Text className="share-access-warning">
+                {shareVisibility === 'unlisted'
+                  ? 'Unlisted is not private. Anyone with the URL can access an unprotected, unexpired Trace.'
+                  : 'Listed traces can appear in Public Traces after verification.'}
+              </Text>
+              {shareDialogMode !== 'create' && (
+                <AxisSelect
+                  ariaLabel="Password protection"
+                  label="Password"
+                  placeholder="Keep current password setting"
+                  data={[
+                    { value: 'keep', label: 'Keep current setting' },
+                    { value: 'remove', label: 'Remove password' },
+                    { value: 'replace', label: 'Set or replace password' },
+                  ]}
+                  value={sharePasswordMode}
+                  onChange={(value) => setSharePasswordMode(value ?? 'keep')}
+                  clearable={false}
+                />
+              )}
+              {(shareDialogMode === 'create' || sharePasswordMode === 'replace') && (
+                <TextInput
+                  label="Optional password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={sharePassword}
+                  onChange={(event) => setSharePassword(event.currentTarget.value)}
+                  maxLength={128}
+                  error={passwordIsValid ? undefined : 'Use 8 to 128 characters.'}
+                />
+              )}
+              <AxisSelect
+                ariaLabel="Share expiration"
+                label="Expiration"
+                placeholder="Choose expiration"
+                data={
+                  shareDialogMode === 'create'
+                    ? [
+                        { value: 'none', label: 'No expiration' },
+                        { value: '1', label: '1 day' },
+                        { value: '7', label: '7 days' },
+                        { value: '30', label: '30 days' },
+                        { value: '90', label: '90 days' },
+                        { value: '365', label: '1 year' },
+                      ]
+                    : [
+                        { value: 'keep', label: 'Keep current expiration' },
+                        { value: 'clear', label: 'No expiration' },
+                        { value: '1', label: '1 day from now' },
+                        { value: '7', label: '7 days from now' },
+                        { value: '30', label: '30 days from now' },
+                        { value: '90', label: '90 days from now' },
+                        { value: '365', label: '1 year from now' },
+                      ]
+                }
+                value={shareExpiry}
+                onChange={(value) =>
+                  setShareExpiry(value ?? (shareDialogMode === 'create' ? 'none' : 'keep'))
+                }
+                clearable={false}
+              />
+              {saveShare.isPending && (
+                <Text role="status">Preparing and uploading the exact package…</Text>
+              )}
+              {shareHighEntropyReview && (
+                <Text role="alert">
+                  An unexplained high-entropy value was found in the disclosed package. Review the
+                  complete disclosure above. Continuing overrides only this heuristic; known
+                  credential patterns and unsafe fields remain blocked.
                 </Text>
               )}
-          </AlertDialogHeader>
-          {!accountConnected ? (
-            <AccountConnectionCard controller={accountConnection} compact />
-          ) : (
-            <div className="trace-share-review">
-              <section className="trace-share-disclosure" aria-label="Disclosure review">
-                <Text className="eyebrow">Exact package disclosure</Text>
-                <TraceTranscriptView transcripts={transcripts} />
-              </section>
-              <aside className="trace-share-settings">
-                <dl className="sharing-facts">
-                  <Fact label="Evidence state" value="Sealed" />
-                  <Fact
-                    label="Publishing account"
-                    value={account ? accountDisplayName(account) : 'Exalto account'}
-                  />
-                  <Fact label="Hosted artifact" value="Exact portable .llmtrace package" />
-                  <Fact label="Visible" value="Prompts, responses, and disclosed tool data" />
-                  <Fact label="Hidden" value="Raw HTTP header values and provider credentials" />
-                </dl>
-                <AxisSelect
-                  ariaLabel="Share visibility"
-                  label="Visibility"
-                  placeholder="Choose visibility"
-                  data={[
-                    { value: 'unlisted', label: 'Unlisted · link access' },
-                    { value: 'listed', label: 'Listed · public discovery' },
-                  ]}
-                  value={shareVisibility}
-                  onChange={(value) =>
-                    setShareVisibility(value === 'listed' ? 'listed' : 'unlisted')
-                  }
-                  clearable={false}
-                />
-                <Text className="share-access-warning">
-                  {shareVisibility === 'unlisted'
-                    ? 'Unlisted is not private. Anyone with the URL can access an unprotected, unexpired Trace.'
-                    : 'Listed traces can appear in Public Traces after verification.'}
-                </Text>
-                {shareDialogMode !== 'create' && (
-                  <AxisSelect
-                    ariaLabel="Password protection"
-                    label="Password"
-                    placeholder="Keep current password setting"
-                    data={[
-                      { value: 'keep', label: 'Keep current setting' },
-                      { value: 'remove', label: 'Remove password' },
-                      { value: 'replace', label: 'Set or replace password' },
-                    ]}
-                    value={sharePasswordMode}
-                    onChange={(value) => setSharePasswordMode(value ?? 'keep')}
-                    clearable={false}
-                  />
-                )}
-                {(shareDialogMode === 'create' || sharePasswordMode === 'replace') && (
-                  <TextInput
-                    label="Optional password"
-                    type="password"
-                    autoComplete="new-password"
-                    value={sharePassword}
-                    onChange={(event) => setSharePassword(event.currentTarget.value)}
-                    maxLength={128}
-                    error={passwordIsValid ? undefined : 'Use 8 to 128 characters.'}
-                  />
-                )}
-                <AxisSelect
-                  ariaLabel="Share expiration"
-                  label="Expiration"
-                  placeholder="Choose expiration"
-                  data={
-                    shareDialogMode === 'create'
-                      ? [
-                          { value: 'none', label: 'No expiration' },
-                          { value: '1', label: '1 day' },
-                          { value: '7', label: '7 days' },
-                          { value: '30', label: '30 days' },
-                          { value: '90', label: '90 days' },
-                          { value: '365', label: '1 year' },
-                        ]
-                      : [
-                          { value: 'keep', label: 'Keep current expiration' },
-                          { value: 'clear', label: 'No expiration' },
-                          { value: '1', label: '1 day from now' },
-                          { value: '7', label: '7 days from now' },
-                          { value: '30', label: '30 days from now' },
-                          { value: '90', label: '90 days from now' },
-                          { value: '365', label: '1 year from now' },
-                        ]
-                  }
-                  value={shareExpiry}
-                  onChange={(value) =>
-                    setShareExpiry(value ?? (shareDialogMode === 'create' ? 'none' : 'keep'))
-                  }
-                  clearable={false}
-                />
-                {saveShare.isPending && (
-                  <Text role="status">Preparing and uploading the exact package…</Text>
-                )}
-                {shareHighEntropyReview && (
-                  <Text role="alert">
-                    An unexplained high-entropy value was found in the disclosed package. Review the
-                    complete disclosure above. Continuing overrides only this heuristic; known
-                    credential patterns and unsafe fields remain blocked.
-                  </Text>
-                )}
-              </aside>
-            </div>
+            </aside>
+          </div>
+        )}
+        <Group className="axis-local-dialog-footer" justify="flex-end">
+          <Button
+            variant="default"
+            disabled={saveShare.isPending}
+            onClick={() => setShareDialogMode(null)}
+          >
+            {accountConnected ? 'Cancel' : 'Keep local only'}
+          </Button>
+          {accountConnected && (
+            <Button disabled={!passwordIsValid} loading={saveShare.isPending} onClick={submitShare}>
+              {saveShare.isPending
+                ? shareDialogMode === 'manage'
+                  ? 'Saving…'
+                  : shareDialogMode === 'resume'
+                    ? 'Resuming…'
+                    : 'Sharing…'
+                : shareDialogMode === 'manage'
+                  ? 'Save access'
+                  : shareDialogMode === 'resume'
+                    ? 'Resume sharing'
+                    : shareHighEntropyReview
+                      ? 'Share after review'
+                      : 'Share trace'}
+            </Button>
           )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={saveShare.isPending}>
-              {accountConnected ? 'Cancel' : 'Keep local only'}
-            </AlertDialogCancel>
-            {accountConnected && (
-              <Button disabled={!passwordIsValid || saveShare.isPending} onClick={submitShare}>
-                {saveShare.isPending
-                  ? shareDialogMode === 'manage'
-                    ? 'Saving…'
-                    : shareDialogMode === 'resume'
-                      ? 'Resuming…'
-                      : 'Sharing…'
-                  : shareDialogMode === 'manage'
-                    ? 'Save access'
-                    : shareDialogMode === 'resume'
-                      ? 'Resume sharing'
-                      : shareHighEntropyReview
-                        ? 'Share after review'
-                        : 'Share trace'}
-              </Button>
-            )}
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog open={stopConfirmation} onOpenChange={setStopConfirmation}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Stop sharing this Trace?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The canonical public URL will become unavailable. The local Trace and its Sealed state
-              will not change or be deleted.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction disabled={stopShare.isPending} onClick={() => stopShare.mutate()}>
-              Stop sharing
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        </Group>
+      </Modal>
+      <Modal
+        opened={stopConfirmation}
+        onClose={() => {
+          if (!stopShare.isPending) setStopConfirmation(false);
+        }}
+        title="Stop sharing this Trace?"
+        size={430}
+        classNames={localModalClassNames}
+        closeOnClickOutside={!stopShare.isPending}
+        closeOnEscape={!stopShare.isPending}
+        withCloseButton={!stopShare.isPending}
+      >
+        <Text className="axis-local-dialog-description">
+          The canonical public URL will become unavailable. The local Trace and its Sealed state
+          will not change or be deleted.
+        </Text>
+        <Group className="axis-local-dialog-footer" justify="flex-end">
+          <Button variant="default" onClick={() => setStopConfirmation(false)}>
+            Cancel
+          </Button>
+          <Button loading={stopShare.isPending} onClick={() => stopShare.mutate()}>
+            Stop sharing
+          </Button>
+        </Group>
+      </Modal>
     </article>
   );
 }

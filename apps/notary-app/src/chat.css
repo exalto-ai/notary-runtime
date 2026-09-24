@@ -54,18 +54,19 @@
 }
 
 .chat-field.is-model { flex: 0 1 260px; }
-.chat-field.is-model input, .chat-field.is-model select { width: 100%; min-width: 0; }
+.chat-field .axis-select-field { width: 150px; min-width: 0; }
+.chat-field.is-model .axis-select-field { width: 100%; }
 
-.chat-field select,
-.chat-field input {
-  min-height: 26px;
+.chat-bar .axis-select-trigger {
+  min-height: 28px;
   min-width: 0;
-  padding: 3px 7px;
   border: 1px solid var(--separator);
-  border-radius: var(--control-radius);
+  border-radius: 6px;
   background: var(--surface);
   color: var(--text);
-  font-size: var(--text-label);
+  font-size: 13px;
+  padding-block: 0;
+  padding-inline-start: 10px;
 }
 
 /* Connections panel */
@@ -220,17 +221,21 @@
   font-size: var(--text-label);
 }
 
-.connection-form label > span {
+.connection-form label > span,
+.connection-form .connection-select > span {
   color: var(--secondary);
   font-weight: 500;
 }
 
 .connection-form .connection-select {
+  display: grid;
   grid-template-columns: auto minmax(0, 240px);
   align-items: center;
   justify-content: start;
   gap: 10px;
 }
+
+.connection-form .axis-select-field { width: 100%; min-width: 0; }
 
 .connection-empty {
   padding: 14px;
@@ -241,11 +246,10 @@
   line-height: 1.5;
 }
 
-.connection-form select,
-.connection-form input {
+.connection-form .axis-select-trigger,
+.connection-form input:not(.axis-select-trigger) {
   width: 100%;
   min-height: 30px;
-  padding: 6px 9px;
   border: 1px solid var(--separator);
   border-radius: var(--control-radius);
   background: var(--surface);
@@ -253,7 +257,11 @@
   font-size: var(--text-body);
 }
 
-.connection-form input { max-width: 420px; }
+.connection-form .axis-select-trigger {
+  padding-block: 0;
+  padding-inline-start: 9px;
+}
+.connection-form input:not(.axis-select-trigger) { max-width: 420px; padding: 6px 9px; }
 .connection-form button { justify-self: start; }
 
 .device-link {
