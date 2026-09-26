@@ -53,6 +53,7 @@ import { ProviderIdentity } from '../ProviderIdentity';
 import type { DashboardRoute } from '../routes';
 import {
   AxisSelect,
+  accountDisplayName,
   EmptyState,
   ErrorState,
   Fact,
@@ -67,7 +68,7 @@ import {
   stateTone,
   timeRangeStart,
 } from '../shared';
-import { AccountConnectionCard, accountDisplayName, useAccountConnection } from './SettingsView';
+import { AccountConnectionCard, useAccountConnection } from './SettingsView';
 
 type Route = DashboardRoute;
 
@@ -872,6 +873,7 @@ function CapturedTraceInspector({
       }
     },
   });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run only when the capture or its detail changes; consumeFirstProofAction and notarize.mutate are per-render handlers, and capture.trace_id stands in for firstProofActionKey, which is derived from it.
   useEffect(() => {
     if (!firstProofRequested || !detail.data) return;
     const operationState = detail.data.notarization?.state;
@@ -1441,6 +1443,7 @@ function NotarizedTraceInspector({
     },
     onError: (error) => mutationError('Could not stop sharing', error),
   });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run only when the Trace, its detail, or the requested action changes; exportTrace.mutate and verify.mutate are per-render handlers, and handledInitialAction guards repeats.
   useEffect(() => {
     if (!initialAction || !trace.data || !detail.data) return;
     const actionKey = `${captureId}:${initialAction}`;
@@ -2069,6 +2072,7 @@ function TraceTranscriptView({ transcripts }: { transcripts: TraceTranscript[] }
             ...transcript.output.map((message) => ({ flow: 'Response', message })),
           ];
           return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: inferences are a fixed list from the Trace that never reorders; the model alone is not unique.
             <section className="trace-inference" key={`${transcript.model}-${inferenceIndex}`}>
               {transcripts.length > 1 && (
                 <Text className="trace-inference-label">
@@ -2077,6 +2081,7 @@ function TraceTranscriptView({ transcripts }: { transcripts: TraceTranscript[] }
               )}
               <div className="trace-message-list">
                 {messages.map(({ flow, message }, messageIndex) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: disclosed messages are a fixed transcript that never reorders; position is their identity.
                   <TraceMessageView key={`${flow}-${messageIndex}`} flow={flow} message={message} />
                 ))}
               </div>
@@ -2107,8 +2112,10 @@ function TraceMessageView({ flow, message }: { flow: string; message: TraceMessa
         {message.parts.length ? (
           message.parts.map((part, index) =>
             part.kind === 'text' ? (
+              // biome-ignore lint/suspicious/noArrayIndexKey: message parts are a fixed list that never reorders.
               <p key={index}>{part.text}</p>
             ) : (
+              // biome-ignore lint/suspicious/noArrayIndexKey: message parts are a fixed list that never reorders.
               <div className="trace-structured-part" key={index}>
                 <span>{part.kind}</span>
                 <pre>{part.text}</pre>

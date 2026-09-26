@@ -27,6 +27,8 @@ import {
   orderNotaries,
 } from '../notaryLifecycle';
 import {
+  accountDisplayName,
+  authProviderLabel,
   Fact,
   formatBytes,
   formatDate,
@@ -178,6 +180,7 @@ export function useAccountConnection(api: LocalApi) {
     poll.reset();
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: checkAuthorization is a per-render handler; the effect re-runs on the poll, readiness, and flow state it reads.
   useEffect(() => {
     // A zero interval is used by deterministic dashboard fixtures to require
     // an explicit check. The daemon clamps real intervals to at least one
@@ -207,15 +210,6 @@ export function useAccountConnection(api: LocalApi) {
     cancel: cancelAuthorization,
     refresh: () => account.refetch(),
   };
-}
-
-export function accountDisplayName(account: AccountConnection) {
-  return account.display_name || account.provider_display_name || 'Exalto account';
-}
-
-function authProviderLabel(provider?: string | null) {
-  if (!provider) return 'Hosted account';
-  return provider === 'google' ? 'Google' : provider === 'github' ? 'GitHub' : provider;
 }
 
 function accountConnectionLabel(account: AccountConnection | undefined, error: unknown) {

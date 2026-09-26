@@ -1,31 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
+import type { AccountConnection, AccountConnectionStarted } from '../../../runtime/apps/admin-dashboard/src/api';
 import {
-  disconnectAccount,
-  errorMessage,
-  getAccountConnection,
-  openAccountLink,
-  pollAccountConnection,
-  startAccountConnection,
-  type AccountConnection,
-  type AccountConnectionStarted,
-} from './bridge';
-import { formatBytes } from './product';
-
-function formatDate(seconds?: number | null) {
-  if (!seconds) return 'Not available';
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(seconds * 1000));
-}
-
-function accountName(account: AccountConnection) {
-  return account.display_name || account.provider_display_name || 'Exalto account';
-}
-
-function accountProvider(account: AccountConnection) {
-  if (account.auth_provider === 'google') return 'Google';
-  if (account.auth_provider === 'github') return 'GitHub';
-  return 'Hosted account';
-}
+  accountDisplayName,
+  authProviderLabel,
+  formatBytes,
+  formatDate,
+} from '../../../runtime/apps/admin-dashboard/src/shared';
+import { errorMessage, localApi, openAccountLink } from './bridge';
 
 export function DesktopAccountCard({
   compact = false,
@@ -46,7 +28,7 @@ export function DesktopAccountCard({
 
   const refresh = async (generation = operation.current) => {
     try {
-      const next = await getAccountConnection();
+      const next = await localApi.account();
       if (operation.current !== generation) return;
       setAccount(next);
       setError(null);
@@ -78,7 +60,7 @@ export function DesktopAccountCard({
     const generation = operation.current;
     setPolling(true);
     try {
-      const next = await pollAccountConnection(currentFlow.value.request_id);
+      const next = await localApi.pollAccountConnection(currentFlow.value.request_id);
       if (operation.current !== generation) return;
       setAccount(next);
       if (next.signed_in || next.connection_state === 'connected') setFlow(null);
@@ -111,7 +93,7 @@ export function DesktopAccountCard({
     setBusy(true);
     setError(null);
     try {
-      const value = await startAccountConnection();
+      const value = await localApi.startAccountConnection();
       if (operation.current !== generation) return;
       const startedAt = Date.now();
       setFlow({ value, startedAt, nextPollAt: startedAt + value.poll_interval_seconds * 1000, failures: 0 });
@@ -133,7 +115,7 @@ export function DesktopAccountCard({
     setPolling(false);
     setBusy(true);
     try {
-      await disconnectAccount();
+      await localApi.disconnectAccount();
       await refresh(generation);
     } catch (caught) {
       if (operation.current !== generation) return;
@@ -152,8 +134,8 @@ export function DesktopAccountCard({
   return <section className={`native-account-card${compact ? ' is-compact' : ''}`}>
     <div className="native-account-heading"><div><span className="section-label">Account</span>{!compact && <h2>Hosted account</h2>}</div><span className={`account-state account-state--${state}`}>{state === 'connected' ? 'Connected' : state === 'reauthorization_required' ? 'Reconnect required' : state === 'unavailable' ? 'Temporarily unavailable' : 'Not connected'}</span></div>
     {account && connected ? <>
-      <div className="native-account-identity"><div><strong>{accountName(account)}</strong><span>{accountProvider(account)} · {account.credential_name || account.device_name || 'Connected service'}</span></div>{account.credential_kind === 'api_key' && <small>API key</small>}</div>
-      {account.billing && <div className="native-account-facts"><div><span>Plan</span><strong>{account.billing.plan}</strong></div><div><span>Billing</span><strong>{account.billing.billing_status}{account.billing.purchase_mode ? ` · ${account.billing.purchase_mode}` : ''}</strong></div>{account.credits && <div><span>Sealing used</span><strong>{formatBytes(account.credits.notarization.total_used_bytes)}</strong></div>}{account.credits && <div><span>Sealing remaining</span><strong>{formatBytes(account.credits.notarization.total_remaining_bytes)}</strong></div>}{account.credits && <div><span>Capture used</span><strong>{formatBytes(account.credits.capture.total_used_bytes)}</strong></div>}{account.credits && <div><span>Capture remaining</span><strong>{formatBytes(account.credits.capture.total_remaining_bytes)}</strong></div>}{account.credits && <div><span>Included monthly</span><strong>{formatBytes(account.credits.notarization.included_monthly_remaining_bytes)}</strong></div>}{account.credits && <div><span>Supplemental</span><strong>{formatBytes(account.credits.notarization.supplemental_remaining_bytes)}</strong></div>}{account.credits && <div><span>Reset</span><strong>{formatDate(account.credits.reset_at)}</strong></div>}{account.credits?.notarization.next_grant_expiration && <div><span>Next expiration</span><strong>{formatDate(account.credits.notarization.next_grant_expiration)}</strong></div>}</div>}
+      <div className="native-account-identity"><div><strong>{accountDisplayName(account)}</strong><span>{authProviderLabel(account.auth_provider)} · {account.credential_name || account.device_name || 'Connected service'}</span></div>{account.credential_kind === 'api_key' && <small>API key</small>}</div>
+      {account.billing && <div className="native-account-facts"><div><span>Plan</span><strong>{account.billing.plan}</strong></div><div><span>Billing</span><strong>{account.billing.billing_status}{account.billing.purchase_mode ? ` · ${account.billing.purchase_mode}` : ''}</strong></div>{account.credits && <div><span>Sealing used</span><strong>{formatBytes(account.credits.notarization.total_used_bytes)}</strong></div>}{account.credits && <div><span>Sealing remaining</span><strong>{formatBytes(account.credits.notarization.total_remaining_bytes)}</strong></div>}{account.credits && <div><span>Capture used</span><strong>{formatBytes(account.credits.capture.total_used_bytes)}</strong></div>}{account.credits && <div><span>Capture remaining</span><strong>{formatBytes(account.credits.capture.total_remaining_bytes)}</strong></div>}{account.credits && <div><span>Included monthly</span><strong>{formatBytes(account.credits.notarization.included_monthly_remaining_bytes)}</strong></div>}{account.credits && <div><span>Supplemental</span><strong>{formatBytes(account.credits.notarization.supplemental_remaining_bytes)}</strong></div>}{account.credits && <div><span>Reset</span><strong>{formatDate((account.credits.reset_at ?? 0) * 1000)}</strong></div>}{account.credits?.notarization.next_grant_expiration && <div><span>Next expiration</span><strong>{formatDate(account.credits.notarization.next_grant_expiration * 1000)}</strong></div>}</div>}
       {account.links && <div className="native-account-links"><button type="button" onClick={() => void action(account.links!.account)}>Open account</button><button type="button" onClick={() => void action(account.links!.usage)}>Usage and credits</button><button type="button" onClick={() => void action(account.links!.plans)}>Plans and pricing</button><button type="button" onClick={() => void action(account.links!.settings)}>{account.credential_kind === 'api_key' ? 'Manage API keys' : 'Account settings'}</button></div>}
       {account.credential_kind !== 'api_key' && <button className="mac-button is-small" type="button" onClick={() => void disconnect()} disabled={busy}>Disconnect this device</button>}
       {onContinue && <button className="mac-button is-primary is-large" type="button" onClick={onContinue}>Continue setup <ChevronRight size={15} /></button>}

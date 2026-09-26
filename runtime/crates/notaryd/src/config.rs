@@ -980,24 +980,7 @@ fn validate_public_https_origin(value: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Finds the usual user-editable configuration location.
-pub fn default_config_path() -> Result<PathBuf> {
-    let base = if let Some(path) = env::var_os("XDG_CONFIG_HOME") {
-        PathBuf::from(path)
-    } else if let Some(path) = env::var_os("APPDATA") {
-        PathBuf::from(path)
-    } else if let Some(path) = env::var_os("HOME") {
-        let home = PathBuf::from(path);
-        if cfg!(target_os = "macos") {
-            home.join("Library/Application Support")
-        } else {
-            home.join(".config")
-        }
-    } else {
-        bail!("could not determine a configuration directory")
-    };
-    Ok(base.join("notary").join("config.toml"))
-}
+pub use notary_updater::default_config_path;
 
 fn default_listen() -> SocketAddr {
     "127.0.0.1:8787"
@@ -1333,7 +1316,7 @@ mod tests {
         config.validate().unwrap();
 
         let s3 = config.storage.s3.as_mut().unwrap();
-        s3.endpoint = Some("http://minio:9000".to_owned());
+        s3.endpoint = Some("http://object-store:8333".to_owned());
         assert!(config.validate().is_err());
         config.storage.s3.as_mut().unwrap().allow_insecure_http = true;
         config.validate().unwrap();

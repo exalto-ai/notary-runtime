@@ -118,6 +118,8 @@ pub(crate) fn replace_file(source: &Path, destination: &Path) -> std::io::Result
         .encode_wide()
         .chain(std::iter::once(0))
         .collect::<Vec<_>>();
+    // SAFETY: both pointers reference NUL-terminated UTF-16 buffers that stay
+    // alive for the duration of the call.
     let replaced = unsafe {
         MoveFileExW(
             source.as_ptr(),

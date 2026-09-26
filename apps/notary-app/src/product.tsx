@@ -43,7 +43,6 @@ export function persistPendingFirstProof(target: TraceTarget | null) {
 }
 
 export const DISPLAY_NAME = 'Exalto Capture';
-export const PUBLIC_TRACES_URL = 'https://exalto.ai/traces';
 
 export const viewMeta: Record<View, { title: string; subtitle: string }> = {
   chat: { title: 'Chat', subtitle: 'Chat in Capture and keep a Trace of each exchange' },
@@ -80,12 +79,6 @@ export function vaultProtection(mode: string) {
 
 export function StatusDot({ running, warning = false }: { running: boolean; warning?: boolean }) {
   return <span className={`status-dot ${running ? 'is-running' : ''} ${warning ? 'is-warning' : ''}`} />;
-}
-
-export function formatBytes(bytes: number) {
-  if (bytes === 0) return '0 B';
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function updateRestartBlockReason(state: DesktopState) {

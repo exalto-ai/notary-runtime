@@ -27,7 +27,6 @@ import { type FormEvent, useEffect, useState } from 'react';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import './styles.css';
-import './axis.css';
 import type { LocalApi, LocalApiError, Status } from './api';
 import { ErrorState, LoadingState } from './shared';
 import { ActivityView } from './views/ActivityView';

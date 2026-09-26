@@ -6,7 +6,6 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: [
-      { find: '@', replacement: resolve(process.cwd(), '../../runtime/apps/admin-dashboard/src') },
       { find: 'react', replacement: resolve(process.cwd(), 'node_modules/react') },
       { find: 'react-dom', replacement: resolve(process.cwd(), 'node_modules/react-dom') },
       { find: '@mantine/core', replacement: resolve(process.cwd(), 'node_modules/@mantine/core') },

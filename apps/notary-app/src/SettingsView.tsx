@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { createLocalApi } from '../../../runtime/apps/admin-dashboard/src/api';
 import { InlineDashboard } from '../../../runtime/apps/admin-dashboard/src/Dashboard';
 import type { DashboardRoute } from '../../../runtime/apps/admin-dashboard/src/routes';
 import {
   errorMessage,
   getLaunchAtLogin,
+  localApi,
   setLaunchAtLogin,
   type DesktopState,
   type DesktopUpdateState,
@@ -14,8 +14,6 @@ import {
   type DesktopSettingsAction,
   type DesktopSettingsPayload,
 } from './Shell';
-
-const localDashboardApi = createLocalApi({ baseUrl: 'http://127.0.0.1:8788' });
 
 function dashboardRoute(
   route: WorkspaceView,
@@ -227,7 +225,7 @@ export function SettingsView({
     <div className="native-page inline-dashboard-page">
       <InlineDashboard
         key={`${route}:${constraint ?? ''}:${traceTarget?.traceId ?? ''}:${traceTarget?.action ?? ''}`}
-        api={localDashboardApi}
+        api={localApi}
         apiBaseUrl="http://127.0.0.1:8788"
         route={dashboardRoute(route, constraint, traceTarget)}
         desktopSettings={desktopSettings}

@@ -1078,9 +1078,10 @@ mod tests {
     };
 
     use aws_sdk_s3::primitives::ByteStream;
-    use testcontainers_modules::{
-        minio::MinIO,
-        testcontainers::{ImageExt as _, runners::AsyncRunner as _},
+    use testcontainers_modules::testcontainers::{
+        GenericImage, ImageExt as _,
+        core::{IntoContainerPort as _, WaitFor},
+        runners::AsyncRunner as _,
     };
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
@@ -1090,6 +1091,9 @@ mod tests {
         artifact_store::{FileSystemArtifactStore, conformance},
         config::ArtifactStorageBackend,
     };
+
+    /// Keep in step with the SeaweedFS image in the runtime Compose files.
+    const SEAWEEDFS_TAG: &str = "4.47";
 
     fn config(endpoint: &str, allow_insecure_http: bool) -> S3ArtifactStoreConfig {
         config_result(
@@ -1122,7 +1126,11 @@ mod tests {
     }
 
     fn credentials() -> S3ArtifactStoreCredentials {
-        S3ArtifactStoreCredentials::new("minioadmin", "minioadmin", None)
+        S3ArtifactStoreCredentials::new(
+            "synthetic-test-access-key",
+            "synthetic-test-secret-key",
+            None,
+        )
     }
 
     #[test]
@@ -1435,24 +1443,37 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires Docker and a disposable MinIO container"]
-    async fn minio_conforms_and_detects_missing_corrupt_and_oversized_objects() {
-        // Docker Hub no longer serves this image; use the same release on Quay.
-        let server = MinIO::default()
-            .with_name("quay.io/minio/minio")
+    #[ignore = "requires Docker and a disposable SeaweedFS container"]
+    async fn seaweedfs_conforms_and_detects_missing_corrupt_and_oversized_objects() {
+        let seaweedfs_credentials = credentials();
+        let server = GenericImage::new("chrislusf/seaweedfs", SEAWEEDFS_TAG)
+            .with_exposed_port(8333.tcp())
+            .with_wait_for(WaitFor::message_on_stderr("Start Seaweed S3 API Server"))
+            .with_env_var(
+                "AWS_ACCESS_KEY_ID",
+                seaweedfs_credentials.access_key_id.as_str(),
+            )
+            .with_env_var(
+                "AWS_SECRET_ACCESS_KEY",
+                seaweedfs_credentials.secret_access_key.as_str(),
+            )
+            .with_cmd(["server", "-s3", "-master.telemetry=false"])
             .start()
             .await
-            .expect("start MinIO");
-        let port = server.get_host_port_ipv4(9000).await.expect("MinIO port");
+            .expect("start SeaweedFS");
+        let port = server
+            .get_host_port_ipv4(8333)
+            .await
+            .expect("SeaweedFS S3 port");
         let endpoint = format!("http://127.0.0.1:{port}");
-        let store = S3ArtifactStore::new(config(&endpoint, true), credentials()).unwrap();
+        let store = S3ArtifactStore::new(config(&endpoint, true), seaweedfs_credentials).unwrap();
         store
             .client
             .create_bucket()
             .bucket(&store.bucket)
             .send()
             .await
-            .expect("create MinIO test bucket");
+            .expect("create SeaweedFS test bucket");
         store.readiness().await.unwrap();
         store.readiness().await.unwrap();
         conformance::run(Arc::new(store.clone())).await;

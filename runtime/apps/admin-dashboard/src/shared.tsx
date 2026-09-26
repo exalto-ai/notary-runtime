@@ -2,7 +2,7 @@ import { Button, Center, Loader, Select, Stack, Text, Title } from '@mantine/cor
 import { notifications } from '@mantine/notifications';
 import { Archive, Check, RefreshCw, Unplug } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { LocalApiError } from './api';
+import { type AccountConnection, LocalApiError } from './api';
 
 export const localModalClassNames = {
   overlay: 'axis-local-dialog-overlay',
@@ -73,6 +73,15 @@ export function AxisSelect({
       )}
     />
   );
+}
+
+export function accountDisplayName(account: AccountConnection) {
+  return account.display_name || account.provider_display_name || 'Exalto account';
+}
+
+export function authProviderLabel(provider?: string | null) {
+  if (!provider) return 'Hosted account';
+  return provider === 'google' ? 'Google' : provider === 'github' ? 'GitHub' : provider;
 }
 
 export function formatDate(value?: number | null) {

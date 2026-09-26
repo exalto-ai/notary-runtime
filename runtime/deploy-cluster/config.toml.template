@@ -21,7 +21,7 @@ package_dir = "/var/lib/notary/data/trace-packages"
 [storage.s3]
 bucket = "trace-artifacts"
 region = "us-east-1"
-endpoint = "http://minio:9000"
+endpoint = "http://object-store:8333"
 prefix = "notaryd"
 force_path_style = true
 allow_insecure_http = true

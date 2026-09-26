@@ -17,7 +17,7 @@ cleanup() {
   set +e
   if [[ $result -ne 0 ]]; then
     "${compose[@]}" ps >&2
-    "${compose[@]}" logs --no-color postgres server-migrator minio setup provider notary daemon-a daemon-b test-load-balancer >&2
+    "${compose[@]}" logs --no-color postgres server-migrator object-store setup provider notary daemon-a daemon-b test-load-balancer >&2
   fi
   if [[ ${DAEMON_E2E_KEEP:-0} != 1 ]]; then
     "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1
@@ -201,12 +201,12 @@ if [[ $profile == full ]]; then
   fi
 
   echo "checking dependency-specific liveness, readiness, and recovery"
-  "${compose[@]}" stop minio >/dev/null
+  "${compose[@]}" stop object-store >/dev/null
   wait_not_ready daemon-a
-  minio_status=$("${compose[@]}" exec -T daemon-a curl --silent --max-time 3 --user "$basic" --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8788/v1/status || true)
-  [[ $minio_status == 503 ]] || { echo "MinIO loss did not fail status" >&2; exit 1; }
-  "${compose[@]}" start minio >/dev/null
-  wait_healthy minio
+  object_store_status=$("${compose[@]}" exec -T daemon-a curl --silent --max-time 3 --user "$basic" --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8788/v1/status || true)
+  [[ $object_store_status == 503 ]] || { echo "object store loss did not fail status" >&2; exit 1; }
+  "${compose[@]}" start object-store >/dev/null
+  wait_healthy object-store
   wait_ready daemon-a
   wait_ready daemon-b
   wait_load_balancer_ready
@@ -287,10 +287,10 @@ if [[ $profile == full ]]; then
   stale_trace_id=$("${compose[@]}" exec -T daemon-a awk 'tolower($1)=="x-notary-trace-id:" {gsub("\r","",$2); print $2}' /tmp/stale-capture.headers)
   stale_queued=$(admin_json daemon-a "/v1/traces/$stale_trace_id/notarizations" --request POST)
   stale_operation_id=$(printf '%s' "$stale_queued" | "${compose[@]}" exec -T daemon-a jq -er '.operation.operation_id')
-  stale_object_path="e2e/notaryd-e2e/notaryd/trace-packages/$stale_trace_id/"
+  stale_object_path="s3://notaryd-e2e/notaryd/trace-packages/$stale_trace_id/"
   stale_object_ready=0
   for _ in $(seq 1 120); do
-    stale_objects=$("${compose[@]}" run --rm --no-deps -T minio-client ls --recursive "$stale_object_path" 2>/dev/null || true)
+    stale_objects=$("${compose[@]}" run --rm --no-deps -T object-store-client s3 ls --recursive "$stale_object_path" 2>/dev/null || true)
     if [[ -n $stale_objects ]]; then
       stale_object_ready=1
       break
@@ -338,7 +338,7 @@ if [[ $profile == full ]]; then
   ' >/dev/null
   completed_events=$(psql_value "select count(*) from notaryd.events where operation_id='$stale_operation_id' and event_type='notarization_completed'")
   [[ $completed_events == 1 ]] || { echo "stale retry emitted $completed_events completion events" >&2; exit 1; }
-  stale_objects=$("${compose[@]}" run --rm --no-deps -T minio-client ls --recursive "$stale_object_path" 2>/dev/null || true)
+  stale_objects=$("${compose[@]}" run --rm --no-deps -T object-store-client s3 ls --recursive "$stale_object_path" 2>/dev/null || true)
   stale_object_count=$(printf '%s\n' "$stale_objects" | sed '/^$/d' | wc -l | tr -d ' ')
   [[ $stale_object_count == 2 ]] || { echo "expected isolated loser and winner objects, got $stale_object_count" >&2; exit 1; }
 
@@ -358,9 +358,9 @@ if [[ $profile == full ]]; then
   drain_notarization_trace=$("${compose[@]}" exec -T daemon-a awk 'tolower($1)=="x-notary-trace-id:" {gsub("\r","",$2); print $2}' /tmp/drain-notarization.headers)
   drain_queued=$(admin_json daemon-a "/v1/traces/$drain_notarization_trace/notarizations" --request POST)
   drain_operation_id=$(printf '%s' "$drain_queued" | "${compose[@]}" exec -T daemon-a jq -er '.operation.operation_id')
-  drain_object_path="e2e/notaryd-e2e/notaryd/trace-packages/$drain_notarization_trace/"
+  drain_object_path="s3://notaryd-e2e/notaryd/trace-packages/$drain_notarization_trace/"
   for _ in $(seq 1 120); do
-    drain_objects=$("${compose[@]}" run --rm --no-deps -T minio-client ls --recursive "$drain_object_path" 2>/dev/null || true)
+    drain_objects=$("${compose[@]}" run --rm --no-deps -T object-store-client s3 ls --recursive "$drain_object_path" 2>/dev/null || true)
     [[ -n $drain_objects ]] && break
     sleep 1
   done

@@ -62,7 +62,7 @@ RUN cp /etc/notary/config.toml /etc/notary/config-s3.toml \
         '[storage.s3]' \
         'bucket = "notaryd-e2e"' \
         'region = "us-east-1"' \
-        'endpoint = "http://minio:9000"' \
+        'endpoint = "http://object-store:8333"' \
         'prefix = "notaryd"' \
         'force_path_style = true' \
         'allow_insecure_http = true' \

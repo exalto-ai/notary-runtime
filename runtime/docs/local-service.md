@@ -175,7 +175,7 @@ prefix, HTTPS, virtual-hosted addressing, and bounded timeouts. Set `region`
 for another AWS region. S3-compatible services may also set `endpoint` and
 `force_path_style`; plain HTTP additionally requires the explicit
 `allow_insecure_http = true` opt-in and is intended only for a trusted local
-emulator such as MinIO.
+emulator such as SeaweedFS.
 
 Credentials never belong in `config.toml`. Set
 `NOTARYD_ARTIFACT_S3_ACCESS_KEY_ID` and

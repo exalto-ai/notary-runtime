@@ -211,6 +211,16 @@ test('shows expired credentials without claiming capture and allows a fresh conv
   await expect.element(page.getByLabelText('Message')).toBeEnabled();
 });
 
+test('marks an expired connection with the reconnect warning dot', async () => {
+  vi.mocked(bridge.listConnections).mockResolvedValue([{ id: 'openai', status: 'reconnect' }]);
+  renderWithTheme(<ProviderConnections />);
+  const state = page.getByText('Reconnect required');
+  await expect.element(state).toHaveClass('connection-state', 'is-reconnect');
+  const dot = getComputedStyle(state.element(), '::before');
+  expect(dot.backgroundColor).toBe(dot.borderTopColor);
+  expect(dot.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+});
+
 test('stops the exact active request and retains its partial response', async () => {
   let complete: ((result: bridge.ChatResult) => void) | undefined;
   vi.mocked(bridge.sendChat).mockImplementation(

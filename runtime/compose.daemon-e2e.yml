@@ -91,36 +91,51 @@ services:
       - ALL
     restart: "no"
 
-  minio:
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
-    command: ["server", "/data", "--console-address", ":9001"]
+  object-store:
+    image: chrislusf/seaweedfs:4.47
+    # Run as the image's unprivileged seaweed account so the entrypoint does
+    # not need root to fix /data ownership.
+    user: "1000:1000"
+    # Only the authenticated S3 API listens on the network; SeaweedFS's master,
+    # volume, and filer APIs have no authentication, so they stay on loopback.
+    command: ["server", "-s3", "-ip=127.0.0.1", "-ip.bind=127.0.0.1", "-s3.ip.bind=0.0.0.0", "-master.telemetry=false"]
     environment:
-      MINIO_ROOT_USER: daemon-e2e-access-key
-      MINIO_ROOT_PASSWORD: synthetic-daemon-e2e-secret-key
+      AWS_ACCESS_KEY_ID: daemon-e2e-access-key
+      AWS_SECRET_ACCESS_KEY: synthetic-daemon-e2e-secret-key
     volumes:
-      - minio-state:/data
+      - object-store-state:/data
+    read_only: true
     tmpfs:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     restart: "no"
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"]
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8333/healthz"]
       interval: 1s
       timeout: 2s
-      retries: 30
+      retries: 60
       start_period: 2s
 
-  minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+  object-store-init:
+    image: amazon/aws-cli:2.37.4
     depends_on:
-      minio:
+      object-store:
         condition: service_healthy
-    entrypoint: ["mc"]
-    command: ["mb", "--ignore-existing", "e2e/notaryd-e2e"]
-    environment:
-      MC_HOST_e2e: http://daemon-e2e-access-key:synthetic-daemon-e2e-secret-key@minio:9000
-      MC_CONFIG_DIR: /tmp/.mc
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        aws s3api head-bucket --bucket notaryd-e2e >/dev/null 2>&1 ||
+          aws s3api create-bucket --bucket notaryd-e2e >/dev/null
+    environment: &object-store-client-environment
+      AWS_ENDPOINT_URL: http://object-store:8333
+      AWS_ACCESS_KEY_ID: daemon-e2e-access-key
+      AWS_SECRET_ACCESS_KEY: synthetic-daemon-e2e-secret-key
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+      HOME: /tmp
     read_only: true
     tmpfs:
       - /tmp
@@ -130,12 +145,9 @@ services:
       - ALL
     restart: "no"
 
-  minio-client:
-    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
-    entrypoint: ["mc"]
-    environment:
-      MC_HOST_e2e: http://daemon-e2e-access-key:synthetic-daemon-e2e-secret-key@minio:9000
-      MC_CONFIG_DIR: /tmp/.mc
+  object-store-client:
+    image: amazon/aws-cli:2.37.4
+    environment: *object-store-client-environment
     read_only: true
     tmpfs:
       - /tmp
@@ -288,7 +300,7 @@ services:
     depends_on:
       setup:
         condition: service_completed_successfully
-      minio-init:
+      object-store-init:
         condition: service_completed_successfully
       provider:
         condition: service_healthy
@@ -332,7 +344,7 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
-      minio-init:
+      object-store-init:
         condition: service_completed_successfully
       provider:
         condition: service_healthy
@@ -381,7 +393,7 @@ services:
         condition: service_healthy
       server-migrator:
         condition: service_completed_successfully
-      minio-init:
+      object-store-init:
         condition: service_completed_successfully
       provider:
         condition: service_healthy
@@ -427,7 +439,7 @@ services:
         condition: service_healthy
       server-migrator:
         condition: service_completed_successfully
-      minio-init:
+      object-store-init:
         condition: service_completed_successfully
       provider:
         condition: service_healthy
@@ -519,7 +531,7 @@ services:
 volumes:
   daemon-state:
   fixture-state:
-  minio-state:
+  object-store-state:
   postgres-state:
 
 networks:

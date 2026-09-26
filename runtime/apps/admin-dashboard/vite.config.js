@@ -19,7 +19,6 @@ function stripGeneratedTrailingWhitespace() {
 }
 
 export default defineConfig({
-  resolve: { alias: { '@': resolve(process.cwd(), 'src') } },
   plugins: [
     react(),
     stripGeneratedTrailingWhitespace(),

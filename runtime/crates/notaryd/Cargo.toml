@@ -65,6 +65,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage
 
 [dev-dependencies]
 notary-core = { path = "../notary-core", features = ["test-utils"] }
-testcontainers-modules = { version = "0.15", default-features = false, features = ["minio", "postgres"] }
+testcontainers-modules = { version = "0.15", default-features = false, features = ["postgres"] }
 tower = { version = "0.5", features = ["util"] }
 tracing-subscriber = { version = "0.3", features = ["fmt"] }

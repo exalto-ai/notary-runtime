@@ -6,7 +6,8 @@ import App, {
   SENSITIVE_INPUT_RESET_EVENT,
 } from './App';
 import { createDisposableTestMarker } from './Onboarding';
-import { formatBytes, pendingFirstProofTarget, persistPendingFirstProof } from './product';
+import { formatBytes } from '../../../runtime/apps/admin-dashboard/src/shared';
+import { pendingFirstProofTarget, persistPendingFirstProof } from './product';
 import './styles.css';
 
 const browserTraceSummary = (traceId = 'trc-browser-detail') => ({

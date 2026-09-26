@@ -79,7 +79,7 @@ cleanup() {
   set +e
   if [[ $result -ne 0 ]]; then
     "${compose[@]}" ps >&2
-    "${compose[@]}" logs --no-color setup postgres migrator minio minio-init provider notary daemon daemon-postgres daemon-s3 daemon-postgres-s3 >&2
+    "${compose[@]}" logs --no-color setup postgres migrator object-store object-store-init provider notary daemon daemon-postgres daemon-s3 daemon-postgres-s3 >&2
   fi
   if [[ ${DAEMON_E2E_KEEP:-0} == 1 ]]; then
     echo "preserving Docker E2E project $project_name" >&2
@@ -222,12 +222,12 @@ wait_for_postgres() {
   return 1
 }
 
-wait_for_minio() {
+wait_for_object_store() {
   local attempts=0
   local container_id
   local health
   while (( attempts < 60 )); do
-    container_id=$("${compose[@]}" ps --quiet minio)
+    container_id=$("${compose[@]}" ps --quiet object-store)
     if [[ -n $container_id ]]; then
       health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)
       if [[ $health == healthy ]]; then
@@ -240,12 +240,14 @@ wait_for_minio() {
     attempts=$((attempts + 1))
     sleep 1
   done
-  echo "MinIO did not become healthy" >&2
+  echo "the S3 object store did not become healthy" >&2
   return 1
 }
 
-minio_mc() {
-  "${compose[@]}" run --rm --no-deps -T minio-client "$@"
+s3_bucket=notaryd-e2e
+
+object_store_aws() {
+  "${compose[@]}" run --rm --no-deps -T object-store-client "$@"
 }
 
 artifact_target() {
@@ -268,7 +270,7 @@ artifact_target() {
       return
     fi
   fi
-  printf 'e2e/notaryd-e2e/notaryd/%s/%s.%s' "$directory" "$trace_id" "$extension"
+  printf 'notaryd/%s/%s.%s' "$directory" "$trace_id" "$extension"
 }
 
 artifact_exists() {
@@ -276,7 +278,7 @@ artifact_exists() {
   if [[ $artifact_engine == filesystem ]]; then
     "${compose[@]}" exec -T "$daemon_service" test -f "$target"
   else
-    minio_mc stat "$target" >/dev/null 2>&1
+    object_store_aws s3api head-object --bucket "$s3_bucket" --key "$target" >/dev/null 2>&1
   fi
 }
 
@@ -285,7 +287,7 @@ artifact_sha256() {
   if [[ $artifact_engine == filesystem ]]; then
     "${compose[@]}" exec -T "$daemon_service" sha256sum "$target" | awk '{print $1}'
   else
-    minio_mc cat "$target" | \
+    object_store_aws s3 cp "s3://$s3_bucket/$target" - | \
       "${compose[@]}" exec -T "$daemon_service" sha256sum | awk '{print $1}'
   fi
 }
@@ -295,16 +297,16 @@ artifact_identity() {
   if [[ $artifact_engine == filesystem ]]; then
     "${compose[@]}" exec -T "$daemon_service" stat -c '%i:%Y:%s' "$target"
   else
-    minio_mc stat --json "$target"
+    object_store_aws s3api head-object --bucket "$s3_bucket" --key "$target" --output json
   fi
 }
 
 prepare_s3() {
-  echo "starting an isolated MinIO object store"
-  "${compose[@]}" up --detach minio
-  wait_for_minio
-  "${compose[@]}" run --rm --no-deps -T minio-init >/dev/null
-  minio_mc stat e2e/notaryd-e2e >/dev/null
+  echo "starting an isolated SeaweedFS S3 object store"
+  "${compose[@]}" up --detach object-store
+  wait_for_object_store
+  "${compose[@]}" run --rm --no-deps -T object-store-init >/dev/null
+  object_store_aws s3api head-bucket --bucket "$s3_bucket" >/dev/null
 }
 
 postgres_psql() {
@@ -459,7 +461,7 @@ assert_runtime_s3_outage() {
   local status_status
 
   echo "verifying liveness and readiness during a live S3 outage"
-  "${compose[@]}" stop minio >/dev/null
+  "${compose[@]}" stop object-store >/dev/null
   health_status=$("${compose[@]}" exec -T "$daemon_service" \
     curl --silent --output /dev/null --write-out '%{http_code}' \
       --max-time 10 http://127.0.0.1:8788/healthz)
@@ -472,12 +474,12 @@ assert_runtime_s3_outage() {
     return 1
   fi
 
-  "${compose[@]}" up --detach minio
-  wait_for_minio
+  "${compose[@]}" up --detach object-store
+  wait_for_object_store
   wait_for_daemon
-  readiness_status=$("${compose[@]}" exec -T "$daemon_service" \
-    curl --silent --output /dev/null --write-out '%{http_code}' \
-      --max-time 10 http://127.0.0.1:8788/readyz)
+  # Readiness caches dependency probes briefly, and a probe started while the
+  # store was still booting can outlive the store's first healthy check.
+  readiness_status=$(wait_for_daemon_http_status /readyz 200 || true)
   if [[ $readiness_status != 200 ]]; then
     echo "S3-backed readiness did not recover: /readyz=$readiness_status" >&2
     return 1
@@ -523,7 +525,7 @@ assert_json "$fresh_status" '
 
 if [[ $artifact_engine == s3 ]]; then
   "${compose[@]}" exec -T "$daemon_service" /bin/sh -ec \
-    "grep -F 'endpoint = \"http://minio:9000\"' '$daemon_config' >/dev/null
+    "grep -F 'endpoint = \"http://object-store:8333\"' '$daemon_config' >/dev/null
      grep -F 'prefix = \"notaryd\"' '$daemon_config' >/dev/null
      grep -F 'force_path_style = true' '$daemon_config' >/dev/null
      grep -F 'allow_insecure_http = true' '$daemon_config' >/dev/null"
@@ -550,15 +552,15 @@ else
   recovered_object=notaryd/capture-checkpoints/trc-e2e-recovered.llmcapture
   notarize_object=notaryd/capture-checkpoints/trc-e2e-notarize.llmcapture
   fixture_locator=artifact/v1/s3/bm90YXJ5ZC9jYXB0dXJlLWNoZWNrcG9pbnRzL3RyYy1lMmUtbm90YXJpemUubGxtY2FwdHVyZQ
-  fixture_metadata='artifact-sha256=43a39c6489f21d8976477d52b4bb184c5a4166086d069450660d5754b93c6b7d;artifact-size=29;artifact-kind=capture_checkpoint'
+  fixture_metadata='artifact-sha256=43a39c6489f21d8976477d52b4bb184c5a4166086d069450660d5754b93c6b7d,artifact-size=29,artifact-kind=capture_checkpoint'
   printf '%s' 'encrypted-offline-e2e-fixture' | \
-    minio_mc pipe --attr "$fixture_metadata" \
-      "e2e/notaryd-e2e/$recovered_object" >/dev/null
+    object_store_aws s3 cp --metadata "$fixture_metadata" - \
+      "s3://$s3_bucket/$recovered_object" >/dev/null
   # Metadata intentionally describes the untampered digest. The same-size
   # replacement proves reads fail closed on object corruption.
   printf '%s' 'corrupted-offline-e2e-fixture' | \
-    minio_mc pipe --attr "$fixture_metadata" \
-      "e2e/notaryd-e2e/$notarize_object" >/dev/null
+    object_store_aws s3 cp --metadata "$fixture_metadata" - \
+      "s3://$s3_bucket/$notarize_object" >/dev/null
 fi
 if [[ $metadata_engine == sqlite ]]; then
   "${compose[@]}" run --rm --no-deps --entrypoint sqlite3 "$daemon_service" /state/metadata.db >/dev/null <<SQL
@@ -808,7 +810,7 @@ if [[ $profile == full ]]; then
     credential_exposed=$("${compose[@]}" exec -T "$daemon_service" /bin/sh -ec \
       "grep -a -F 'offline-daemon-e2e-secret' '$full_bundle_target' >/dev/null" && printf yes || true)
   else
-    credential_exposed=$(minio_mc cat "$full_bundle_target" | \
+    credential_exposed=$(object_store_aws s3 cp "s3://$s3_bucket/$full_bundle_target" - | \
       grep -a -F 'offline-daemon-e2e-secret' >/dev/null && printf yes || true)
   fi
   if [[ $credential_exposed == yes ]]; then
@@ -885,9 +887,11 @@ if [[ $profile == full ]]; then
     full_package_target=$(artifact_target "$full_trace_id" trace_package)
     artifact_exists "$full_bundle_target"
     artifact_exists "$full_package_target"
-    object_paths=$(minio_mc find e2e/notaryd-e2e)
+    object_paths=$(object_store_aws s3api list-objects-v2 --bucket "$s3_bucket" \
+      --query 'Contents[].Key' --output json | \
+      "${compose[@]}" exec -T "$daemon_service" jq -r '(. // [])[]')
     while IFS= read -r object_path; do
-      [[ -z $object_path || $object_path == e2e/notaryd-e2e/notaryd/* ]] && continue
+      [[ -z $object_path || $object_path == notaryd/* ]] && continue
       echo "S3 object escaped the configured prefix/private namespace: $object_path" >&2
       exit 1
     done <<<"$object_paths"
@@ -1214,7 +1218,8 @@ echo "running bounded report-only artifact reconciliation while the daemon is st
 "${compose[@]}" stop "$daemon_service"
 if [[ $artifact_engine == s3 ]]; then
   orphan_target=$(artifact_target trc-e2e-unreferenced capture_checkpoint)
-  printf 'young unreferenced reconciliation fixture' | minio_mc pipe "$orphan_target" >/dev/null
+  printf 'young unreferenced reconciliation fixture' | \
+    object_store_aws s3 cp - "s3://$s3_bucket/$orphan_target" >/dev/null
   young_reconciliation=$("${compose[@]}" run --rm --no-deps -T "$daemon_service" \
     reconcile-artifacts --config "$daemon_config")
   assert_json_while_daemon_stopped "$young_reconciliation" '

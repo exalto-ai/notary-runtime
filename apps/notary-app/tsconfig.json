@@ -17,7 +17,6 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "paths": {
-      "@/*": ["../../runtime/apps/admin-dashboard/src/*"],
       "@mantine/*": ["node_modules/@mantine/*"],
       "@tanstack/*": ["node_modules/@tanstack/*"],
       "react": ["node_modules/@types/react"],

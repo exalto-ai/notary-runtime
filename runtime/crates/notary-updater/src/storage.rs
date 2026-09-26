@@ -7,6 +7,8 @@ use std::{
 
 use anyhow::{Context, Result};
 
+use crate::platform::replace_file;
+
 /// Writes a private release-adjacent file without exposing partial contents.
 pub fn write_private_file_atomically(path: &Path, contents: &[u8]) -> Result<()> {
     let pending = write_private_pending_file(path, contents)?;
@@ -149,11 +151,6 @@ impl Drop for PendingFile {
     }
 }
 
-#[cfg(not(windows))]
-fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
-    fs::rename(source, destination)
-}
-
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -175,38 +172,5 @@ mod tests {
             fs::metadata(destination).unwrap().permissions().mode() & 0o777,
             0o600
         );
-    }
-}
-
-#[cfg(windows)]
-fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{
-        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
-    };
-
-    let source = source
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    // SAFETY: both pointers reference NUL-terminated UTF-16 buffers that stay
-    // alive for the duration of the call.
-    let replaced = unsafe {
-        MoveFileExW(
-            source.as_ptr(),
-            destination.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if replaced == 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
     }
 }
