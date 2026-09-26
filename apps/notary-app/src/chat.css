@@ -204,8 +204,7 @@
 
 .connection-state.is-connected::before { border-color: var(--green); background: var(--green); }
 .connection-state.is-saved::before { border-color: var(--blue); }
-.connection-state.is-locked::before,
-.connection-state.is-expired::before { border-color: var(--orange); }
+.connection-state.is-locked::before { border-color: var(--orange); }
 
 .connection-form,
 .connection-form form {
