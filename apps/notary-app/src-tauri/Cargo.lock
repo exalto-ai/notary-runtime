@@ -3967,7 +3967,7 @@ checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
 
 [[package]]
 name = "notary-app"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -3995,7 +3995,7 @@ dependencies = [
 
 [[package]]
 name = "notary-core"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4040,7 +4040,7 @@ dependencies = [
 
 [[package]]
 name = "notary-updater"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4059,7 +4059,7 @@ dependencies = [
 
 [[package]]
 name = "notaryctl"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "clap",
