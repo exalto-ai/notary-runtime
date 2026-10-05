@@ -10,7 +10,7 @@ use crate::{
     artifact_store::{ArtifactKey, ArtifactKind, ArtifactStore, FileSystemArtifactStore},
     cluster_runtime::ClusterRuntime,
     config::{MetadataBackend, NotarydConfig},
-    metadata_store::{MetadataStore, ServerMetadataStore},
+    metadata_store::{MetadataStore, ReplicaIdentity, ServerMetadataStore},
     postgres_metadata_store::PostgresMetadataStore,
     s3_artifact_store::{S3ArtifactStore, S3ArtifactStoreCredentials},
     sqlite_metadata_store::SqliteMetadataStore,
@@ -29,7 +29,6 @@ pub struct RecoverySummary {
 #[derive(Clone)]
 pub struct Persistence {
     pub metadata: Arc<dyn MetadataStore>,
-    pub(crate) cluster_metadata: Option<Arc<dyn ServerMetadataStore>>,
     pub artifacts: Arc<RoutedArtifactStore>,
 }
 
@@ -37,6 +36,27 @@ impl Persistence {
     /// Opens the default SQLite and filesystem adapters from the unchanged
     /// desktop configuration shape.
     pub async fn open(config: &NotarydConfig) -> Result<Self> {
+        Ok(Self::open_stores(config).await?.0)
+    }
+
+    /// Opens persistence for a cluster replica. The shared server metadata
+    /// store is handed to the returned runtime rather than kept beside the
+    /// local-mode stores, so claimed work cannot be recorded outside cluster
+    /// mode.
+    pub(crate) async fn open_cluster(
+        config: &NotarydConfig,
+        identity: ReplicaIdentity,
+    ) -> Result<(Self, ClusterRuntime)> {
+        let (persistence, server_metadata) = Self::open_stores(config).await?;
+        let server_metadata = server_metadata.ok_or_else(|| {
+            anyhow::anyhow!("cluster mode requires metadata.backend = \"postgres\"")
+        })?;
+        Ok((persistence, ClusterRuntime::new(identity, server_metadata)))
+    }
+
+    async fn open_stores(
+        config: &NotarydConfig,
+    ) -> Result<(Self, Option<Arc<dyn ServerMetadataStore>>)> {
         let (metadata, cluster_metadata): (
             Arc<dyn MetadataStore>,
             Option<Arc<dyn ServerMetadataStore>>,
@@ -111,17 +131,13 @@ impl Persistence {
         };
         let artifacts = RoutedArtifactStore::new(config.storage.backend, filesystem, s3)
             .map_err(|_| anyhow::anyhow!("selected artifact storage backend is not configured"))?;
-        Ok(Self {
-            metadata,
+        Ok((
+            Self {
+                metadata,
+                artifacts: Arc::new(artifacts),
+            },
             cluster_metadata,
-            artifacts: Arc::new(artifacts),
-        })
-    }
-
-    pub(crate) fn cluster_metadata(&self) -> &Arc<dyn ServerMetadataStore> {
-        self.cluster_metadata
-            .as_ref()
-            .expect("cluster runtime requires a shared metadata backend")
+        ))
     }
 
     /// Reconciles traces left active by an earlier single-daemon process.
@@ -145,8 +161,8 @@ impl Persistence {
         &self,
         cluster_runtime: &ClusterRuntime,
     ) -> Result<RecoverySummary> {
-        let Some(recovery) = self
-            .cluster_metadata()
+        let Some(recovery) = cluster_runtime
+            .metadata()
             .claim_next_stale_capture(
                 cluster_runtime.identity(),
                 &cluster_runtime.new_claim_fence(),
@@ -158,7 +174,8 @@ impl Persistence {
         };
         let mut summary = RecoverySummary::default();
         let Some(completion) = recovery.completion else {
-            self.cluster_metadata()
+            cluster_runtime
+                .metadata()
                 .fail_capture_claimed(&recovery.claim, "claim_expired")
                 .await?;
             summary.interrupted_captures = 1;
@@ -174,19 +191,22 @@ impl Persistence {
                 if artifact.size_bytes == completion.expected_artifact_size_bytes
                     && artifact.sha256 == completion.expected_artifact_sha256 =>
             {
-                self.cluster_metadata()
+                cluster_runtime
+                    .metadata()
                     .complete_capture_claimed(completion, artifact, &recovery.claim)
                     .await?;
                 summary.recovered_checkpoints = 1;
             }
             Ok(Some(_)) => {
-                self.cluster_metadata()
+                cluster_runtime
+                    .metadata()
                     .fail_capture_claimed(&recovery.claim, "artifact_integrity")
                     .await?;
                 summary.interrupted_captures = 1;
             }
             Ok(None) => {
-                self.cluster_metadata()
+                cluster_runtime
+                    .metadata()
                     .fail_capture_claimed(&recovery.claim, "artifact_missing")
                     .await?;
                 summary.interrupted_captures = 1;
@@ -196,7 +216,8 @@ impl Persistence {
                 | crate::artifact_store::ArtifactStoreError::TooLarge { .. }
                 | crate::artifact_store::ArtifactStoreError::Conflict { .. },
             ) => {
-                self.cluster_metadata()
+                cluster_runtime
+                    .metadata()
                     .fail_capture_claimed(&recovery.claim, "artifact_integrity")
                     .await?;
                 summary.interrupted_captures = 1;

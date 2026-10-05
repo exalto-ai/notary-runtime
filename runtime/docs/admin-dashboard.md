@@ -105,7 +105,8 @@ construct them from private listener addresses.
 Settings keeps these groups in a stable order:
 
 1. **General** — capture behavior and System, Light, or Dark theme.
-2. **Account** — optional hosted account connection, credits, and links.
+2. **Account** — optional hosted account connection, plan, and remaining
+   sealing allowance.
 3. **Notarization** — active notary, operator, endpoint, key identity,
    Registry generation and source, and lifecycle history.
 4. **Security & storage** — vault, preview policy, metadata, and artifact
@@ -131,6 +132,12 @@ download, and verification. Browser authorization never gives the dashboard a
 hosted password or provider token. An API-key connection is identified but its
 key value is neither returned nor managed here.
 
+**Connect account…** starts device approval and opens the approval page in a
+new tab. While approval is pending, the card shows the code, **Open browser
+again**, and **Cancel**; it checks approval at the service's polling interval
+and again when the window regains focus. An expired request offers **Try
+again**.
+
 ## Responsive and embedded modes
 
 At 820 px and below, the menu opens as an accessible full-height drawer.
@@ -143,7 +150,9 @@ Selecting a trace changes the hash route and shows one detail panel with an
 
 The embedded desktop mode renders the same selected destination without the
 standalone browser navigation. It does not maintain a second route model or a
-second implementation of a destination.
+second implementation of a destination. Inside Exalto Capture, Settings is
+the desktop Preferences form described in the desktop app guide, and the
+desktop app owns the theme choice.
 
 ## Troubleshooting
 
@@ -155,6 +164,7 @@ second implementation of a destination.
 | Provider unavailable | Open Providers and check the explicit readiness and upstream host. Do not substitute an unlisted hostname. |
 | Notary Registry unavailable | Check network and Registry configuration. An explicit endpoint is appropriate only for local or self-hosted development. |
 | Operation interrupted | Inspect the Trace's safe attempt history and retry only when the service marks it retryable. |
+| Sealing failed with `notary_connection_closed` or `notary_timeout` | The notary refused the request, dropped the connection, or stopped responding. The Sealing tab shows where the attempt stopped; nothing was sealed. Choose **Retry sealing** to start a new attempt. |
 | Missing artifact | Keep metadata and its filesystem directory or private object prefix together. The API intentionally does not accept a replacement path or object key. |
 | Safe failure code | Use the code for diagnosis, then inspect local process logs. Logs omit credentials, headers, and evidence plaintext but may contain configured paths, so do not share them verbatim. |
 

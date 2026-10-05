@@ -12,9 +12,7 @@ use clap::{Args as ClapArgs, Parser, Subcommand};
 use k256::ecdsa::SigningKey;
 use notary_core::{DEFAULT_MAX_ATTESTABLE_HTTP_BYTES, DEFAULT_NOTARY_MAX_FRAME_BYTES};
 
-pub(crate) const MAX_PRIVATE_CHUNK_BYTES: usize = DEFAULT_MAX_ATTESTABLE_HTTP_BYTES;
 pub(crate) const MAX_TOTAL_PRIVATE_CHUNK_BYTES: usize = DEFAULT_MAX_ATTESTABLE_HTTP_BYTES;
-pub(crate) const MAX_PRIVATE_CHUNK_COMMITMENTS: usize = 128;
 pub(crate) const MAX_FRAME_BYTES: usize = DEFAULT_NOTARY_MAX_FRAME_BYTES;
 pub(crate) const MAX_CONCURRENT_CAPTURES: usize = 1_024;
 pub(crate) const MAX_CONCURRENT_NOTARIZATIONS: usize = 64;
@@ -78,32 +76,16 @@ pub struct NotaryServerServeArgs {
     )]
     pub allow_hosts: Vec<String>,
 
-    /// Largest private-proof chunk accepted from a client. This is a service
-    /// resource limit; clients cannot raise it in their proof request.
-    #[arg(
-        long,
-        env = "NOTARY_SERVER_MAX_PRIVATE_CHUNK_BYTES",
-        default_value_t = 128 * 1024
-    )]
-    pub max_private_chunk_bytes: usize,
-
     /// Largest total private transcript commitment set accepted in one proof.
-    /// This bounds transcript bytes when every individual chunk is valid.
+    /// Each commitment is at most the protocol-wide
+    /// `notary_core::MAX_PRIVATE_CHUNK_BYTES`, and the accepted commitment
+    /// count is derived from this total, so this one value bounds proof work.
     #[arg(
         long,
         env = "NOTARY_SERVER_MAX_TOTAL_PRIVATE_CHUNK_BYTES",
         default_value_t = DEFAULT_MAX_ATTESTABLE_HTTP_BYTES
     )]
     pub max_total_private_chunk_bytes: usize,
-
-    /// Largest number of private commitments accepted in one proof. Each
-    /// commitment creates a child proof VM, so this bounds fixed proof work.
-    #[arg(
-        long,
-        env = "NOTARY_SERVER_MAX_PRIVATE_CHUNK_COMMITMENTS",
-        default_value_t = 128
-    )]
-    pub max_private_chunk_commitments: usize,
 
     /// Largest serialized proof or attestation frame accepted from a paired
     /// proxy. This must match the proxy's --max-frame-bytes setting.
@@ -181,9 +163,7 @@ pub struct NotaryServerConfig {
     pub(crate) public_key: String,
     pub(crate) allowed_hosts: Arc<Vec<String>>,
     pub(crate) notarization_only: bool,
-    pub(crate) max_private_chunk_bytes: usize,
     pub(crate) max_total_private_chunk_bytes: usize,
-    pub(crate) max_private_chunk_commitments: usize,
     pub(crate) max_frame_bytes: usize,
     pub(crate) max_concurrent_captures: usize,
     pub(crate) max_concurrent_notarizations: usize,
@@ -207,9 +187,7 @@ impl NotaryServerConfig {
             public_key,
             allowed_hosts,
             notarization_only: args.notarization_only,
-            max_private_chunk_bytes: args.max_private_chunk_bytes,
             max_total_private_chunk_bytes: args.max_total_private_chunk_bytes,
-            max_private_chunk_commitments: args.max_private_chunk_commitments,
             max_frame_bytes: args.max_frame_bytes,
             max_concurrent_captures: args.max_concurrent_captures,
             max_concurrent_notarizations: args.max_concurrent_notarizations,
@@ -227,9 +205,7 @@ impl NotaryServerConfig {
 }
 
 fn validate_limits(args: &NotaryServerServeArgs) -> Result<()> {
-    if args.max_private_chunk_bytes == 0
-        || args.max_total_private_chunk_bytes == 0
-        || args.max_private_chunk_commitments == 0
+    if args.max_total_private_chunk_bytes == 0
         || args.max_frame_bytes == 0
         || args.max_concurrent_captures == 0
         || args.max_concurrent_notarizations == 0
@@ -240,12 +216,7 @@ fn validate_limits(args: &NotaryServerServeArgs) -> Result<()> {
     {
         bail!("Notary server resource limits must be non-zero");
     }
-    if args.max_total_private_chunk_bytes < args.max_private_chunk_bytes {
-        bail!("total private-chunk bytes must be at least one private chunk");
-    }
-    if args.max_private_chunk_bytes > MAX_PRIVATE_CHUNK_BYTES
-        || args.max_total_private_chunk_bytes > MAX_TOTAL_PRIVATE_CHUNK_BYTES
-        || args.max_private_chunk_commitments > MAX_PRIVATE_CHUNK_COMMITMENTS
+    if args.max_total_private_chunk_bytes > MAX_TOTAL_PRIVATE_CHUNK_BYTES
         || args.max_frame_bytes > MAX_FRAME_BYTES
         || args.max_concurrent_captures > MAX_CONCURRENT_CAPTURES
         || args.max_concurrent_notarizations > MAX_CONCURRENT_NOTARIZATIONS

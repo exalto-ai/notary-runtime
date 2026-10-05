@@ -1,6 +1,10 @@
 //! Synchronous SQLite metadata implementation and schema migrations.
 
-use std::{fs, path::Path, sync::Mutex};
+use std::{
+    fs,
+    path::Path,
+    sync::{Mutex, MutexGuard},
+};
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -48,8 +52,22 @@ impl SqliteMetadata {
         })
     }
 
+    /// Locks the connection, failing closed when a previous holder panicked.
+    ///
+    /// A panic while the guard is held can leave the connection mid-transaction
+    /// or mid-statement, so the state is not known to be consistent. Recovering
+    /// the guard with `PoisonError::into_inner` could commit or build on that
+    /// partial state; returning an error instead turns every later metadata
+    /// call into a backend failure (and failed readiness) rather than a
+    /// cascading panic, and the daemon must be restarted to reopen the store.
+    fn connection(&self) -> Result<MutexGuard<'_, Connection>> {
+        self.connection
+            .lock()
+            .map_err(|_| anyhow::anyhow!("SQLite metadata connection is unavailable after a panic"))
+    }
+
     pub fn readiness(&self) -> Result<()> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let (count, version): (i64, Option<i64>) = connection.query_row(
             "SELECT COUNT(*), MAX(version) FROM schema_migrations",
             [],
@@ -66,7 +84,7 @@ impl SqliteMetadata {
     }
 
     pub fn capture_enabled(&self) -> Result<bool> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         connection
             .query_row(
                 "SELECT capture_enabled FROM settings WHERE singleton = 1",
@@ -77,7 +95,7 @@ impl SqliteMetadata {
     }
 
     pub fn set_capture_enabled(&self, enabled: bool, now_unix_ms: u64) -> Result<bool> {
-        let mut connection = self.connection.lock().expect("metadata mutex poisoned");
+        let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
         let current: bool = transaction.query_row(
             "SELECT capture_enabled FROM settings WHERE singleton = 1",
@@ -113,7 +131,7 @@ impl SqliteMetadata {
 
     /// Records the start of a capture before the notary connection begins.
     pub fn begin_capture(&self, capture: &NewTrace) -> Result<()> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         connection.execute(
             "INSERT INTO traces (
                 trace_id, created_at_unix_ms, provider, operation, requested_model,
@@ -139,7 +157,7 @@ impl SqliteMetadata {
     /// Marks a capture unavailable without persisting error strings that could
     /// contain provider or credential material.
     pub fn mark_capture_failed(&self, trace_id: &str, failure_code: &str) -> Result<()> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let transaction = connection.unchecked_transaction()?;
         let current = transaction
             .query_row(
@@ -166,7 +184,7 @@ impl SqliteMetadata {
 
     /// Stages completion fields without advertising an artifact as available.
     pub fn prepare_capture_completion(&self, completion: &CaptureCompletion) -> Result<()> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let transaction = connection.unchecked_transaction()?;
         let current = transaction
             .query_row(
@@ -230,7 +248,7 @@ impl SqliteMetadata {
                 && artifact.sha256 == completion.expected_artifact_sha256,
             "artifact does not match the staged capture commit"
         );
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let transaction = connection.unchecked_transaction()?;
         let (current_state, completion_prepared) = transaction
             .query_row(
@@ -301,7 +319,7 @@ impl SqliteMetadata {
 
     /// Returns traces left active when a single-daemon process stopped.
     pub fn incomplete_captures(&self) -> Result<Vec<IncompleteCapture>> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let mut statement = connection.prepare(
             "SELECT trace_id, completed_at_unix_ms, duration_ms, http_status,
                     response_bytes, response_model, output_preview,
@@ -367,7 +385,7 @@ impl SqliteMetadata {
             return Ok(Vec::new());
         }
         let limit = filters.limit.clamp(1, 201);
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let mut sql = if search_query.is_some() {
             "SELECT c.* FROM traces c JOIN trace_search search ON search.trace_id = c.trace_id WHERE trace_search MATCH ?".to_owned()
         } else {
@@ -454,7 +472,7 @@ impl SqliteMetadata {
     }
 
     pub fn trace(&self, trace_id: &str) -> Result<Option<TraceSummary>> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         connection
             .query_row(
                 "SELECT * FROM traces WHERE trace_id = ?",
@@ -467,7 +485,7 @@ impl SqliteMetadata {
 
     /// Returns backend-neutral artifact records from the canonical locator column.
     pub fn artifact_records(&self, trace_id: &str) -> Result<Vec<ArtifactRecord>> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let mut statement = connection.prepare(
             "SELECT trace_id, kind, locator, size_bytes, sha256
              FROM artifacts
@@ -498,7 +516,7 @@ impl SqliteMetadata {
     }
 
     pub fn prepare_trace_deletion(&self, trace_id: &str) -> Result<TraceDeletionPreparation> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let Some((capture_status, notarization_status)) = connection
             .query_row(
                 "SELECT capture_status, notarization_status FROM traces WHERE trace_id = ?",
@@ -539,7 +557,7 @@ impl SqliteMetadata {
 
     /// Atomically removes one terminal Trace and every metadata row it owns.
     pub fn delete_trace(&self, trace_id: &str) -> Result<TraceDeletionOutcome> {
-        let mut connection = self.connection.lock().expect("metadata mutex poisoned");
+        let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
         let Some((capture_status, notarization_status)) = transaction
             .query_row(
@@ -617,7 +635,7 @@ impl SqliteMetadata {
     }
 
     pub fn counts(&self) -> Result<MetadataCounts> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         connection
             .query_row(
                 "SELECT
@@ -668,7 +686,7 @@ impl SqliteMetadata {
     }
 
     pub fn trace_share(&self, trace_id: &str) -> Result<Option<TraceShareRecord>> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         connection
             .query_row(
                 "SELECT trace_id, hosted_trace_id, progress, visibility, access_enabled,
@@ -683,7 +701,7 @@ impl SqliteMetadata {
     }
 
     pub fn put_trace_share(&self, share: &TraceShareRecord) -> Result<()> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         connection.execute(
             "INSERT INTO trace_shares (
                 trace_id, hosted_trace_id, progress, visibility, access_enabled, password_protected,
@@ -715,7 +733,7 @@ impl SqliteMetadata {
     }
 
     pub fn delete_trace_share(&self, trace_id: &str) -> Result<bool> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         Ok(connection.execute(
             "DELETE FROM trace_shares WHERE trace_id = ?",
             params![trace_id],
@@ -729,7 +747,7 @@ impl SqliteMetadata {
         trace_id: &str,
         now: u64,
     ) -> Result<Option<(Operation, bool)>> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let transaction = connection.unchecked_transaction()?;
         let exists = transaction
             .query_row(
@@ -822,7 +840,7 @@ impl SqliteMetadata {
     }
 
     pub fn claim_next_notarization(&self, now: u64) -> Result<Option<Operation>> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let transaction = connection.unchecked_transaction()?;
         let operation_id = transaction
             .query_row(
@@ -880,7 +898,7 @@ impl SqliteMetadata {
         phase: crate::NotarizationPhase,
         now: u64,
     ) -> Result<bool> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let transaction = connection.unchecked_transaction()?;
         let phase = phase.as_str();
         let changed = transaction.execute(
@@ -925,7 +943,7 @@ impl SqliteMetadata {
         progress: crate::NotarizationProofProgress,
         now: u64,
     ) -> Result<bool> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let transaction = connection.unchecked_transaction()?;
         let previous = transaction
             .query_row(
@@ -1021,7 +1039,7 @@ impl SqliteMetadata {
         artifact: &ArtifactRecord,
         now: u64,
     ) -> Result<TerminalOperationResult> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let transaction = connection.unchecked_transaction()?;
         let Some((current_state, trace_id)) = transaction
             .query_row(
@@ -1084,7 +1102,7 @@ impl SqliteMetadata {
         now: u64,
         failure_code: &str,
     ) -> Result<TerminalOperationResult> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let transaction = connection.unchecked_transaction()?;
         let Some((current_state, current_failure_code)) = transaction
             .query_row(
@@ -1138,7 +1156,7 @@ impl SqliteMetadata {
     }
 
     pub fn recover_operations(&self, now: u64) -> Result<usize> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let transaction = connection.unchecked_transaction()?;
         let mut statement = transaction
             .prepare("SELECT operation_id, trace_id FROM operations WHERE state = 'running'")?;
@@ -1170,7 +1188,7 @@ impl SqliteMetadata {
     }
 
     pub fn retry_operation(&self, operation_id: &str, now: u64) -> Result<Option<Operation>> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let transaction = connection.unchecked_transaction()?;
         let changed = transaction.execute(
             "UPDATE operations
@@ -1210,7 +1228,7 @@ impl SqliteMetadata {
     }
 
     pub fn operation(&self, operation_id: &str) -> Result<Option<Operation>> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         connection
             .query_row(
                 "SELECT * FROM operations WHERE operation_id = ?",
@@ -1222,7 +1240,7 @@ impl SqliteMetadata {
     }
 
     pub fn filtered_operations(&self, filters: &OperationFilters) -> Result<Vec<Operation>> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let mut sql = "SELECT * FROM operations WHERE 1 = 1".to_owned();
         let mut values = Vec::<rusqlite::types::Value>::new();
         for (column, value) in [
@@ -1258,7 +1276,7 @@ impl SqliteMetadata {
     }
 
     pub fn operation_attempts(&self, operation_id: &str) -> Result<Vec<OperationAttempt>> {
-        let connection = self.connection.lock().expect("metadata mutex poisoned");
+        let connection = self.connection()?;
         let mut statement = connection.prepare(
             "SELECT attempt, state, started_at_unix_ms, completed_at_unix_ms, failure_code
              FROM operation_attempts WHERE operation_id = ? ORDER BY attempt DESC",
@@ -1274,7 +1292,7 @@ impl SqliteMetadata {
         &self,
         filters: &EventFilters,
     ) -> Result<(Vec<Event>, Option<u64>)> {
-        let mut connection = self.connection.lock().expect("metadata mutex poisoned");
+        let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
         let events = filtered_events(&transaction, filters)?;
         let high_water = event_high_water(&transaction, filters)?;
@@ -1981,6 +1999,25 @@ mod tests {
             .unwrap();
         drop(connection);
         metadata.readiness().unwrap();
+    }
+
+    #[test]
+    fn poisoned_connection_returns_errors_instead_of_panicking() {
+        let directory = tempfile::tempdir().unwrap();
+        let metadata = SqliteMetadata::open(&directory.path().join("metadata.db"), true).unwrap();
+        metadata.readiness().unwrap();
+
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _connection = metadata.connection().unwrap();
+            panic!("simulated panic while holding the metadata connection");
+        }));
+        assert!(panicked.is_err());
+        assert!(metadata.connection.is_poisoned());
+
+        let error = metadata.readiness().unwrap_err();
+        assert!(error.to_string().contains("unavailable after a panic"));
+        assert!(metadata.capture_enabled().is_err());
+        assert!(metadata.counts().is_err());
     }
 
     #[test]

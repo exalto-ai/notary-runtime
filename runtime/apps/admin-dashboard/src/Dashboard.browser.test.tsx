@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
+import { OpenExternalProvider } from './AccountConnection';
 import { type AccountConnection, type LocalApi, LocalApiError, type TraceSummary } from './api';
 import { Dashboard, type DesktopSettingsAction, type DesktopSettingsState } from './Dashboard';
 import { createFixtureApi, fixtureCaptures, fixtureNotaries, fixtureOperations } from './fixtures';
@@ -16,7 +17,6 @@ const desktopSettings: DesktopSettingsState = {
   launch_at_login: true,
   launch_ready: true,
   vault_label: 'Protected by Keychain',
-  vault_detail: 'The vault key is protected by this Mac.',
   app_version: '0.1.0',
   app_build_id: 'desktop-build-a',
   update: {
@@ -38,19 +38,27 @@ function renderDashboard(
   api: LocalApi = createFixtureApi(),
   settings: DesktopSettingsState | null = null,
   onDesktopSettingsAction?: (action: DesktopSettingsAction) => void,
+  openExternal?: (url: string) => void,
 ) {
   window.location.hash = hash;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const dashboard = (
+    <Dashboard
+      api={api}
+      fixture
+      desktopSettings={settings}
+      onDesktopSettingsAction={onDesktopSettingsAction}
+    />
+  );
   return render(
     <MantineProvider theme={theme} defaultColorScheme="auto">
       <Notifications transitionDuration={0} />
       <QueryClientProvider client={queryClient}>
-        <Dashboard
-          api={api}
-          fixture
-          desktopSettings={settings}
-          onDesktopSettingsAction={onDesktopSettingsAction}
-        />
+        {openExternal ? (
+          <OpenExternalProvider value={openExternal}>{dashboard}</OpenExternalProvider>
+        ) : (
+          dashboard
+        )}
       </QueryClientProvider>
     </MantineProvider>,
   );
@@ -257,7 +265,10 @@ describe('Notary admin dashboard', () => {
   test('connects an account in place and returns to the same Trace review', async () => {
     const api = createFixtureApi();
     await api.disconnectAccount();
-    renderDashboard('/traces/trc-20260727-research-brief', api);
+    const opened: string[] = [];
+    renderDashboard('/traces/trc-20260727-research-brief', api, null, undefined, (url) => {
+      opened.push(url);
+    });
 
     await page.getByRole('button', { name: 'Share' }).click();
     await expect
@@ -266,20 +277,131 @@ describe('Notary admin dashboard', () => {
     await expect
       .element(page.getByText(/Connecting an account does not upload or share local evidence/))
       .toBeVisible();
-    await page.getByRole('button', { name: 'Connect account' }).click();
+    await page.getByRole('button', { name: 'Connect account…' }).click();
     await expect.element(page.getByText('7A3C-91F2')).toBeVisible();
-    await page.getByRole('button', { name: 'Check approval' }).click();
+    expect(opened).toEqual(['https://notary.example/authorize?user_code=7A3C-91F2']);
+    window.dispatchEvent(new Event('focus'));
     await expect
       .element(page.getByRole('heading', { name: 'Review and share this Trace' }))
       .toBeVisible();
     expect(window.location.hash).toBe('#/traces/trc-20260727-research-brief');
   });
 
+  test('opens the approval page and connects when the window regains focus', async () => {
+    const fixture = createFixtureApi();
+    await fixture.disconnectAccount();
+    let pollCalls = 0;
+    const api: LocalApi = {
+      ...fixture,
+      pollAccountConnection: async (requestId) => {
+        pollCalls += 1;
+        return fixture.pollAccountConnection(requestId);
+      },
+    };
+    const opened: string[] = [];
+    const windowOpen = vi.spyOn(window, 'open').mockReturnValue(null);
+    renderDashboard('/settings', api, null, undefined, (url) => {
+      opened.push(url);
+    });
+
+    await expect
+      .element(page.getByText(/use your plan's sealing allowance and share sealed traces/))
+      .toBeVisible();
+    await page.getByRole('button', { name: 'Connect account…' }).click();
+    await expect.element(page.getByText('Approve in your browser')).toBeVisible();
+    await expect.element(page.getByText('7A3C-91F2')).toBeVisible();
+    expect(opened).toEqual(['https://notary.example/authorize?user_code=7A3C-91F2']);
+    expect(windowOpen).not.toHaveBeenCalled();
+    await expect
+      .element(page.getByRole('button', { name: 'Check approval' }))
+      .not.toBeInTheDocument();
+    await expect.element(page.getByText(/Next check/)).not.toBeInTheDocument();
+
+    await page.getByRole('button', { name: 'Open browser again' }).click();
+    expect(opened).toHaveLength(2);
+    expect(opened[1]).toBe(opened[0]);
+    expect(pollCalls).toBe(0);
+
+    window.dispatchEvent(new Event('focus'));
+    await expect.element(page.getByText('Sample User', { exact: true })).toBeVisible();
+    expect(pollCalls).toBe(1);
+    await expect.element(page.getByText('7A3C-91F2')).not.toBeInTheDocument();
+    await page.getByRole('button', { name: 'Manage account' }).click();
+    expect(opened.at(-1)).toBe('https://capture.exalto.ai/app/overview');
+  });
+
+  test('opens the approval page in a new tab without a desktop opener', async () => {
+    const api = createFixtureApi();
+    await api.disconnectAccount();
+    const windowOpen = vi.spyOn(window, 'open').mockReturnValue(null);
+    renderDashboard('/settings', api);
+    await page.getByRole('button', { name: 'Connect account…' }).click();
+    await expect.element(page.getByText('7A3C-91F2')).toBeVisible();
+    expect(windowOpen).toHaveBeenCalledWith(
+      'https://notary.example/authorize?user_code=7A3C-91F2',
+      '_blank',
+      'noopener,noreferrer',
+    );
+  });
+
+  test('checks a pending authorization quietly once per interval until it connects', async () => {
+    const fixture = createFixtureApi();
+    const connectedAccount = await fixture.account();
+    await fixture.disconnectAccount();
+    const pendingAccount = await fixture.account();
+    let pollCalls = 0;
+    const api: LocalApi = {
+      ...fixture,
+      startAccountConnection: async () => ({
+        ...(await fixture.startAccountConnection()),
+        poll_interval_seconds: 1,
+      }),
+      pollAccountConnection: async () => {
+        pollCalls += 1;
+        return pollCalls < 2 ? pendingAccount : connectedAccount;
+      },
+    };
+    renderDashboard('/settings', api, null, undefined, () => {});
+
+    await page.getByRole('button', { name: 'Connect account…' }).click();
+    await expect.element(page.getByText('7A3C-91F2')).toBeVisible();
+    expect(pollCalls).toBe(0);
+    await expect.poll(() => pollCalls, { timeout: 3_000 }).toBe(1);
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+    expect(pollCalls).toBe(1);
+    await expect.poll(() => pollCalls, { timeout: 3_000 }).toBe(2);
+    await expect.element(page.getByText('7A3C-91F2')).not.toBeInTheDocument();
+    await expect.element(page.getByText('Sample User', { exact: true })).toBeVisible();
+    await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+    expect(pollCalls).toBe(2);
+  });
+
+  test('offers a fresh request after an authorization expires', async () => {
+    const fixture = createFixtureApi();
+    await fixture.disconnectAccount();
+    let startCalls = 0;
+    const api: LocalApi = {
+      ...fixture,
+      startAccountConnection: async () => {
+        startCalls += 1;
+        const started = await fixture.startAccountConnection();
+        return startCalls === 1 ? { ...started, expires_in_seconds: 0 } : started;
+      },
+    };
+    renderDashboard('/settings', api, null, undefined, () => {});
+
+    await page.getByRole('button', { name: 'Connect account…' }).click();
+    await expect.element(page.getByText('Request expired')).toBeVisible();
+    await expect.element(page.getByText('7A3C-91F2')).not.toBeInTheDocument();
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await expect.element(page.getByText('7A3C-91F2')).toBeVisible();
+    expect(startCalls).toBe(2);
+  });
+
   test('keeps a canceled account authorization canceled after an in-flight approval check', async () => {
     const fixture = createFixtureApi();
     const connectedAccount = await fixture.account();
     await fixture.disconnectAccount();
-    let startCalls = 0;
     let pollCalls = 0;
     let pollReturned = false;
     let resolvePoll: (account: AccountConnection) => void = () => {};
@@ -288,10 +410,6 @@ describe('Notary admin dashboard', () => {
     });
     const api: LocalApi = {
       ...fixture,
-      startAccountConnection: async () => {
-        startCalls += 1;
-        return fixture.startAccountConnection();
-      },
       pollAccountConnection: async () => {
         pollCalls += 1;
         const account = await deferredPoll;
@@ -299,36 +417,44 @@ describe('Notary admin dashboard', () => {
         return account;
       },
     };
-    renderDashboard('/settings', api);
+    renderDashboard('/settings', api, null, undefined, () => {});
 
-    await page.getByRole('button', { name: 'Sign in or create account' }).click();
+    await page.getByRole('button', { name: 'Connect account…' }).click();
     await expect.element(page.getByText('7A3C-91F2')).toBeVisible();
-    const activeButton = page.getByRole('button', { name: 'Authorization in progress' });
-    await expect.element(activeButton).toBeDisabled();
-    const activeButtonElement = Array.from(document.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Authorization in progress'),
-    );
-    if (!(activeButtonElement instanceof HTMLButtonElement))
-      throw new Error('active authorization button was not rendered');
-    activeButtonElement.click();
-    expect(startCalls).toBe(1);
-
-    await page.getByRole('button', { name: 'Check approval' }).click();
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('focus'));
     await expect.poll(() => pollCalls).toBe(1);
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expect.element(page.getByText('7A3C-91F2')).not.toBeInTheDocument();
-    await expect
-      .element(page.getByRole('button', { name: 'Sign in or create account' }))
-      .toBeEnabled();
 
     resolvePoll(connectedAccount);
     await expect.poll(() => pollReturned).toBe(true);
     await new Promise((resolve) => window.setTimeout(resolve, 50));
-    await expect.element(page.getByText('7A3C-91F2')).not.toBeInTheDocument();
     await expect.element(page.getByText('Sample User', { exact: true })).not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Connect account…' })).toBeEnabled();
+  });
+
+  test('disconnects only after confirmation', async () => {
+    const fixture = createFixtureApi();
+    let disconnects = 0;
+    const api: LocalApi = {
+      ...fixture,
+      disconnectAccount: async () => {
+        disconnects += 1;
+        return fixture.disconnectAccount();
+      },
+    };
+    renderDashboard('/settings', api);
+    await page.getByRole('button', { name: 'Disconnect…' }).click();
     await expect
-      .element(page.getByRole('button', { name: 'Sign in or create account' }))
-      .toBeEnabled();
+      .element(page.getByRole('dialog', { name: 'Disconnect this device?' }))
+      .toBeVisible();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    expect(disconnects).toBe(0);
+    await page.getByRole('button', { name: 'Disconnect…' }).click();
+    await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
+    await expect.element(page.getByRole('button', { name: 'Connect account…' })).toBeVisible();
+    expect(disconnects).toBe(1);
   });
 
   test('keeps every share progress stage inline on the originating Trace', async () => {
@@ -510,6 +636,52 @@ describe('Notary admin dashboard', () => {
     await page.getByRole('tab', { name: 'Sealing' }).click();
     await new Promise((resolve) => window.setTimeout(resolve, 50));
     expect(startNotarization).toHaveBeenCalledTimes(1);
+  });
+
+  test('explains a closed sealing connection where progress stopped and keeps retry explicit', async () => {
+    const fixture = createFixtureApi();
+    const traceId = fixtureCaptures[0].trace_id;
+    const baseDetail = await fixture.trace(traceId);
+    const operationTemplate = structuredClone(fixtureOperations[0]);
+    const startNotarization = vi.fn(fixture.startNotarization);
+    const trace = vi.fn(async () => ({
+      ...baseDetail,
+      status: 'notarization_failed' as const,
+      notarization: {
+        ...operationTemplate,
+        operation_id: 'op-closed-connection',
+        trace_id: traceId,
+        state: 'failed' as const,
+        retryable: true,
+        failure_code: 'notary_connection_closed',
+        progress: {
+          ...operationTemplate.progress,
+          phase: 'proving',
+          proof: {
+            bytes_completed: 0,
+            bytes_total: 105241,
+            commitments_completed: 0,
+            commitments_total: 2,
+          },
+        },
+      },
+    }));
+
+    renderDashboard(`/traces/${traceId}`, { ...fixture, trace, startNotarization });
+    await page.getByRole('tab', { name: 'Sealing' }).click();
+    const failure = page.getByRole('alert');
+    await expect
+      .element(failure.getByText('Exalto Seal closed the connection', { exact: true }))
+      .toBeVisible();
+    await expect
+      .element(failure.getByText('notary_connection_closed', { exact: true }))
+      .toBeVisible();
+    await expect.element(page.getByText('Stopped · Generating private proof')).toBeVisible();
+    await expect
+      .element(failure.getByText('Choose Retry sealing to start a new attempt.', { exact: false }))
+      .toBeVisible();
+    await page.getByRole('button', { name: 'Retry sealing', exact: true }).click();
+    await expect.poll(() => startNotarization).toHaveBeenCalledWith(traceId);
   });
 
   test('disarms a guided first proof when an active sealing attempt later fails', async () => {
@@ -1098,7 +1270,9 @@ describe('Notary admin dashboard', () => {
     await expect
       .element(page.getByText('credentials configured under admin.auth', { exact: false }))
       .toBeVisible();
-    await expect.element(page.getByText('Hosted account connection')).not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole('region', { name: 'Exalto account' }))
+      .not.toBeInTheDocument();
     await expect.element(page.getByText('Loopback only')).not.toBeInTheDocument();
   });
 
@@ -1123,70 +1297,78 @@ describe('Notary admin dashboard', () => {
     await expect.element(page.getByRole('navigation', { name: 'Admin dashboard' })).toBeVisible();
   });
 
-  test('uses exactly four Settings groups in the desktop surface', async () => {
+  test('groups desktop Preferences into short sections with controls on the right', async () => {
     const actions: DesktopSettingsAction[] = [];
     renderDashboard('/settings', createFixtureApi(), desktopSettings, (action) =>
       actions.push(action),
     );
     await expect
       .poll(() =>
-        Array.from(document.querySelectorAll('.settings-group-title')).map(
+        Array.from(document.querySelectorAll('.preference-section > h2')).map(
           (heading) => heading.textContent,
         ),
       )
-      .toEqual(['Sealing & account', 'Privacy & storage', 'App', 'Advanced']);
+      .toEqual(['Account', 'Sealing', 'Privacy', 'Appearance', 'General', 'Advanced']);
     await expect
       .element(page.getByRole('switch', { name: 'Open Exalto Capture at sign-in' }))
       .toBeChecked();
-    await expect
-      .element(page.getByText(/Closing the window leaves Exalto Capture available/))
-      .toBeVisible();
-    await expect
-      .element(page.getByText('Menu-bar controller', { exact: true }))
-      .not.toBeInTheDocument();
     (
       page
         .getByRole('switch', { name: 'Open Exalto Capture at sign-in' })
         .element() as HTMLInputElement
     ).click();
-    await page.getByRole('button', { name: 'Check now' }).click();
     await page.getByRole('button', { name: 'Restart to update' }).click();
     expect(actions).toEqual([
       { action: 'set_launch_at_login', enabled: false },
-      { action: 'check_for_updates' },
       { action: 'restart_to_update' },
     ]);
   });
 
-  test('shows desktop account, local data, sealing service, updates, and advanced consequences', async () => {
+  test('keeps only actionable facts in desktop Preferences', async () => {
     renderDashboard('/settings', createFixtureApi(), desktopSettings);
     await expect.element(page.getByText('Sample User', { exact: true })).toBeVisible();
-    await expect.element(page.getByText(/does not upload or share local traces/)).toBeVisible();
+    await expect.element(page.getByText('Protected by Keychain', { exact: true })).toBeVisible();
     await expect
-      .element(page.getByRole('heading', { name: 'Protected by Keychain', exact: true }))
+      .element(page.getByText('Kept on this Mac outside the vault', { exact: true }))
       .toBeVisible();
+    await expect.element(page.getByText('Exalto Seal', { exact: true })).toBeVisible();
+    await expect.element(page.getByText('Version 0.1.0', { exact: true })).toBeVisible();
+    for (const removed of [
+      'Active verification key',
+      'Registry generation',
+      'Retained preview limit',
+      'Runtime profile',
+      'Status endpoint',
+      'API version',
+      'Vault mode',
+    ]) {
+      await expect.element(page.getByText(removed, { exact: true })).not.toBeInTheDocument();
+    }
     await expect
-      .element(page.getByText(/not protected by the private-capture vault/))
-      .toBeVisible();
-    await expect.element(page.getByRole('heading', { name: 'Exalto Seal' })).toBeVisible();
-    await expect.element(page.getByText('Signer', { exact: true }).first()).toBeVisible();
-    await expect.element(page.getByText('Seal', { exact: true }).first()).toBeVisible();
-    await expect
-      .element(page.getByText('Operated by Exalto', { exact: true }).first())
+      .element(page.getByRole('link', { name: 'Open generated OpenAPI' }))
       .not.toBeInTheDocument();
-    await expect.element(page.getByText('Alice', { exact: true })).not.toBeInTheDocument();
-    await expect.element(page.getByText('Active verification key', { exact: true })).toBeVisible();
-    await page.getByText('View details', { exact: true }).click();
-    await expect.element(page.getByRole('heading', { name: 'seal1' })).toBeVisible();
-    await expect.element(page.getByRole('heading', { name: 'seal3' })).toBeVisible();
-    await expect.element(page.getByText('Verification key', { exact: true }).first()).toBeVisible();
-    await expect.element(page.getByText(/installed macOS identity/)).toBeVisible();
+    expect(document.querySelectorAll('.preferences a[target="_blank"]')).toHaveLength(0);
+    await expect.element(page.getByRole('button', { name: 'Copy OpenAPI URL' })).toBeVisible();
+
+    await expect.element(page.getByText('Operator', { exact: true }).first()).not.toBeVisible();
+    await page.getByText('Details', { exact: true }).click();
+    await expect.element(page.getByText('Operator', { exact: true }).first()).toBeVisible();
+    await expect.element(page.getByText('seal3', { exact: true })).toBeVisible();
+  });
+
+  test('switches the desktop theme between System, Light, and Dark', async () => {
+    renderDashboard('/settings', createFixtureApi(), desktopSettings);
+    const theme = page.getByRole('radiogroup', { name: 'Theme' });
+    await expect.element(theme.getByRole('radio', { name: 'System' })).toBeChecked();
+    await theme.getByText('Dark', { exact: true }).click();
     await expect
-      .element(page.getByText('ai.exalto.capture', { exact: false }))
-      .not.toBeInTheDocument();
-    await expect.element(page.getByText('Service', { exact: true })).toBeVisible();
-    await expect.element(page.getByText('Developer', { exact: true })).toBeVisible();
-    await expect.element(page.getByText('Provider routes')).not.toBeInTheDocument();
+      .poll(() => document.documentElement.getAttribute('data-mantine-color-scheme'))
+      .toBe('dark');
+    expect(localStorage.getItem('mantine-color-scheme-value')).toBe('dark');
+    await theme.getByText('Light', { exact: true }).click();
+    await expect
+      .poll(() => document.documentElement.getAttribute('data-mantine-color-scheme'))
+      .toBe('light');
   });
 
   test('does not brand third-party or explicit sealing trust as Exalto Seal', async () => {
@@ -1202,7 +1384,7 @@ describe('Notary admin dashboard', () => {
       }),
     };
     renderDashboard('/settings', thirdParty, desktopSettings);
-    await expect.element(page.getByRole('heading', { name: 'Northstar Seal' })).toBeVisible();
+    await expect.element(page.getByText('Northstar Seal', { exact: true }).first()).toBeVisible();
     await expect.element(page.getByText('Exalto Seal', { exact: true })).not.toBeInTheDocument();
 
     cleanup();
@@ -1224,7 +1406,7 @@ describe('Notary admin dashboard', () => {
     };
     renderDashboard('/settings', explicit, desktopSettings);
     await expect
-      .element(page.getByRole('heading', { name: 'Configured sealing service' }))
+      .element(page.getByText('Configured sealing service', { exact: true }))
       .toBeVisible();
     await expect.element(page.getByText('Exalto Seal', { exact: true })).not.toBeInTheDocument();
   });
@@ -1246,7 +1428,7 @@ describe('Notary admin dashboard', () => {
       update: { ...readyUpdate, phase: 'ready' },
       restart_block_reason: 'Wait for the active seal to finish before restarting to update.',
     });
-    await expect.element(page.getByRole('button', { name: 'Reconnect' })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Reconnect…' })).toBeVisible();
     await expect
       .element(page.getByText('Wait for the active seal to finish before restarting to update.'))
       .toBeVisible();

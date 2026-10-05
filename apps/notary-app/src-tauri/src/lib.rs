@@ -20,15 +20,14 @@ mod vault;
 use agent_setup::{detect_agent_apps, open_agent_setup};
 use daemon::{
     DaemonProcess, managed_daemon_is_healthy, owned_child_present,
-    request_managed_daemon_shutdown_inner, restart_daemon, start_daemon, stop_daemon,
+    request_managed_daemon_shutdown_inner, start_daemon,
 };
 use service_client::{
     SealingServiceIdentity, TemporaryCaptureState, begin_temporary_capture,
-    confirm_disposable_trace, daemon_is_healthy, disconnect_account, end_temporary_capture,
-    get_account_connection, get_recent_trace_probes, open_account_link, open_product_link,
-    poll_account_connection, read_admin_status, read_sealing_service,
+    confirm_disposable_trace, daemon_is_healthy, end_temporary_capture, get_recent_trace_probes,
+    open_account_link, open_product_link, read_admin_status, read_sealing_service,
     read_sealing_service_readiness, recover_temporary_capture, restore_temporary_capture,
-    set_capture_enabled, start_account_connection,
+    set_capture_enabled,
 };
 use tray::{
     AppMenuAction, app_menu_action, create_app_menu, create_tray, schedule_capture_menu_updates,
@@ -323,10 +322,6 @@ pub fn run() {
             models::list_chat_models,
             chat::cancel_chat,
             get_desktop_state,
-            get_account_connection,
-            start_account_connection,
-            poll_account_connection,
-            disconnect_account,
             open_account_link,
             open_product_link,
             detect_agent_apps,
@@ -341,8 +336,6 @@ pub fn run() {
             unlock_vault,
             complete_onboarding,
             start_daemon,
-            stop_daemon,
-            restart_daemon,
             get_update_state,
             check_for_updates,
             install_update_and_restart,

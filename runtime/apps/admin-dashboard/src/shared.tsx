@@ -84,6 +84,19 @@ export function authProviderLabel(provider?: string | null) {
   return provider === 'google' ? 'Google' : provider === 'github' ? 'GitHub' : provider;
 }
 
+const plans: Record<string, string> = {
+  free: 'Free plan',
+  one_gb: '1 GB plan',
+  ten_gb: '10 GB plan',
+};
+
+export function planLabel(plan: string, billingStatus?: string | null) {
+  const label = plans[plan] ?? plan.replaceAll('_', ' ');
+  return billingStatus && billingStatus !== 'active'
+    ? `${label} (${billingStatus.replaceAll('_', ' ')})`
+    : label;
+}
+
 export function formatDate(value?: number | null) {
   if (!value) return 'Not yet';
   return new Intl.DateTimeFormat(undefined, {

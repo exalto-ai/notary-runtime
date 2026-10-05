@@ -39,10 +39,10 @@ use crate::{
     },
     attestable_request_header_bytes, capture_streaming_request_to,
     capture_streaming_request_to_admitted, chunked_request_body,
-    cluster_runtime::{ClusterRuntime, Lifecycle},
+    cluster_runtime::{ClaimedCapture, ClusterRuntime, Lifecycle},
     config::{NotarydConfig, ProviderConfig},
     metadata::{CaptureCompletion, NewTrace},
-    metadata_store::{CaptureClaim, MetadataStoreError},
+    metadata_store::MetadataStoreError,
     notary_admission_error,
     persistence::Persistence,
     registry::{NotaryEndpoint, Registry, RegistryRecord},
@@ -226,12 +226,7 @@ impl CaptureMode {
         if let Some(notary) = self.notary.read().await.clone() {
             return Ok(notary);
         }
-        let notary = initialize_notary(
-            &self.config,
-            &self.persistence,
-            self.cluster_runtime.as_deref(),
-        )
-        .await?;
+        let notary = initialize_notary(&self.config, self.cluster_runtime.as_deref()).await?;
         *self.notary.write().await = Some(notary.clone());
         Ok(notary)
     }
@@ -366,13 +361,12 @@ pub async fn run(args: ProxyArgs) -> Result<()> {
     // Open and validate persistence before notary discovery or interactive
     // vault initialization. A PostgreSQL outage or unmigrated schema therefore
     // fails startup directly and never causes a fallback or unrelated prompt.
-    let cluster_runtime = config
+    let cluster_identity = config
         .cluster
         .is_some()
-        .then(ClusterRuntime::from_environment)
-        .transpose()?
-        .map(Arc::new);
-    if cluster_runtime.is_some()
+        .then(ClusterRuntime::identity_from_environment)
+        .transpose()?;
+    if cluster_identity.is_some()
         && hosted_admission_required(&config)
         && !auth::api_key_mode_active()?
     {
@@ -380,10 +374,17 @@ pub async fn run(args: ProxyArgs) -> Result<()> {
             "hosted notary discovery requires NOTARYD_PLATFORM_API_KEY or NOTARYD_PLATFORM_API_KEY_FILE"
         );
     }
-    if cluster_runtime.is_some() && std::env::var_os(DESKTOP_CONTROL_STDIN_ENV).is_some() {
+    if cluster_identity.is_some() && std::env::var_os(DESKTOP_CONTROL_STDIN_ENV).is_some() {
         bail!("desktop child-process control is unavailable in cluster mode");
     }
-    let persistence = Persistence::open(&config).await?;
+    let (persistence, cluster_runtime) = match cluster_identity {
+        Some(identity) => {
+            let (persistence, cluster_runtime) =
+                Persistence::open_cluster(&config, identity).await?;
+            (persistence, Some(Arc::new(cluster_runtime)))
+        }
+        None => (Persistence::open(&config).await?, None),
+    };
     if desktop_force_capture_disabled_from_environment() {
         // A desktop recovery marker means the app may have crashed while it
         // temporarily borrowed capture. Persist OFF before either listener is
@@ -402,8 +403,8 @@ pub async fn run(args: ProxyArgs) -> Result<()> {
     };
     if let Some(cluster_runtime) = &cluster_runtime {
         let vault_identity = vault.cluster_identity_sha256()?;
-        persistence
-            .cluster_metadata()
+        cluster_runtime
+            .metadata()
             .register_replica(
                 cluster_runtime.identity(),
                 &config.cluster_compatibility_sha256(&vault_identity)?,
@@ -428,7 +429,7 @@ pub async fn run(args: ProxyArgs) -> Result<()> {
     let capture_enabled = persistence.metadata.capture_enabled().await?;
     let config = Arc::new(config);
     let notary = if capture_enabled {
-        Some(initialize_notary(&config, &persistence, cluster_runtime.as_deref()).await?)
+        Some(initialize_notary(&config, cluster_runtime.as_deref()).await?)
     } else {
         None
     };
@@ -482,11 +483,7 @@ pub async fn run(args: ProxyArgs) -> Result<()> {
     if let Some(cluster_runtime) = &cluster_runtime {
         cluster_runtime.mark_ready();
     }
-    let mut heartbeat = spawn_server_heartbeat(
-        state.persistence.clone(),
-        cluster_runtime.clone(),
-        heartbeat_shutdown_rx,
-    );
+    let mut heartbeat = spawn_server_heartbeat(cluster_runtime.clone(), heartbeat_shutdown_rx);
     let capture_recovery = spawn_capture_recovery_worker(
         state.persistence.clone(),
         cluster_runtime.clone(),
@@ -630,9 +627,8 @@ pub async fn run(args: ProxyArgs) -> Result<()> {
         joined(heartbeat.await, "cluster replica heartbeat")?;
     }
     if let (Some(cluster_runtime), false) = (&cluster_runtime, forced_server_shutdown) {
-        state
-            .persistence
-            .cluster_metadata()
+        cluster_runtime
+            .metadata()
             .release_replica(cluster_runtime.identity())
             .await?;
     }
@@ -688,7 +684,6 @@ fn spawn_capture_recovery_worker(
 }
 
 fn spawn_server_heartbeat(
-    persistence: Persistence,
     cluster_runtime: Option<Arc<ClusterRuntime>>,
     mut shutdown: watch::Receiver<bool>,
 ) -> tokio::task::JoinHandle<Result<()>> {
@@ -704,8 +699,8 @@ fn spawn_server_heartbeat(
                 }
                 () = tokio::time::sleep(std::time::Duration::from_secs(cluster_runtime.heartbeat_interval_seconds())) => {}
             }
-            match persistence
-                .cluster_metadata()
+            match cluster_runtime
+                .metadata()
                 .heartbeat_replica(cluster_runtime.identity(), cluster_runtime.lease_seconds())
                 .await
             {
@@ -838,16 +833,15 @@ pub(crate) async fn discover_notary() -> Result<NotaryEndpoint> {
 
 async fn initialize_notary(
     config: &NotarydConfig,
-    persistence: &Persistence,
     cluster_runtime: Option<&ClusterRuntime>,
 ) -> Result<NotaryEndpoint> {
-    match config.notary_endpoint()? {
-        Some(notary) => Ok(notary),
-        None if cluster_runtime.is_some() => {
+    match (config.notary_endpoint()?, cluster_runtime) {
+        (Some(notary), _) => Ok(notary),
+        (None, Some(cluster_runtime)) => {
             let (registry, registry_source_url) =
                 fetch_registry_from(&super::auth::configured_api_origin()?).await?;
-            let snapshot = persistence
-                .cluster_metadata()
+            let snapshot = cluster_runtime
+                .metadata()
                 .pin_registry(registry, registry_source_url.as_str())
                 .await?;
             let active = snapshot
@@ -857,7 +851,7 @@ async fn initialize_notary(
                 .context("shared Registry is missing its active endpoint")?;
             resolve_notary(active).await
         }
-        None => discover_notary().await,
+        (None, None) => discover_notary().await,
     }
 }
 
@@ -1219,11 +1213,11 @@ async fn proxy_inner(state: AppState, request: Request) -> Result<Response> {
         prompt_preview_truncated: request_metadata.prompt_preview_truncated,
         config_fingerprint: state.config_fingerprint.to_string(),
     };
-    if let (Some(cluster_runtime), Some(claim)) = (&state.cluster_runtime, &capture_claim) {
-        state
-            .persistence
-            .cluster_metadata()
-            .begin_capture_claimed(new_capture, claim, cluster_runtime.lease_seconds())
+    if let Some(claim) = &capture_claim {
+        let cluster_runtime = claim.runtime();
+        cluster_runtime
+            .metadata()
+            .begin_capture_claimed(new_capture, claim.claim(), cluster_runtime.lease_seconds())
             .await?;
     } else {
         state
@@ -1232,14 +1226,11 @@ async fn proxy_inner(state: AppState, request: Request) -> Result<Response> {
             .begin_capture(new_capture)
             .await?;
     }
-    let mut capture_claim_lease =
-        match (&state.cluster_runtime, &capture_claim) {
-            (Some(cluster_runtime), Some(claim)) => Some(cluster_runtime.keep_capture_claim_alive(
-                state.persistence.cluster_metadata().clone(),
-                claim.clone(),
-            )),
-            _ => None,
-        };
+    let mut capture_claim_lease = capture_claim.as_ref().map(|claim| {
+        claim
+            .runtime()
+            .keep_capture_claim_alive(claim.claim().clone())
+    });
     let started = Instant::now();
     let capture = CaptureConfig {
         trace_id: trace_id.clone(),
@@ -1376,7 +1367,6 @@ async fn proxy_inner(state: AppState, request: Request) -> Result<Response> {
                     };
                     if let Err(error) = prepare_capture(
                         &trace_state.persistence,
-                        trace_state.cluster_runtime.as_deref(),
                         capture_claim_for_task.as_ref(),
                         completion.clone(),
                     )
@@ -1534,7 +1524,6 @@ async fn proxy_inner(state: AppState, request: Request) -> Result<Response> {
     };
     if let Err(error) = prepare_capture(
         &state.persistence,
-        state.cluster_runtime.as_deref(),
         capture_claim.as_ref(),
         completion.clone(),
     )
@@ -1706,7 +1695,7 @@ fn artifact_expectation(encrypted: &[u8]) -> (u64, String) {
 async fn store_checkpoint(
     persistence: &Persistence,
     trace_id: &str,
-    claim: Option<&CaptureClaim>,
+    claim: Option<&ClaimedCapture>,
     encrypted: Vec<u8>,
 ) -> Result<crate::artifact_store::ArtifactRecord> {
     let key = ArtifactKey::new(trace_id, ArtifactKind::CaptureCheckpoint)?;
@@ -1715,7 +1704,7 @@ async fn store_checkpoint(
             .artifacts
             .put_scoped(
                 &key,
-                &claim.commit_id,
+                &claim.claim().commit_id,
                 ArtifactSource::from_bytes(encrypted),
                 MAX_ARCHIVE_WIRE_BYTES,
             )
@@ -1736,14 +1725,15 @@ async fn store_checkpoint(
 
 async fn fail_capture(
     persistence: &Persistence,
-    claim: Option<&CaptureClaim>,
+    claim: Option<&ClaimedCapture>,
     trace_id: &str,
     failure_code: &str,
 ) -> Result<()> {
     if let Some(claim) = claim {
-        persistence
-            .cluster_metadata()
-            .fail_capture_claimed(claim, failure_code)
+        claim
+            .runtime()
+            .metadata()
+            .fail_capture_claimed(claim.claim(), failure_code)
             .await?;
     } else {
         persistence
@@ -1756,14 +1746,18 @@ async fn fail_capture(
 
 async fn prepare_capture(
     persistence: &Persistence,
-    cluster_runtime: Option<&ClusterRuntime>,
-    claim: Option<&CaptureClaim>,
+    claim: Option<&ClaimedCapture>,
     completion: CaptureCompletion,
 ) -> Result<()> {
-    if let (Some(cluster_runtime), Some(claim)) = (cluster_runtime, claim) {
-        persistence
-            .cluster_metadata()
-            .prepare_capture_completion_claimed(completion, claim, cluster_runtime.lease_seconds())
+    if let Some(claim) = claim {
+        let cluster_runtime = claim.runtime();
+        cluster_runtime
+            .metadata()
+            .prepare_capture_completion_claimed(
+                completion,
+                claim.claim(),
+                cluster_runtime.lease_seconds(),
+            )
             .await?;
     } else {
         persistence
@@ -1776,14 +1770,15 @@ async fn prepare_capture(
 
 async fn complete_capture(
     persistence: &Persistence,
-    claim: Option<&CaptureClaim>,
+    claim: Option<&ClaimedCapture>,
     completion: CaptureCompletion,
     artifact: crate::artifact_store::ArtifactRecord,
 ) -> Result<()> {
     if let Some(claim) = claim {
-        persistence
-            .cluster_metadata()
-            .complete_capture_claimed(completion, artifact, claim)
+        claim
+            .runtime()
+            .metadata()
+            .complete_capture_claimed(completion, artifact, claim.claim())
             .await?;
     } else {
         persistence
@@ -2278,7 +2273,6 @@ mod tests {
                 SqliteMetadata::open(std::path::Path::new(":memory:"), true).unwrap(),
                 true,
             )),
-            cluster_metadata: None,
             artifacts: Arc::new(artifacts),
         };
         let config = Arc::new(config);
@@ -2502,7 +2496,6 @@ mod tests {
                 SqliteMetadata::open(std::path::Path::new(":memory:"), true).unwrap(),
                 true,
             )),
-            cluster_metadata: None,
             artifacts: Arc::new(artifacts),
         };
         persistence

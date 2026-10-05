@@ -37,7 +37,8 @@ import type {
   ReactNode,
   PointerEvent as ReactPointerEvent,
 } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { AccountConnectionCard, accountQuery, isAccountConnected } from '../AccountConnection';
 import type {
   LocalApi,
   Operation,
@@ -68,7 +69,6 @@ import {
   stateTone,
   timeRangeStart,
 } from '../shared';
-import { AccountConnectionCard, useAccountConnection } from './SettingsView';
 
 type Route = DashboardRoute;
 
@@ -144,6 +144,56 @@ function notarizationPhaseLabel(phase: string) {
     default:
       return phase.replaceAll('_', ' ');
   }
+}
+
+const sealingFailureCopy: Record<string, { title: string; detail: string }> = {
+  notary_connection_closed: {
+    title: 'Exalto Seal closed the connection',
+    detail:
+      'Sealing stopped before a seal was issued. The service may have refused this request, or the connection dropped.',
+  },
+  notary_timeout: {
+    title: 'Exalto Seal stopped responding',
+    detail: 'Sealing did not finish within its time limit, so this attempt was stopped.',
+  },
+  notary_capacity: {
+    title: 'Exalto Seal is at capacity',
+    detail: 'The service could not accept another sealing session.',
+  },
+  service_restarted: {
+    title: 'The local service restarted during sealing',
+    detail: 'The attempt in progress was stopped when the service restarted.',
+  },
+};
+
+function sealingFailure(operation: Operation) {
+  const copy = operation.failure_code ? sealingFailureCopy[operation.failure_code] : undefined;
+  if (copy) return copy;
+  return operation.state === 'interrupted'
+    ? { title: 'Sealing was interrupted', detail: 'The attempt stopped before a seal was issued.' }
+    : { title: 'Sealing failed', detail: 'The attempt stopped before a seal was issued.' };
+}
+
+// The Trace header owns the single Retry sealing action; this note explains
+// the stopped attempt in place of its progress and points to that action.
+function SealingFailure({ operation }: { operation: Operation }) {
+  if (operation.state !== 'failed' && operation.state !== 'interrupted') return null;
+  const { title, detail } = sealingFailure(operation);
+  return (
+    <div className="notarization-ineligible-note sealing-failure-note" role="alert">
+      <XCircle size={18} aria-hidden="true" />
+      <div>
+        <b>{title}</b>
+        <Text>
+          {detail} Nothing was sealed and the private capture is unchanged.{' '}
+          {operation.retryable
+            ? 'Choose Retry sealing to start a new attempt.'
+            : 'This attempt cannot be retried.'}
+        </Text>
+        {operation.failure_code && <code>{operation.failure_code}</code>}
+      </div>
+    </div>
+  );
 }
 
 function proofPercent(operation: Operation | OperationSummary) {
@@ -873,7 +923,8 @@ function CapturedTraceInspector({
       }
     },
   });
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run only when the capture or its detail changes; consumeFirstProofAction and notarize.mutate are per-render handlers, and capture.trace_id stands in for firstProofActionKey, which is derived from it.
+  const consumeFirstProofActionFromEffect = useEffectEvent(consumeFirstProofAction);
+  const startFirstProof = useEffectEvent(() => notarize.mutate());
   useEffect(() => {
     if (!firstProofRequested || !detail.data) return;
     const operationState = detail.data.notarization?.state;
@@ -881,14 +932,14 @@ function CapturedTraceInspector({
       setFirstProofStartError(
         'This provider response is not eligible for sealing. Keep it local or delete the disposable test.',
       );
-      consumeFirstProofAction();
+      consumeFirstProofActionFromEffect();
       return;
     }
     if (operationState === 'failed' || operationState === 'interrupted') {
       setFirstProofStartError(
         'A previous sealing attempt needs attention. Review it, then choose Retry sealing explicitly.',
       );
-      consumeFirstProofAction();
+      consumeFirstProofActionFromEffect();
       return;
     }
     if (operationState === 'succeeded') return;
@@ -897,26 +948,26 @@ function CapturedTraceInspector({
       setFirstProofStartError(
         'A previous sealing attempt needs attention. Review it, then choose Retry sealing explicitly.',
       );
-      consumeFirstProofAction();
+      consumeFirstProofActionFromEffect();
       return;
     }
     if (capture.status === 'notarizing') return;
     if (capture.state === 'captured' && capture.status == null && !detail.data.notarization) {
       if (handledInitialAction.current === firstProofActionKey) return;
       handledInitialAction.current = firstProofActionKey;
-      notarize.mutate();
+      startFirstProof();
       return;
     }
     setFirstProofStartError(
       'Automatic sealing did not start because this Trace changed state. Review it before continuing.',
     );
-    consumeFirstProofAction();
+    consumeFirstProofActionFromEffect();
   }, [
     capture.notarization_eligible,
     capture.state,
     capture.status,
-    capture.trace_id,
     detail.data,
+    firstProofActionKey,
     firstProofRequested,
   ]);
   if (detail.isLoading) return <LoadingState />;
@@ -1148,7 +1199,10 @@ function ProofProgress({ operation }: { operation: Operation }) {
         <span>
           {proof.commitments_completed} / {proof.commitments_total} commitments sealed
         </span>
-        <span>{notarizationPhaseLabel(operation.progress.phase)}</span>
+        <span>
+          {['failed', 'interrupted'].includes(operation.state) && 'Stopped · '}
+          {notarizationPhaseLabel(operation.progress.phase)}
+        </span>
       </footer>
     </section>
   );
@@ -1188,6 +1242,7 @@ function OperationInspector({
           </Text>
         </div>
       )}
+      <SealingFailure operation={operation} />
       <ProofProgress operation={operation} />
       <dl className="receipt-list">
         <Fact label="Trace ID" value={operation.trace_id ?? '—'} />
@@ -1260,7 +1315,7 @@ function NotarizedTraceInspector({
     queryKey: ['capture', captureId],
     queryFn: () => api.trace(captureId),
   });
-  const accountConnection = useAccountConnection(api);
+  const account = useQuery(accountQuery(api)).data;
   const [verification, setVerification] = useState<Verification | null>(null);
   const [verificationFailure, setVerificationFailure] = useState<string | null>(null);
   const [guidedFirstProof, setGuidedFirstProof] = useState(initialAction === 'first-proof');
@@ -1443,18 +1498,19 @@ function NotarizedTraceInspector({
     },
     onError: (error) => mutationError('Could not stop sharing', error),
   });
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run only when the Trace, its detail, or the requested action changes; exportTrace.mutate and verify.mutate are per-render handlers, and handledInitialAction guards repeats.
+  const startExport = useEffectEvent(() => exportTrace.mutate());
+  const startVerification = useEffectEvent(() => verify.mutate());
   useEffect(() => {
     if (!initialAction || !trace.data || !detail.data) return;
     const actionKey = `${captureId}:${initialAction}`;
     if (handledInitialAction.current === actionKey) return;
     handledInitialAction.current = actionKey;
-    if (initialAction === 'export') exportTrace.mutate();
+    if (initialAction === 'export') startExport();
     else if (initialAction === 'share') setShareDialogMode('create');
     else {
       guidedFirstProofRequested.current = true;
       setGuidedFirstProof(true);
-      verify.mutate();
+      startVerification();
     }
   }, [captureId, detail.data, initialAction, trace.data]);
   if (trace.isLoading || detail.isLoading) return <LoadingState />;
@@ -1476,8 +1532,7 @@ function NotarizedTraceInspector({
   const sharingBlocksDeletion = Boolean(
     activeShare && (activeShare.progress === 'verifying' || activeShare.access_enabled),
   );
-  const account = accountConnection.account.data;
-  const accountConnected = Boolean(account?.signed_in || account?.connection_state === 'connected');
+  const accountConnected = isAccountConnected(account);
   const openShareDialog = (mode: ShareDialogMode) => {
     setShareDialogMode(mode);
     setShareVisibility(activeShare?.visibility ?? 'unlisted');
@@ -1887,7 +1942,7 @@ function NotarizedTraceInspector({
             </Text>
           )}
         {!accountConnected ? (
-          <AccountConnectionCard controller={accountConnection} compact />
+          <AccountConnectionCard api={api} />
         ) : (
           <div className="trace-share-review">
             <section className="trace-share-disclosure" aria-label="Disclosure review">

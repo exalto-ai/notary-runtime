@@ -7,14 +7,22 @@ import { detectAgentApps, openAgentSetup } from './bridge';
 vi.mock('./bridge', () => ({
   detectAgentApps: vi.fn(),
   openAgentSetup: vi.fn(),
-  errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
+  errorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
 }));
 
 beforeEach(() => {
-  vi.mocked(detectAgentApps).mockResolvedValue({ codex: true, claude_cli: true, claude_desktop: true });
+  vi.mocked(detectAgentApps).mockResolvedValue({
+    codex: true,
+    claude_cli: true,
+    claude_desktop: true,
+  });
   vi.mocked(openAgentSetup).mockResolvedValue(undefined);
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.resetAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.resetAllMocks();
+});
 
 test('detects without launching and opens an unsent Codex setup prompt on request', async () => {
   const prompt = agentSetupPrompt('codex');
@@ -38,7 +46,11 @@ test('prefers Claude Desktop and labels the terminal fallback explicitly', async
   await userEvent.click(page.getByRole('button', { name: 'Open in Claude Code' }));
   expect(openAgentSetup).toHaveBeenLastCalledWith('claude_desktop', prompt);
   view.unmount();
-  vi.mocked(detectAgentApps).mockResolvedValue({ codex: false, claude_cli: true, claude_desktop: false });
+  vi.mocked(detectAgentApps).mockResolvedValue({
+    codex: false,
+    claude_cli: true,
+    claude_desktop: false,
+  });
   render(<AgentSetup client="claude" prompt={prompt} manual={null} />);
   await userEvent.click(page.getByRole('button', { name: 'Open Claude Code in Terminal' }));
   expect(openAgentSetup).toHaveBeenLastCalledWith('claude_cli', prompt);
@@ -57,12 +69,20 @@ test('failed launch exposes the same selectable prompt without implying setup su
 });
 
 test('missing handlers offer copy first and detect again after returning to Capture', async () => {
-  vi.mocked(detectAgentApps).mockResolvedValue({ codex: false, claude_cli: false, claude_desktop: false });
+  vi.mocked(detectAgentApps).mockResolvedValue({
+    codex: false,
+    claude_cli: false,
+    claude_desktop: false,
+  });
   render(<AgentSetup client="codex" prompt={agentSetupPrompt('codex')} manual={null} />);
   await expect.element(page.getByText(/Codex link handler not found/)).toBeVisible();
   await expect.element(page.getByRole('button', { name: 'Open in Codex' })).not.toBeInTheDocument();
   await expect.element(page.getByRole('button', { name: 'Copy setup prompt' })).toBeEnabled();
-  vi.mocked(detectAgentApps).mockResolvedValue({ codex: true, claude_cli: false, claude_desktop: false });
+  vi.mocked(detectAgentApps).mockResolvedValue({
+    codex: true,
+    claude_cli: false,
+    claude_desktop: false,
+  });
   window.dispatchEvent(new Event('focus'));
   await expect.element(page.getByRole('button', { name: 'Open in Codex' })).toBeVisible();
   expect(openAgentSetup).not.toHaveBeenCalled();
@@ -70,7 +90,9 @@ test('missing handlers offer copy first and detect again after returning to Capt
 
 test('detection failure leaves manual instructions collapsed and a copy fallback', async () => {
   vi.mocked(detectAgentApps).mockRejectedValue(new Error('Unavailable'));
-  render(<AgentSetup client="claude" prompt={agentSetupPrompt('claude')} manual={<p>Manual steps</p>} />);
+  render(
+    <AgentSetup client="claude" prompt={agentSetupPrompt('claude')} manual={<p>Manual steps</p>} />,
+  );
   await expect.element(page.getByText(/App detection is unavailable/)).toBeVisible();
   await expect.element(page.getByRole('button', { name: 'Copy setup prompt' })).toBeEnabled();
   await expect.element(page.getByText('Manual steps')).not.toBeVisible();
@@ -87,6 +109,8 @@ test('copy sends the exact prompt to the clipboard and clipboard failure reveals
   await expect.element(page.getByText(/Copied. Paste into a local Claude Code/)).toBeVisible();
   writeText.mockRejectedValue(new Error('Denied'));
   await userEvent.click(page.getByRole('button', { name: 'Copy setup prompt' }));
-  await expect.element(page.getByRole('alert')).toHaveTextContent('Clipboard access failed. Select and copy the prompt below.');
+  await expect
+    .element(page.getByRole('alert'))
+    .toHaveTextContent('Clipboard access failed. Select and copy the prompt below.');
   await expect.element(page.getByRole('textbox', { name: 'Setup prompt' })).toHaveValue(prompt);
 });

@@ -30,13 +30,14 @@ import './styles.css';
 import type { LocalApi, LocalApiError, Status } from './api';
 import { ErrorState, LoadingState } from './shared';
 import { ActivityView } from './views/ActivityView';
+import type { DesktopSettingsAction, DesktopSettingsState } from './views/DesktopSettingsView';
+import { DesktopSettingsView } from './views/DesktopSettingsView';
 import { OverviewView } from './views/OverviewView';
 import { ProvidersView } from './views/ProvidersView';
-import type { DesktopSettingsAction, DesktopSettingsState } from './views/SettingsView';
-import { DesktopSettingsView, StandaloneSettingsView } from './views/SettingsView';
+import { StandaloneSettingsView } from './views/SettingsView';
 import { TracesView } from './views/TracesView';
 
-export type { DesktopSettingsAction, DesktopSettingsState } from './views/SettingsView';
+export type { DesktopSettingsAction, DesktopSettingsState } from './views/DesktopSettingsView';
 
 import {
   type DashboardRoute,

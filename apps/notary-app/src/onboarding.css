@@ -1,61 +1,23 @@
 /* Exalto Capture setup.
  *
- * Two surfaces, one job each. A dark rail repeats the app's own sidebar
- * geometry and carries the setup ledger: the steps, and the decision each
- * finished step recorded. A single paper sheet carries the work, with the
- * primary action always parked on a fixed footer so a 980x680 window never
- * hides it. Setup follows the system appearance like the rest of the app, so
- * opening it from a dark workspace does not flash a light sheet. */
+ * Two surfaces, one job each. A transparent rail repeats the app's own
+ * sidebar over the system Sidebar material and carries the setup ledger: the
+ * steps, and the decision each finished step recorded. A single sheet carries
+ * the work, with the primary action always parked on a fixed footer so a
+ * 980x680 window never hides it. Colours come from the desktop tokens in
+ * styles.css, so setup follows the Appearance setting like every other view. */
 
 .exalto-onboarding {
-  --window: #f5f3ec;
-  --surface: #fdfcf7;
-  --surface-secondary: #ebe8dd;
-  --surface-hover: rgba(30, 74, 115, .06);
-  --text: #1a2233;
-  --secondary: #465166;
-  --tertiary: #6d7482;
-  --separator: rgba(26, 34, 51, .14);
-  --separator-soft: rgba(26, 34, 51, .08);
-  --blue: #1e4a73;
-  --blue-hover: #16395a;
-  --blue-soft: rgba(30, 74, 115, .1);
-  --green: #0e8f5d;
-  --green-soft: rgba(14, 143, 93, .09);
-  --orange: #8d551e;
-  --orange-soft: rgba(168, 101, 38, .09);
-  --orange-rule: rgba(168, 101, 38, .34);
-  --red: #b3402a;
-  --red-soft: rgba(179, 64, 42, .08);
-  --night: #0c1622;
-  --night-rule: rgba(255, 255, 255, .1);
-  --night-ink: #f5f3ec;
-  --night-muted: #9aa8b7;
-  --phosphor: #35e39b;
-  --blue-rule: rgba(30, 74, 115, .4);
-  --on-blue: #fff;
-  --on-green: #fff;
   --column: 640px;
   --gutter: max(24px, calc((100% - var(--column)) / 2));
   color: var(--text);
-  color-scheme: light;
-  background: var(--surface);
   font: 400 var(--text-body)/1.5 var(--font-text);
 }
 
 .exalto-onboarding.onboarding-window {
   grid-template-rows: minmax(0, 1fr);
   grid-template-columns: 232px minmax(0, 1fr);
-  background: var(--surface);
-}
-
-.exalto-onboarding button:focus-visible,
-.exalto-onboarding input:focus-visible,
-.exalto-onboarding textarea:focus-visible,
-.exalto-onboarding summary:focus-visible,
-.exalto-onboarding label:focus-within {
-  outline: 3px solid rgba(30, 74, 115, .42);
-  outline-offset: 1px;
+  background: transparent;
 }
 
 /* The setup ledger rail */
@@ -64,9 +26,8 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  border-right: 1px solid var(--night-rule);
-  background: var(--night);
-  color: var(--night-ink);
+  border-right: 1px solid var(--separator-soft);
+  color: var(--text);
 }
 
 .setup-rail-drag { height: 44px; flex: 0 0 44px; }
@@ -81,19 +42,18 @@
 .setup-brand img {
   width: 27px;
   height: 27px;
-  border: 1px solid rgba(255, 255, 255, .13);
-  border-radius: 5px;
+  border: 1px solid var(--separator-soft);
+  border-radius: 6px;
 }
 
 .setup-brand strong {
-  color: var(--night-ink);
   font: 640 var(--text-section)/1.1 var(--font-display);
   letter-spacing: -.012em;
 }
 
 .setup-rail-label {
   padding: 0 18px 9px;
-  color: var(--night-muted);
+  color: var(--secondary);
   font: 600 var(--text-caption)/1.2 var(--font-text);
 }
 
@@ -112,8 +72,8 @@
   column-gap: 10px;
   min-height: 38px;
   padding: 7px 8px;
-  border-radius: 4px;
-  color: var(--night-muted);
+  border-radius: var(--control-radius);
+  color: var(--secondary);
 }
 
 .setup-ledger li:has(> .ledger-step) { display: block; padding: 0; }
@@ -127,7 +87,7 @@
   min-height: 38px;
   padding: 7px 8px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--control-radius);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -136,16 +96,16 @@
 }
 
 .ledger-step:hover:not(:disabled) {
-  background: rgba(255, 255, 255, .06);
-  color: var(--night-ink);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  color: var(--text);
 }
 
 .ledger-step:disabled { cursor: default; }
 
+/* The current step takes the source-list selection. */
 .setup-ledger li.is-current {
-  background: rgba(255, 255, 255, .1);
-  color: #fff;
-  box-shadow: inset 2px 0 0 var(--phosphor);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text);
 }
 
 .ledger-mark {
@@ -155,20 +115,17 @@
   height: 18px;
   place-items: center;
   align-self: center;
-  border: 1px solid rgba(255, 255, 255, .16);
+  border: 1px solid var(--separator-strong);
   border-radius: 3px;
   font: 500 10px/1 var(--font-code);
 }
 
 .setup-ledger li.is-done .ledger-mark {
-  border-color: rgba(53, 227, 155, .45);
-  color: var(--phosphor);
+  border-color: var(--green);
+  color: var(--green);
 }
 
-.setup-ledger li.is-current .ledger-mark {
-  border-color: rgba(255, 255, 255, .5);
-  color: #fff;
-}
+.setup-ledger li.is-current .ledger-mark { border-color: var(--text); }
 
 .ledger-name { font: 500 var(--text-label)/1.3 var(--font-text); }
 
@@ -176,13 +133,12 @@
   grid-column: 2;
   overflow: hidden;
   margin-top: 2px;
-  color: var(--night-muted);
   font-size: var(--text-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.setup-ledger li.is-current .ledger-value { color: #cbd6e1; }
+.setup-ledger li.is-current .ledger-value { color: var(--secondary); }
 
 /* The work sheet */
 
@@ -238,10 +194,7 @@
   font: 500 var(--text-label)/1.2 var(--font-text);
 }
 
-.exalto-onboarding .onboarding-close:hover:not(:disabled) {
-  border-color: var(--blue-rule);
-  color: var(--blue);
-}
+.exalto-onboarding .onboarding-close:hover:not(:disabled) { background: var(--surface-hover); }
 
 .exalto-onboarding .onboarding-close:disabled { opacity: .45; }
 
@@ -318,40 +271,6 @@
   padding: 13px var(--gutter);
   border-top: 1px solid var(--separator);
   background: var(--surface);
-}
-
-.exalto-onboarding .mac-button {
-  min-height: var(--control-height);
-  border: 1px solid var(--separator);
-  border-radius: var(--control-radius);
-  background: var(--surface);
-  box-shadow: none;
-  color: var(--text);
-  font: 500 var(--text-label)/1.2 var(--font-text);
-}
-
-.exalto-onboarding .mac-button:hover:not(:disabled) {
-  border-color: var(--blue-rule);
-  background: var(--window);
-  color: var(--blue);
-}
-
-.exalto-onboarding .mac-button.is-large {
-  min-height: 34px;
-  padding-inline: 16px;
-  font: 600 var(--text-body)/1.2 var(--font-text);
-}
-
-.exalto-onboarding .mac-button.is-primary,
-.exalto-onboarding .mac-button.is-primary:hover:not(:disabled) {
-  border-color: var(--blue);
-  background: var(--blue);
-  color: var(--on-blue);
-}
-
-.exalto-onboarding .mac-button.is-primary:hover:not(:disabled) {
-  border-color: var(--blue-hover);
-  background: var(--blue-hover);
 }
 
 /* Welcome: one sample record, nothing else. */
@@ -541,7 +460,7 @@
   align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
-  border: 1px solid rgba(14, 143, 93, .34);
+  border: 1px solid color-mix(in srgb, var(--green) 34%, transparent);
   border-radius: 4px;
   background: var(--green-soft);
 }
@@ -582,9 +501,9 @@
   gap: 9px;
   margin-top: 16px;
   padding: 10px 12px;
-  border: 1px solid var(--orange-rule);
+  border: 1px solid color-mix(in srgb, var(--orange) 34%, transparent);
   border-radius: 4px;
-  background: var(--orange-soft);
+  background: color-mix(in srgb, var(--orange) 9%, transparent);
   color: var(--orange);
   font-size: var(--text-label);
   line-height: 1.5;
@@ -616,9 +535,9 @@
   width: 20px;
   height: 20px;
   place-items: center;
+  border: 1px solid var(--blue);
   border-radius: 3px;
-  background: var(--blue);
-  color: var(--on-blue);
+  color: var(--blue);
 }
 
 .exalto-onboarding .notary-choice strong { font: 600 var(--text-body)/1.3 var(--font-text); }
@@ -807,8 +726,8 @@
   overflow: auto;
   border: 0;
   border-radius: 0;
-  background: var(--night);
-  color: #e7e4d9;
+  background: var(--inverse);
+  color: var(--inverse-code);
   white-space: pre-wrap;
 }
 
@@ -919,7 +838,7 @@
 }
 
 .exalto-onboarding .test-result.is-captured {
-  border-color: rgba(14, 143, 93, .34);
+  border-color: color-mix(in srgb, var(--green) 34%, transparent);
   background: var(--green-soft);
 }
 
@@ -927,8 +846,8 @@
 
 .exalto-onboarding .test-result.is-unconfirmed,
 .exalto-onboarding .test-result.is-not-found {
-  border-color: var(--orange-rule);
-  background: var(--orange-soft);
+  border-color: color-mix(in srgb, var(--orange) 34%, transparent);
+  background: color-mix(in srgb, var(--orange) 9%, transparent);
 }
 
 .exalto-onboarding .test-result.is-unconfirmed > span { color: var(--orange); }
@@ -941,10 +860,10 @@
   height: 24px;
   place-items: center;
   margin: 0 0 12px;
+  border: 1px solid var(--green);
   border-radius: 3px;
-  background: var(--green);
-  color: var(--on-green);
-  box-shadow: none;
+  background: var(--green-soft);
+  color: var(--green);
 }
 
 .exalto-onboarding .ready-summary {
@@ -997,7 +916,7 @@
   align-items: start;
   gap: 10px;
   padding: 11px 13px;
-  border: 1px solid rgba(14, 143, 93, .34);
+  border: 1px solid color-mix(in srgb, var(--green) 34%, transparent);
   border-radius: 4px;
   background: var(--green-soft);
 }
@@ -1022,43 +941,18 @@
 }
 
 .exalto-onboarding .first-proof-ready.is-blocked {
-  border-color: var(--orange-rule);
-  background: var(--orange-soft);
+  border-color: color-mix(in srgb, var(--orange) 34%, transparent);
+  background: color-mix(in srgb, var(--orange) 9%, transparent);
 }
 
 .exalto-onboarding .first-proof-ready.is-blocked > span { color: var(--orange); }
 
-.exalto-onboarding .account-step .native-account-card {
-  gap: 12px;
+.exalto-onboarding .account-step .account-card {
   margin: 18px 0 0;
   padding: 14px;
   border: 1px solid var(--separator);
   border-radius: 4px;
   background: var(--window);
-  box-shadow: none;
-}
-
-.exalto-onboarding .account-step .native-account-heading h2 {
-  font: 650 var(--text-lead)/1.3 var(--font-display);
-}
-
-.exalto-onboarding .account-step .section-label,
-.exalto-onboarding .account-step .account-state {
-  font: 600 var(--text-caption)/1.25 var(--font-text);
-}
-
-.exalto-onboarding .account-step .native-account-card p { font-size: var(--text-label); }
-
-.exalto-onboarding .account-step .native-account-card .wizard-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 0;
-  padding-top: 2px;
-}
-
-.exalto-onboarding .account-step .native-account-card .mac-button.is-large {
-  min-height: 30px;
-  font-size: var(--text-label);
 }
 
 /* A narrow window drops the rail rather than squeezing the work. */
@@ -1084,33 +978,4 @@
   .exalto-onboarding *,
   .exalto-onboarding *::before,
   .exalto-onboarding *::after { transition: none !important; }
-}
-
-@media (prefers-color-scheme: dark) {
-  .exalto-onboarding {
-    --window: #101820;
-    --surface: #17222c;
-    --surface-secondary: #202d38;
-    --surface-hover: rgba(109, 158, 201, .1);
-    --text: #f1efe8;
-    --secondary: #bac1c9;
-    --tertiary: #929ca7;
-    --separator: rgba(232, 237, 241, .18);
-    --separator-soft: rgba(232, 237, 241, .1);
-    --blue: #74a7d2;
-    --blue-hover: #8bb9df;
-    --blue-soft: rgba(116, 167, 210, .13);
-    --blue-rule: rgba(116, 167, 210, .5);
-    --green: #35e39b;
-    --green-soft: rgba(53, 227, 155, .1);
-    --orange: #e2a461;
-    --orange-soft: rgba(226, 164, 97, .12);
-    --orange-rule: rgba(226, 164, 97, .4);
-    --red: #e87561;
-    --red-soft: rgba(232, 117, 97, .12);
-    --night: #07111b;
-    --on-blue: #07111b;
-    --on-green: #07111b;
-    color-scheme: dark;
-  }
 }

@@ -1,5 +1,5 @@
-import { useEffect, useState, type ComponentType } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { type ComponentType, useEffect, useState } from 'react';
 import { isTauri } from './bridge';
 
 type SymbolWeight = 'regular' | 'medium' | 'semibold';
@@ -24,14 +24,18 @@ function loadSymbol(name: string, pointSize: number, weight: SymbolWeight) {
   return pending;
 }
 
-type FallbackIcon = ComponentType<{ size?: number; strokeWidth?: number; 'aria-hidden'?: boolean | 'true' }>;
+type FallbackIcon = ComponentType<{
+  size?: number;
+  strokeWidth?: number;
+  'aria-hidden'?: boolean | 'true';
+}>;
 
 /**
  * An SF Symbol rendered by the system and tinted with the current text colour.
  * Outside the Mac app, or for a symbol this macOS does not have, the Lucide
  * fallback draws instead so the shell keeps working in the browser tests.
  */
-export function Symbol({
+export function SfSymbol({
   name,
   fallback: Fallback,
   size = 16,
@@ -59,7 +63,12 @@ export function Symbol({
     <span
       className={`sf-symbol${className ? ` ${className}` : ''}`}
       aria-hidden="true"
-      style={{ width: size, height: size, WebkitMaskImage: `url(${image})`, maskImage: `url(${image})` }}
+      style={{
+        width: size,
+        height: size,
+        WebkitMaskImage: `url(${image})`,
+        maskImage: `url(${image})`,
+      }}
     />
   );
 }

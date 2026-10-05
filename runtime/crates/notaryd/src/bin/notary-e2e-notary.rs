@@ -40,9 +40,7 @@ async fn main() -> Result<()> {
                 socket,
                 signing_key,
                 allowed_hosts,
-                128 << 10,
                 8 << 20,
-                256,
                 DEFAULT_NOTARY_MAX_FRAME_BYTES,
             )
             .await

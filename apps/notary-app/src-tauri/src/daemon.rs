@@ -259,13 +259,6 @@ pub(super) async fn request_managed_daemon_shutdown_inner(
     )
 }
 
-pub(super) async fn request_managed_daemon_shutdown(
-    process: &DaemonProcess,
-) -> Result<bool, String> {
-    let _lifecycle = process.lifecycle.lock().await;
-    request_managed_daemon_shutdown_inner(process).await
-}
-
 #[tauri::command]
 pub(super) async fn start_daemon(
     app: tauri::AppHandle,
@@ -295,37 +288,6 @@ pub(super) async fn start_daemon(
     if !already_starting {
         spawn_daemon_inner(&app, &process)?;
     }
-    wait_for_managed_daemon(&process).await
-}
-
-#[tauri::command]
-pub(super) async fn stop_daemon(process: tauri::State<'_, DaemonProcess>) -> Result<(), String> {
-    match request_managed_daemon_shutdown(&process).await? {
-        true => Ok(()),
-        false if daemon_is_healthy().await => Err(
-            "This service was started outside the desktop app. Stop it from the process that launched it."
-                .into(),
-        ),
-        false => Ok(()),
-    }
-}
-
-#[tauri::command]
-pub(super) async fn restart_daemon(
-    app: tauri::AppHandle,
-    process: tauri::State<'_, DaemonProcess>,
-) -> Result<(), String> {
-    let _lifecycle = process.lifecycle.lock().await;
-    process.ensure_starts_allowed()?;
-    let stopped = request_managed_daemon_shutdown_inner(&process).await?;
-    if !stopped && daemon_is_healthy().await {
-        return Err(
-            "This service was started outside the desktop app. Restart it from the process that launched it."
-                .into(),
-        );
-    }
-    reject_external_listener().await?;
-    spawn_daemon_inner(&app, &process)?;
     wait_for_managed_daemon(&process).await
 }
 

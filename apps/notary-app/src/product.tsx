@@ -13,9 +13,11 @@ export type TraceTarget = { traceId: string; action?: TraceAction };
 const PENDING_FIRST_PROOF_KEY = 'exalto-capture:pending-first-proof';
 
 function validTraceTargetId(value: string) {
-  return value.startsWith('trc-')
-    && value.length <= 256
-    && [...value].every((character) => /[A-Za-z0-9_-]/.test(character));
+  return (
+    value.startsWith('trc-') &&
+    value.length <= 256 &&
+    [...value].every((character) => /[A-Za-z0-9_-]/.test(character))
+  );
 }
 
 export function pendingFirstProofTarget(): TraceTarget | null {
@@ -23,9 +25,9 @@ export function pendingFirstProofTarget(): TraceTarget | null {
     const stored = localStorage.getItem(PENDING_FIRST_PROOF_KEY);
     if (!stored) return null;
     const target = JSON.parse(stored) as Partial<TraceTarget>;
-    return typeof target.traceId === 'string'
-      && validTraceTargetId(target.traceId)
-      && target.action === 'first-proof'
+    return typeof target.traceId === 'string' &&
+      validTraceTargetId(target.traceId) &&
+      target.action === 'first-proof'
       ? { traceId: target.traceId, action: 'first-proof' }
       : null;
   } catch {
@@ -78,12 +80,15 @@ export function vaultProtection(mode: string) {
 }
 
 export function StatusDot({ running, warning = false }: { running: boolean; warning?: boolean }) {
-  return <span className={`status-dot ${running ? 'is-running' : ''} ${warning ? 'is-warning' : ''}`} />;
+  return (
+    <span className={`status-dot ${running ? 'is-running' : ''} ${warning ? 'is-warning' : ''}`} />
+  );
 }
 
 export function updateRestartBlockReason(state: DesktopState) {
   if (state.counts.capturing > 0) return 'Finish the active capture before restarting.';
   if (state.counts.notarizing > 0) return 'Finish the active seal before restarting.';
-  if (state.running && !state.managed_by_desktop) return 'Stop or update the separately managed local service first.';
+  if (state.running && !state.managed_by_desktop)
+    return 'Stop or update the separately managed local service first.';
   return null;
 }

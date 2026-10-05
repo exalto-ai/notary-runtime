@@ -1,6 +1,6 @@
 [package]
 name = "notary-app"
-version = "0.1.10"
+version = "0.1.11"
 description = "Guided desktop shell for Exalto Capture"
 edition = "2024"
 license = "MIT"
@@ -39,3 +39,7 @@ base64 = "0.22"
 [dev-dependencies]
 notary-core = { path = "../../../runtime/crates/notary-core", features = ["test-utils"] }
 tempfile = "3"
+
+# Added by the public Runtime export to match the canonical workspace root.
+[patch."https://github.com/tlsnotary/tlsn-utils"]
+spansy = { path = "../../../runtime/vendor/tlsn-utils/spansy" }

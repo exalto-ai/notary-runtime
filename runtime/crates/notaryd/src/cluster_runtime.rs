@@ -46,14 +46,17 @@ pub(crate) enum Lifecycle {
     Draining = 2,
 }
 
-#[derive(Debug)]
+/// Cluster-mode replica state. It owns the shared server metadata store, so
+/// claimed transitions can only reach that store through a value that exists
+/// in cluster mode.
 pub(crate) struct ClusterRuntime {
     identity: ReplicaIdentity,
     lifecycle: AtomicU8,
+    metadata: Arc<dyn ServerMetadataStore>,
 }
 
 impl ClusterRuntime {
-    pub(crate) fn from_environment() -> MetadataResult<Self> {
+    pub(crate) fn identity_from_environment() -> MetadataResult<ReplicaIdentity> {
         let instance_id = std::env::var(CLUSTER_INSTANCE_ID_ENV)
             .ok()
             .or_else(|| {
@@ -62,11 +65,19 @@ impl ClusterRuntime {
                     .filter(|value| valid_instance_id(value))
             })
             .unwrap_or_else(|| format!("replica-{}", uuid::Uuid::new_v4().simple()));
-        let identity = ReplicaIdentity::new(instance_id)?;
-        Ok(Self {
+        ReplicaIdentity::new(instance_id)
+    }
+
+    pub(crate) fn new(identity: ReplicaIdentity, metadata: Arc<dyn ServerMetadataStore>) -> Self {
+        Self {
             identity,
             lifecycle: AtomicU8::new(Lifecycle::Starting as u8),
-        })
+            metadata,
+        }
+    }
+
+    pub(crate) fn metadata(&self) -> &Arc<dyn ServerMetadataStore> {
+        &self.metadata
     }
 
     pub(crate) fn identity(&self) -> &ReplicaIdentity {
@@ -89,27 +100,19 @@ impl ClusterRuntime {
         SHUTDOWN_GRACE_SECONDS
     }
 
-    pub(crate) fn keep_capture_claim_alive(
-        &self,
-        metadata: Arc<dyn ServerMetadataStore>,
-        claim: CaptureClaim,
-    ) -> ClaimLeaseGuard {
-        self.keep_claim_alive(metadata, ClaimToRenew::Capture(claim))
+    pub(crate) fn keep_capture_claim_alive(&self, claim: CaptureClaim) -> ClaimLeaseGuard {
+        self.keep_claim_alive(ClaimToRenew::Capture(claim))
     }
 
     pub(crate) fn keep_notarization_claim_alive(
         &self,
-        metadata: Arc<dyn ServerMetadataStore>,
         claim: NotarizationClaim,
     ) -> ClaimLeaseGuard {
-        self.keep_claim_alive(metadata, ClaimToRenew::Notarization(Box::new(claim)))
+        self.keep_claim_alive(ClaimToRenew::Notarization(Box::new(claim)))
     }
 
-    fn keep_claim_alive(
-        &self,
-        metadata: Arc<dyn ServerMetadataStore>,
-        claim: ClaimToRenew,
-    ) -> ClaimLeaseGuard {
+    fn keep_claim_alive(&self, claim: ClaimToRenew) -> ClaimLeaseGuard {
+        let metadata = self.metadata.clone();
         let (shutdown, mut stopped) = watch::channel(false);
         let renewal_interval = Duration::from_secs(HEARTBEAT_INTERVAL_SECONDS);
         let maximum_runtime = Duration::from_secs(CLAIM_MAX_RUNTIME_SECONDS);
@@ -151,8 +154,11 @@ impl ClusterRuntime {
         ClaimLeaseGuard { shutdown }
     }
 
-    pub(crate) fn capture_claim(&self, trace_id: impl Into<String>) -> CaptureClaim {
-        CaptureClaim::new(trace_id, self.identity.clone())
+    pub(crate) fn capture_claim(self: &Arc<Self>, trace_id: impl Into<String>) -> ClaimedCapture {
+        ClaimedCapture {
+            runtime: self.clone(),
+            claim: CaptureClaim::new(trace_id, self.identity.clone()),
+        }
     }
 
     pub(crate) fn new_claim_fence(&self) -> String {
@@ -175,6 +181,24 @@ impl ClusterRuntime {
             2 => Lifecycle::Draining,
             _ => Lifecycle::Starting,
         }
+    }
+}
+
+/// A capture claimed by this replica, bundled with the cluster runtime whose
+/// shared metadata store records its transitions.
+#[derive(Clone)]
+pub(crate) struct ClaimedCapture {
+    runtime: Arc<ClusterRuntime>,
+    claim: CaptureClaim,
+}
+
+impl ClaimedCapture {
+    pub(crate) fn runtime(&self) -> &ClusterRuntime {
+        &self.runtime
+    }
+
+    pub(crate) fn claim(&self) -> &CaptureClaim {
+        &self.claim
     }
 }
 

@@ -526,6 +526,16 @@ private transcript authentication inside the dominant proof loop. It is not an
 overall ETA, and the service retains the last proof counters while signing or
 packaging. The daemon updates durable counters at most about once per second.
 
+A sealing attempt always ends. If the notary closes or resets the connection at
+any point, including the case where it refuses a proof request after admission,
+the operation fails promptly with the safe code `notary_connection_closed`. The
+current protocol has no rejection message after admission, so a refused request
+and a dropped connection share this code. The daemon also bounds every session:
+31 minutes overall (the notary's default 30-minute session limit plus one
+minute) and 5 minutes without notary traffic or proof progress. Either limit
+fails the operation with `notary_timeout`. Both codes are retryable; nothing
+was sealed and the encrypted capture is unchanged.
+
 After a restart, work that was `running` is recorded as `interrupted` with the
 safe code `service_restarted`. Queued work remains durable. Retry only a
 `failed` or `interrupted` operation whose response says `retryable: true` by

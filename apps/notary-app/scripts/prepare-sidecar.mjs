@@ -17,7 +17,7 @@ const cargoArguments = [
   '-p',
   'notaryd',
   '--bin',
-  'notaryd'
+  'notaryd',
 ];
 if (profile === 'release') cargoArguments.push('--release');
 

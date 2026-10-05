@@ -37,9 +37,7 @@ pub struct AdmissionConstraints {
     pub expected_record_digest: Option<[u8; 32]>,
     pub expected_transcript_bytes: Option<usize>,
     pub session_timeout: Option<Duration>,
-    pub max_private_chunk_bytes: Option<usize>,
     pub max_total_private_chunk_bytes: Option<usize>,
-    pub max_private_chunk_commitments: Option<usize>,
     pub max_frame_bytes: Option<usize>,
 }
 

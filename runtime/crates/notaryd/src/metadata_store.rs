@@ -22,13 +22,7 @@ use crate::{
 pub type MetadataResult<T> = std::result::Result<T, MetadataStoreError>;
 
 pub(crate) fn validate_trace_id(trace_id: &str) -> MetadataResult<()> {
-    if trace_id.starts_with("trc-")
-        && trace_id.len() > 4
-        && trace_id.len() <= 128
-        && trace_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-    {
+    if notary_core::is_valid_trace_id(trace_id) {
         Ok(())
     } else {
         Err(MetadataStoreError::InvalidInput("invalid_trace_id"))

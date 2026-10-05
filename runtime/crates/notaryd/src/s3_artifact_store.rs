@@ -20,7 +20,8 @@ use url::Url;
 
 use crate::artifact_store::{
     ArtifactKey, ArtifactKind, ArtifactLocator, ArtifactRecord, ArtifactResult, ArtifactSource,
-    ArtifactStore, ArtifactStoreError, VerifiedArtifact,
+    ArtifactStore, ArtifactStoreError, VerifiedArtifact, backend, conflict, integrity, invalid,
+    is_lowercase_sha256_hex, not_found,
 };
 
 const SHA256_METADATA: &str = "artifact-sha256";
@@ -1032,39 +1033,12 @@ fn safe_namespace_component(value: &str) -> bool {
 }
 
 fn validate_sha256(value: &str) -> ArtifactResult<()> {
-    if value.len() != 64
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-    {
+    if !is_lowercase_sha256_hex(value) {
         return Err(integrity(anyhow!(
             "S3 artifact SHA-256 metadata is invalid"
         )));
     }
     Ok(())
-}
-
-fn invalid(code: &'static str, source: anyhow::Error) -> ArtifactStoreError {
-    ArtifactStoreError::InvalidInput {
-        code,
-        source: Some(source),
-    }
-}
-
-fn not_found(source: anyhow::Error) -> ArtifactStoreError {
-    ArtifactStoreError::NotFound { source }
-}
-
-fn conflict(source: anyhow::Error) -> ArtifactStoreError {
-    ArtifactStoreError::Conflict { source }
-}
-
-fn integrity(source: anyhow::Error) -> ArtifactStoreError {
-    ArtifactStoreError::Integrity { source }
-}
-
-fn backend(source: anyhow::Error) -> ArtifactStoreError {
-    ArtifactStoreError::Backend { source }
 }
 
 #[cfg(test)]

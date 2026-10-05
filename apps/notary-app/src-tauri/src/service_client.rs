@@ -8,8 +8,7 @@ use std::{
 };
 
 use notaryctl::client::{
-    AccountConnection, AccountConnectionStarted, NotaryReadiness, NotaryTrust, NotaryTrustRecord,
-    NotarydClient, Status, TraceProbe,
+    NotaryReadiness, NotaryTrust, NotaryTrustRecord, NotarydClient, Status, TraceProbe,
 };
 use serde::Serialize;
 use url::{Host, Url};
@@ -328,40 +327,6 @@ pub(super) async fn same_disposable_capture_target(
             healthy_managed_generation(process).await.is_none() && daemon_is_healthy().await
         }
     }
-}
-
-#[tauri::command]
-pub(super) async fn get_account_connection() -> Result<AccountConnection, String> {
-    client()?
-        .account_connection()
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub(super) async fn start_account_connection() -> Result<AccountConnectionStarted, String> {
-    client()?
-        .start_account_connection()
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub(super) async fn poll_account_connection(
-    request_id: String,
-) -> Result<AccountConnection, String> {
-    client()?
-        .poll_account_connection(&request_id)
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub(super) async fn disconnect_account() -> Result<(), String> {
-    client()?
-        .disconnect_account()
-        .await
-        .map_err(|error| error.to_string())
 }
 
 pub(super) fn validate_account_link(value: &str) -> Result<Url, String> {

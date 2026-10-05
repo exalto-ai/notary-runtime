@@ -34,7 +34,8 @@ use tracing::Instrument as _;
 use crate::NotaryServerServeArgs;
 #[cfg(test)]
 use crate::config::{
-    MAX_CONCURRENT_CAPTURES, MAX_CONCURRENT_NOTARIZATIONS, MAX_FRAME_BYTES, read_signing_key,
+    MAX_CONCURRENT_CAPTURES, MAX_CONCURRENT_NOTARIZATIONS, MAX_FRAME_BYTES,
+    MAX_TOTAL_PRIVATE_CHUNK_BYTES, read_signing_key,
 };
 use crate::{
     AdmissionConstraints, AdmissionPolicy, AdmissionRequest, NotaryServerArgs, NotaryServerCommand,
@@ -46,9 +47,7 @@ use crate::{AdmissionGrant, SessionLifecycle};
 #[derive(Clone, Copy)]
 struct LocalSessionLimits {
     session_timeout: Duration,
-    max_private_chunk_bytes: usize,
     max_total_private_chunk_bytes: usize,
-    max_private_chunk_commitments: usize,
     max_frame_bytes: usize,
 }
 
@@ -660,9 +659,7 @@ pub async fn serve_on_listener(
             connection_permit,
             key: Arc::clone(&config.signing_key),
             allowed_hosts: Arc::clone(&config.allowed_hosts),
-            max_private_chunk_bytes: config.max_private_chunk_bytes,
             max_total_private_chunk_bytes: config.max_total_private_chunk_bytes,
-            max_private_chunk_commitments: config.max_private_chunk_commitments,
             max_frame_bytes: config.max_frame_bytes,
             prelude_timeout: config.prelude_timeout,
             session_timeout: config.session_timeout,
@@ -833,9 +830,7 @@ struct ConnectionTask {
     connection_permit: OwnedSemaphorePermit,
     key: Arc<SigningKey>,
     allowed_hosts: Arc<Vec<String>>,
-    max_private_chunk_bytes: usize,
     max_total_private_chunk_bytes: usize,
-    max_private_chunk_commitments: usize,
     max_frame_bytes: usize,
     prelude_timeout: Duration,
     session_timeout: Duration,
@@ -856,9 +851,7 @@ async fn handle_connection(task: ConnectionTask) {
         connection_permit,
         key,
         allowed_hosts,
-        max_private_chunk_bytes,
         max_total_private_chunk_bytes,
-        max_private_chunk_commitments,
         max_frame_bytes,
         prelude_timeout,
         session_timeout,
@@ -960,9 +953,7 @@ async fn handle_connection(task: ConnectionTask) {
     let limits = match effective_session_limits(
         LocalSessionLimits {
             session_timeout,
-            max_private_chunk_bytes,
             max_total_private_chunk_bytes,
-            max_private_chunk_commitments,
             max_frame_bytes,
         },
         grant.constraints,
@@ -1109,20 +1100,10 @@ fn effective_session_limits(
         expected_record_digest: policy.expected_record_digest,
         expected_transcript_bytes: policy.expected_transcript_bytes,
         session_timeout,
-        max_private_chunk_bytes: cap(
-            "max_private_chunk_bytes",
-            policy.max_private_chunk_bytes,
-            local.max_private_chunk_bytes,
-        )?,
         max_total_private_chunk_bytes: cap(
             "max_total_private_chunk_bytes",
             policy.max_total_private_chunk_bytes,
             local.max_total_private_chunk_bytes,
-        )?,
-        max_private_chunk_commitments: cap(
-            "max_private_chunk_commitments",
-            policy.max_private_chunk_commitments,
-            local.max_private_chunk_commitments,
         )?,
         max_frame_bytes: cap(
             "max_frame_bytes",
@@ -1130,9 +1111,6 @@ fn effective_session_limits(
             local.max_frame_bytes,
         )?,
     };
-    if limits.max_total_private_chunk_bytes < limits.max_private_chunk_bytes {
-        bail!("effective total private-chunk bytes must be at least one private chunk");
-    }
     if limits
         .expected_transcript_bytes
         .is_some_and(|expected| expected > limits.max_total_private_chunk_bytes)
@@ -1174,9 +1152,7 @@ mod tests {
             signing_key_file,
             notarization_only: false,
             allow_hosts: vec!["api.openai.com".to_owned()],
-            max_private_chunk_bytes: 1024,
             max_total_private_chunk_bytes: 2048,
-            max_private_chunk_commitments: 2,
             max_frame_bytes: 4096,
             max_concurrent_captures: 2,
             max_concurrent_notarizations: 1,
@@ -1267,9 +1243,7 @@ mod tests {
                 connection_permit,
                 key: Arc::new(SigningKey::from_slice(&[1; 32]).unwrap()),
                 allowed_hosts: Arc::new(Vec::new()),
-                max_private_chunk_bytes: 1024,
                 max_total_private_chunk_bytes: 1024,
-                max_private_chunk_commitments: 1,
                 max_frame_bytes: 1024,
                 prelude_timeout: Duration::from_secs(1),
                 session_timeout,
@@ -1404,7 +1378,11 @@ mod tests {
         assert!(NotaryServerConfig::from_args(args).is_err());
 
         let mut args = test_server_args(signing_key_file.clone());
-        args.max_total_private_chunk_bytes = args.max_private_chunk_bytes - 1;
+        args.max_total_private_chunk_bytes = 0;
+        assert!(NotaryServerConfig::from_args(args).is_err());
+
+        let mut args = test_server_args(signing_key_file.clone());
+        args.max_total_private_chunk_bytes = MAX_TOTAL_PRIVATE_CHUNK_BYTES + 1;
         assert!(NotaryServerConfig::from_args(args).is_err());
 
         let mut args = test_server_args(signing_key_file.clone());
@@ -1653,26 +1631,20 @@ mod tests {
         let limits = effective_session_limits(
             LocalSessionLimits {
                 session_timeout: Duration::from_secs(30),
-                max_private_chunk_bytes: 128 << 10,
                 max_total_private_chunk_bytes: 4 << 20,
-                max_private_chunk_commitments: 64,
                 max_frame_bytes: 32 << 20,
             },
             AdmissionConstraints {
                 expected_record_digest: Some([0xab; 32]),
                 expected_transcript_bytes: Some(1024),
                 session_timeout: Some(Duration::from_secs(60)),
-                max_private_chunk_bytes: Some(256 << 10),
                 max_total_private_chunk_bytes: Some(8 << 20),
-                max_private_chunk_commitments: Some(128),
                 max_frame_bytes: Some(64 << 20),
             },
         )
         .unwrap();
         assert_eq!(limits.session_timeout, Duration::from_secs(30));
-        assert_eq!(limits.max_private_chunk_bytes, 128 << 10);
         assert_eq!(limits.max_total_private_chunk_bytes, 4 << 20);
-        assert_eq!(limits.max_private_chunk_commitments, 64);
         assert_eq!(limits.max_frame_bytes, 32 << 20);
         assert_eq!(limits.expected_record_digest, Some([0xab; 32]));
         assert_eq!(limits.expected_transcript_bytes, Some(1024));
@@ -1684,9 +1656,7 @@ mod tests {
             effective_session_limits(
                 LocalSessionLimits {
                     session_timeout: Duration::from_secs(30),
-                    max_private_chunk_bytes: 1024,
                     max_total_private_chunk_bytes: 1024,
-                    max_private_chunk_commitments: 1,
                     max_frame_bytes: 1024,
                 },
                 AdmissionConstraints {
@@ -1702,15 +1672,14 @@ mod tests {
     fn effective_limits_reject_relationally_invalid_policy_constraints() {
         let local = LocalSessionLimits {
             session_timeout: Duration::from_secs(30),
-            max_private_chunk_bytes: 2048,
             max_total_private_chunk_bytes: 4096,
-            max_private_chunk_commitments: 4,
             max_frame_bytes: 4096,
         };
         assert!(
             effective_session_limits(
                 local,
                 AdmissionConstraints {
+                    expected_transcript_bytes: Some(2048),
                     max_total_private_chunk_bytes: Some(1024),
                     ..AdmissionConstraints::default()
                 },

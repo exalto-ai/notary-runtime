@@ -20,7 +20,6 @@ use sha2::{Digest as _, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _, ReadBuf};
 
 const MAX_ARTIFACT_LOCATOR_BYTES: usize = 8 * 1024;
-const MAX_TRACE_ID_BYTES: usize = 128;
 
 /// Versioned discriminator for canonical filesystem locators.
 pub const FILESYSTEM_ARTIFACT_LOCATOR_PREFIX: &str = "artifact/v1/filesystem/";
@@ -578,16 +577,7 @@ impl ArtifactStore for FileSystemArtifactStore {
 
 fn validate_trace_id(trace_id: &str) -> Result<()> {
     ensure!(
-        trace_id.starts_with("trc-")
-            && trace_id.len() > 4
-            && trace_id.len() <= MAX_TRACE_ID_BYTES
-            && trace_id != "."
-            && trace_id != ".."
-            && !trace_id.contains('/')
-            && !trace_id.contains('\\')
-            && trace_id
-                .bytes()
-                .all(|byte| { byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.') }),
+        notary_core::is_valid_trace_id(trace_id),
         "trace ID must use the trc- prefix and be a bounded safe ASCII path component"
     );
     let mut components = Path::new(trace_id).components();
@@ -606,13 +596,17 @@ fn validate_root(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Returns whether `value` is a SHA-256 digest in 64 lowercase hex characters.
+pub(crate) fn is_lowercase_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
 fn validate_sha256(value: &str) -> Result<()> {
     ensure!(
-        value.len() == 64
-            && value
-                .as_bytes()
-                .iter()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte)),
+        is_lowercase_sha256_hex(value),
         "artifact SHA-256 must be 64 lowercase hexadecimal characters"
     );
     Ok(())
@@ -628,26 +622,26 @@ fn locator_for_path(path: &Path) -> Result<ArtifactLocator> {
     ))
 }
 
-fn invalid(code: &'static str, source: anyhow::Error) -> ArtifactStoreError {
+pub(crate) fn invalid(code: &'static str, source: anyhow::Error) -> ArtifactStoreError {
     ArtifactStoreError::InvalidInput {
         code,
         source: Some(source),
     }
 }
 
-fn not_found(source: anyhow::Error) -> ArtifactStoreError {
+pub(crate) fn not_found(source: anyhow::Error) -> ArtifactStoreError {
     ArtifactStoreError::NotFound { source }
 }
 
-fn conflict(source: anyhow::Error) -> ArtifactStoreError {
+pub(crate) fn conflict(source: anyhow::Error) -> ArtifactStoreError {
     ArtifactStoreError::Conflict { source }
 }
 
-fn integrity(source: anyhow::Error) -> ArtifactStoreError {
+pub(crate) fn integrity(source: anyhow::Error) -> ArtifactStoreError {
     ArtifactStoreError::Integrity { source }
 }
 
-fn backend(source: anyhow::Error) -> ArtifactStoreError {
+pub(crate) fn backend(source: anyhow::Error) -> ArtifactStoreError {
     ArtifactStoreError::Backend { source }
 }
 
@@ -1414,7 +1408,7 @@ mod tests {
         assert!(ArtifactKey::new("line\nbreak", ArtifactKind::CaptureCheckpoint).is_err());
         assert!(
             ArtifactKey::new(
-                "x".repeat(MAX_TRACE_ID_BYTES + 1),
+                format!("trc-{}", "x".repeat(125)),
                 ArtifactKind::CaptureCheckpoint
             )
             .is_err()
