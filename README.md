@@ -3,7 +3,7 @@
 [![Public Runtime CI](https://github.com/exalto-ai/notary-runtime/actions/workflows/ci.yml/badge.svg)](https://github.com/exalto-ai/notary-runtime/actions/workflows/ci.yml)
 [![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
 
-The open-source foundation of **Exalto Capture** and **Exalto Notary Protocol**.
+The open-source foundation of **Exalto Capture** and the **Exalto Capture Protocol (ECP)**.
 Capture model-provider HTTP exchanges locally, seal them with Exalto Seal or a
 compatible self-hosted notary, and verify portable Traces.
 
