@@ -151,7 +151,7 @@ Selecting a trace changes the hash route and shows one detail panel with an
 The embedded desktop mode renders the same selected destination without the
 standalone browser navigation. It does not maintain a second route model or a
 second implementation of a destination. Inside Exalto Capture, Settings is
-the desktop Preferences form described in the desktop app guide, and the
+the grouped form described in the desktop app guide, and the
 desktop app owns the theme choice.
 
 ## Troubleshooting

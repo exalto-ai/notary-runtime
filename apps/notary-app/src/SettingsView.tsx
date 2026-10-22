@@ -7,8 +7,7 @@ import {
 } from '../../../runtime/apps/admin-dashboard/src/Dashboard';
 import type { DashboardRoute } from '../../../runtime/apps/admin-dashboard/src/routes';
 import {
-  AppearanceSection,
-  GeneralSection,
+  DesktopSettingsView,
   PreferenceRow,
   PreferenceSection,
 } from '../../../runtime/apps/admin-dashboard/src/views/DesktopSettingsView';
@@ -20,6 +19,8 @@ import {
   localApi,
   setLaunchAtLogin,
 } from './bridge';
+import type { Connection } from './builtinBridge';
+import { ConnectionsSheet, connectionNames, readConnections } from './ProviderConnections';
 import {
   type TraceConstraint,
   type TraceTarget,
@@ -50,6 +51,49 @@ function dashboardRoute(
   return { view: route };
 }
 
+function connectionSummary(connections: Connection[]) {
+  if (!connections.length) return 'Not set up';
+  return connections.map((connection) => connectionNames[connection.id]).join(' · ');
+}
+
+/** What Capture records: the built-in chat's own connections, and the CLI tools set up to route through it. */
+function ConnectionsSection({ onOpenSetup }: { onOpenSetup: () => void }) {
+  const [summary, setSummary] = useState('Checking');
+  const [sheetOpen, setSheetOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void readConnections()
+      .then(({ connections }) => alive && setSummary(connectionSummary(connections)))
+      .catch(() => alive && setSummary('Unavailable'));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return (
+    <PreferenceSection title="Connections">
+      <PreferenceRow label="Chat in Capture" detail={summary}>
+        <Button variant="outline" onClick={() => setSheetOpen(true)}>
+          Manage…
+        </Button>
+      </PreferenceRow>
+      <PreferenceRow
+        label="Codex and Claude Code"
+        detail="A separate CLI session that Capture records"
+      >
+        <Button variant="outline" onClick={onOpenSetup}>
+          Set up…
+        </Button>
+      </PreferenceRow>
+      {sheetOpen && (
+        <ConnectionsSheet
+          onChange={(connections) => setSummary(connectionSummary(connections))}
+          onClose={() => setSheetOpen(false)}
+        />
+      )}
+    </PreferenceSection>
+  );
+}
+
 export function SettingsView({
   route,
   constraint,
@@ -63,6 +107,7 @@ export function SettingsView({
   onCheckUpdate,
   onRestartToUpdate,
   onStartService,
+  onOpenSetup,
   onNavigate,
 }: {
   route: WorkspaceView;
@@ -77,6 +122,7 @@ export function SettingsView({
   onCheckUpdate: () => void;
   onRestartToUpdate: () => void;
   onStartService: () => void;
+  onOpenSetup: () => void;
   onNavigate: (view: View, route?: DashboardRoute) => void;
 }) {
   const [launch, setLaunch] = useState(false);
@@ -145,12 +191,16 @@ export function SettingsView({
     );
   }
 
-  if (!state.running && route === 'settings') {
+  if (!state.running) {
     return (
       <div className="native-page inline-dashboard-page">
         <main className="dashboard-shell dashboard-shell--inline dashboard-main">
-          <div className="view-page preferences">
-            <PreferenceSection title="Account">
+          <DesktopSettingsView
+            status={null}
+            api={localApi}
+            desktopSettings={desktopSettings}
+            connections={<ConnectionsSection onOpenSetup={onOpenSetup} />}
+            serviceOff={
               <PreferenceRow
                 label="Local service is off"
                 detail={
@@ -167,26 +217,9 @@ export function SettingsView({
                   Start local service
                 </Button>
               </PreferenceRow>
-            </PreferenceSection>
-            <PreferenceSection title="Privacy">
-              <PreferenceRow label="Private traces">
-                <span className="preference-value">{vault.label}</span>
-              </PreferenceRow>
-            </PreferenceSection>
-            <AppearanceSection />
-            <GeneralSection settings={desktopSettings} onAction={handleDesktopAction} />
-            <PreferenceSection title="Advanced">
-              <PreferenceRow label="Provider proxy">
-                <code>{state.proxy_listener}</code>
-              </PreferenceRow>
-              <PreferenceRow label="Build">
-                <code>App {state.app_build_id}</code>
-              </PreferenceRow>
-            </PreferenceSection>
-            {desktopSettings.notice && (
-              <p className="preference-notice">{desktopSettings.notice}</p>
-            )}
-          </div>
+            }
+            onDesktopAction={handleDesktopAction}
+          />
         </main>
       </div>
     );
@@ -200,6 +233,9 @@ export function SettingsView({
         apiBaseUrl="http://127.0.0.1:8788"
         route={dashboardRoute(route, constraint, traceTarget)}
         desktopSettings={desktopSettings}
+        desktopConnections={
+          route === 'settings' ? <ConnectionsSection onOpenSetup={onOpenSetup} /> : undefined
+        }
         onDesktopSettingsAction={handleDesktopAction}
         desktopShell
         onNavigate={(next) => onNavigate(next.view as View, next)}

@@ -8,10 +8,11 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useQuery } from '@tanstack/react-query';
-import { Copy } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ChevronLeft, ChevronRight, Copy } from 'lucide-react';
+import { type ReactNode, useState } from 'react';
 import { AccountConnectionCard } from '../AccountConnection';
 import type { LocalApi, Notary, Status } from '../api';
+import { claudeCommand, codexProfile } from '../clientSetup';
 import { formatNotaryBoundary, orderNotaries } from '../notaryLifecycle';
 import { Fact, formatBytes, StatusLabel } from '../shared';
 
@@ -78,20 +79,18 @@ const appearanceOptions = [
   { value: 'dark', label: 'Dark' },
 ];
 
-export function AppearanceSection() {
+function ThemeRow() {
   const { colorScheme, setColorScheme } = useMantineColorScheme();
   return (
-    <PreferenceSection title="Appearance">
-      <PreferenceRow label="Theme">
-        <SegmentedControl
-          aria-label="Theme"
-          size="xs"
-          data={appearanceOptions}
-          value={colorScheme}
-          onChange={(value) => setColorScheme(value as MantineColorScheme)}
-        />
-      </PreferenceRow>
-    </PreferenceSection>
+    <PreferenceRow label="Theme">
+      <SegmentedControl
+        aria-label="Theme"
+        size="xs"
+        data={appearanceOptions}
+        value={colorScheme}
+        onChange={(value) => setColorScheme(value as MantineColorScheme)}
+      />
+    </PreferenceRow>
   );
 }
 
@@ -106,7 +105,7 @@ function updateDetail(settings: DesktopSettingsState) {
   return update?.message ?? undefined;
 }
 
-export function GeneralSection({
+function GeneralSection({
   settings,
   onAction,
 }: {
@@ -118,6 +117,7 @@ export function GeneralSection({
     settings.update_busy || ['checking', 'downloading', 'installing'].includes(update?.phase ?? '');
   return (
     <PreferenceSection title="General">
+      <ThemeRow />
       <PreferenceRow label="Open at sign-in">
         <Switch
           aria-label="Open Exalto Capture at sign-in"
@@ -157,11 +157,17 @@ function serviceName(record: Notary, source: string | undefined, registry: strin
   return record.name.trim() || 'Registry sealing service';
 }
 
-function SealingSection({ api }: { api: LocalApi }) {
+function useSealingService(api: LocalApi) {
   const notaries = useQuery({ queryKey: ['notaries'], queryFn: api.notaries, retry: false });
   const data = notaries.data;
   const records = orderNotaries(data?.notaries ?? [], data?.active_key_id);
   const active = records.find((record) => record.key_id === data?.active_key_id) ?? records[0];
+  return { notaries, data, records, active };
+}
+
+/** The sealing service in use and the Exalto account that pays for sealing. */
+function SealingSection({ api }: { api: LocalApi }) {
+  const { notaries, data, active } = useSealingService(api);
   return (
     <PreferenceSection title="Sealing">
       {notaries.isLoading ? (
@@ -175,85 +181,168 @@ function SealingSection({ api }: { api: LocalApi }) {
       ) : !active ? (
         <PreferenceRow label="Sealing service" detail="None configured" />
       ) : (
-        <>
-          <PreferenceRow
-            label={serviceName(active, data?.source, data?.registry_source ?? null)}
-            detail={data?.source === 'explicit_configuration' ? 'Local configuration' : undefined}
-          >
-            <StatusLabel state={active.lifecycle} />
-          </PreferenceRow>
-          <details className="preference-details">
-            <summary>Details</summary>
-            {records.map((record) => (
-              <dl key={record.key_id} className="receipt-list">
-                <Fact label="Signer" value={record.name.trim() || 'Not reported'} />
-                <Fact label="Operator" value={record.operator} />
-                <Fact label="Endpoint" value={record.endpoint} />
-                <Fact label="Key ID" value={record.key_id} />
-                <Fact label="Status" value={record.lifecycle} />
-                <Fact
-                  label="Capture cutoff"
-                  value={formatNotaryBoundary(record.valid_until_unix_ms)}
-                />
-                <Fact
-                  label="Sealing cutoff"
-                  value={formatNotaryBoundary(record.notarize_until_unix_ms)}
-                />
-              </dl>
-            ))}
-          </details>
-        </>
+        <PreferenceRow label={serviceName(active, data?.source, data?.registry_source ?? null)}>
+          <StatusLabel state={active.lifecycle} />
+        </PreferenceRow>
       )}
+      <AccountConnectionCard api={api} />
     </PreferenceSection>
   );
 }
 
-export function DesktopSettingsView({
+function SealingServiceDetails({ api }: { api: LocalApi }) {
+  const { data, records, active } = useSealingService(api);
+  if (!active) return null;
+  return (
+    <PreferenceSection title="Sealing service">
+      <PreferenceRow
+        label={serviceName(active, data?.source, data?.registry_source ?? null)}
+        detail={
+          data?.source === 'explicit_configuration'
+            ? 'Set by local configuration'
+            : 'Set by this build. Another service needs an administrator-managed configuration.'
+        }
+      >
+        <StatusLabel state={active.lifecycle} />
+      </PreferenceRow>
+      <details className="preference-details">
+        <summary>Details</summary>
+        {records.map((record) => (
+          <dl key={record.key_id} className="receipt-list">
+            <Fact label="Signer" value={record.name.trim() || 'Not reported'} />
+            <Fact label="Operator" value={record.operator} />
+            <Fact label="Endpoint" value={record.endpoint} />
+            <Fact label="Key ID" value={record.key_id} />
+            <Fact label="Status" value={record.lifecycle} />
+            <Fact label="Capture cutoff" value={formatNotaryBoundary(record.valid_until_unix_ms)} />
+            <Fact
+              label="Sealing cutoff"
+              value={formatNotaryBoundary(record.notarize_until_unix_ms)}
+            />
+          </dl>
+        ))}
+      </details>
+    </PreferenceSection>
+  );
+}
+
+async function copy(label: string, value: string) {
+  await navigator.clipboard.writeText(value);
+  notifications.show({ message: `${label} copied` });
+}
+
+/** Each local route as one row: what to point a tool at, and a copy action. */
+function RouteSections({ api }: { api: LocalApi }) {
+  const providers = useQuery({ queryKey: ['providers'], queryFn: api.providers, retry: false });
+  const routes = providers.data?.providers ?? [];
+  const codex = routes.find((route) => route.id === 'openai_codex');
+  const claude = routes.find((route) => route.id === 'anthropic');
+  const apiRoutes = routes.filter((route) => route.id !== 'openai_codex');
+  if (!providers.data) {
+    return (
+      <PreferenceSection title="Routes">
+        <PreferenceRow label="Routes" detail={providers.error ? 'Unavailable' : 'Loading'}>
+          {providers.error && (
+            <Button variant="outline" onClick={() => providers.refetch()}>
+              Try again
+            </Button>
+          )}
+        </PreferenceRow>
+      </PreferenceSection>
+    );
+  }
+  const status = (ready: boolean) => (ready ? null : <StatusLabel state="unavailable" />);
+  return (
+    <>
+      <PreferenceSection title="Codex and Claude Code">
+        {codex && (
+          <PreferenceRow
+            label="Codex CLI"
+            detail="Profile for ~/.codex/config.toml, run with codex --profile exalto-capture"
+          >
+            {status(codex.ready)}
+            <Button
+              variant="outline"
+              leftSection={<Copy size={13} />}
+              onClick={() => copy('Codex CLI profile', codexProfile(codex.proxy_base_url))}
+            >
+              Copy profile
+            </Button>
+          </PreferenceRow>
+        )}
+        {claude && (
+          <PreferenceRow label="Claude Code" detail="Launch command, uses ANTHROPIC_API_KEY">
+            {status(claude.ready)}
+            <Button
+              variant="outline"
+              leftSection={<Copy size={13} />}
+              onClick={() => copy('Claude Code command', claudeCommand(claude.proxy_base_url))}
+            >
+              Copy command
+            </Button>
+          </PreferenceRow>
+        )}
+      </PreferenceSection>
+      <PreferenceSection title="API base URLs">
+        {apiRoutes.map((route) => (
+          <PreferenceRow key={route.id} label={route.name}>
+            {status(route.ready)}
+            <span className="preference-value">
+              <code>{route.proxy_base_url}</code>
+              <ActionIcon
+                variant="subtle"
+                onClick={() => copy(`${route.name} base URL`, route.proxy_base_url)}
+                aria-label={`Copy ${route.name} base URL`}
+              >
+                <Copy size={14} />
+              </ActionIcon>
+            </span>
+          </PreferenceRow>
+        ))}
+      </PreferenceSection>
+    </>
+  );
+}
+
+function AdvancedPage({
   status,
   api,
   apiBaseUrl,
   desktopSettings,
-  onDesktopAction,
+  onBack,
 }: {
   status: Status;
   api: LocalApi;
   apiBaseUrl?: string;
   desktopSettings: DesktopSettingsState;
-  onDesktopAction: (action: DesktopSettingsAction) => void;
+  onBack: () => void;
 }) {
   const openApiUrl = `${(apiBaseUrl ?? window.location.origin).replace(/\/$/, '')}/openapi.json`;
-  const copyOpenApi = async () => {
-    await navigator.clipboard.writeText(openApiUrl);
-    notifications.show({ message: 'OpenAPI URL copied' });
-  };
   return (
     <div className="view-page preferences">
-      <PreferenceSection title="Account">
-        <AccountConnectionCard api={api} />
-      </PreferenceSection>
-      <SealingSection api={api} />
-      <PreferenceSection title="Privacy">
-        <PreferenceRow label="Private traces">
-          <span className="preference-value">{desktopSettings.vault_label}</span>
-        </PreferenceRow>
-        <PreferenceRow label="Prompt previews" detail="Kept on this Mac outside the vault">
-          <span className="preference-value">
-            {status.preview_chars > 0
-              ? `${status.preview_chars.toLocaleString()} characters`
-              : 'Off'}
-          </span>
-        </PreferenceRow>
-      </PreferenceSection>
-      <AppearanceSection />
-      <GeneralSection settings={desktopSettings} onAction={onDesktopAction} />
-      <PreferenceSection title="Advanced">
+      <Button
+        className="preference-back"
+        aria-label="Back to Settings"
+        variant="subtle"
+        leftSection={<ChevronLeft size={14} />}
+        onClick={onBack}
+      >
+        Settings
+      </Button>
+      <RouteSections api={api} />
+      <SealingServiceDetails api={api} />
+      <PreferenceSection title="Local service">
         <PreferenceRow label="Provider proxy">
           <code>{status.proxy_listener}</code>
         </PreferenceRow>
         <PreferenceRow label="OpenAPI">
           <span className="preference-value">
             <code>{openApiUrl}</code>
-            <ActionIcon variant="subtle" onClick={copyOpenApi} aria-label="Copy OpenAPI URL">
+            <ActionIcon
+              variant="subtle"
+              onClick={() => copy('OpenAPI URL', openApiUrl)}
+              aria-label="Copy OpenAPI URL"
+            >
               <Copy size={14} />
             </ActionIcon>
           </span>
@@ -264,7 +353,83 @@ export function DesktopSettingsView({
           </code>
         </PreferenceRow>
       </PreferenceSection>
+    </div>
+  );
+}
+
+/**
+ * The desktop app's Settings. With the local service off there is no status:
+ * `serviceOff` takes the place of the sealing service and account, and the
+ * service-backed rows and Advanced page are left out.
+ */
+export function DesktopSettingsView({
+  status,
+  api,
+  apiBaseUrl,
+  desktopSettings,
+  connections,
+  serviceOff,
+  onDesktopAction,
+}: {
+  status: Status | null;
+  api: LocalApi;
+  apiBaseUrl?: string;
+  desktopSettings: DesktopSettingsState;
+  connections?: ReactNode;
+  serviceOff?: ReactNode;
+  onDesktopAction: (action: DesktopSettingsAction) => void;
+}) {
+  const [advanced, setAdvanced] = useState(false);
+  if (advanced && status) {
+    return (
+      <AdvancedPage
+        status={status}
+        api={api}
+        apiBaseUrl={apiBaseUrl}
+        desktopSettings={desktopSettings}
+        onBack={() => setAdvanced(false)}
+      />
+    );
+  }
+  return (
+    <div className="view-page preferences">
+      {connections}
+      {status ? (
+        <SealingSection api={api} />
+      ) : (
+        <PreferenceSection title="Sealing">{serviceOff}</PreferenceSection>
+      )}
+      <PreferenceSection title="Privacy">
+        <PreferenceRow label="Private traces">
+          <span className="preference-value">{desktopSettings.vault_label}</span>
+        </PreferenceRow>
+        {status && (
+          <PreferenceRow label="Prompt previews" detail="Kept on this Mac outside the vault">
+            <span className="preference-value">
+              {status.preview_chars > 0
+                ? `${status.preview_chars.toLocaleString()} characters`
+                : 'Off'}
+            </span>
+          </PreferenceRow>
+        )}
+      </PreferenceSection>
+      <GeneralSection settings={desktopSettings} onAction={onDesktopAction} />
+      {status && <AdvancedLink onOpen={() => setAdvanced(true)} />}
       {desktopSettings.notice && <p className="preference-notice">{desktopSettings.notice}</p>}
     </div>
+  );
+}
+
+/** Routes, sealing service details, and local service facts, one level down. */
+function AdvancedLink({ onOpen }: { onOpen: () => void }) {
+  return (
+    <section className="preference-section" aria-label="Advanced">
+      <div className="preference-group">
+        <button type="button" className="preference-row preference-link" onClick={onOpen}>
+          <span className="preference-label">Advanced</span>
+          <ChevronRight size={14} aria-hidden="true" />
+        </button>
+      </div>
+    </section>
   );
 }

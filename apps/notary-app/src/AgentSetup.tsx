@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useState } from 'react';
+import { claudeCommand, codexProfile } from '../../../runtime/apps/admin-dashboard/src/clientSetup';
 import {
   type AgentApps,
   type AgentTarget,
@@ -7,20 +8,9 @@ import {
   openAgentSetup,
 } from './bridge';
 
-export const CODEX_CONFIG = `[profiles.exalto-capture]
-model_provider = "exalto-capture"
+export const CODEX_CONFIG = codexProfile('http://127.0.0.1:8787/codex');
 
-[model_providers.exalto-capture]
-name = "Exalto Capture, ChatGPT plan"
-base_url = "http://127.0.0.1:8787/codex"
-requires_openai_auth = true
-wire_api = "responses"
-supports_websockets = false`;
-
-export const CLAUDE_COMMAND = `test -n "$ANTHROPIC_API_KEY" && \\
-env -u ANTHROPIC_AUTH_TOKEN -u CLAUDE_CODE_OAUTH_TOKEN \\
-  ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic \\
-  claude`;
+export const CLAUDE_COMMAND = claudeCommand('http://127.0.0.1:8787/anthropic');
 
 export function agentSetupPrompt(client: 'codex' | 'claude') {
   const common = `Help configure my local ${client === 'codex' ? 'Codex CLI' : 'Claude Code CLI'} for Exalto Capture on this Mac. Make the configuration changes for me and explain how to undo them. Preserve unrelated settings and my current default workflow. Use a separate opt-in capture session. Do not read or print credentials, auth caches, or Keychain entries. Do not put a key or token in this conversation, a command argument, a URL, or a config file.

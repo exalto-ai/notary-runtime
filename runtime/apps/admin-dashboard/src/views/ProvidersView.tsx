@@ -3,23 +3,11 @@ import { notifications } from '@mantine/notifications';
 import { useQuery } from '@tanstack/react-query';
 import { Copy, ShieldCheck, Unplug } from 'lucide-react';
 import type { LocalApi, Status } from '../api';
+import { claudeCommand, codexProfile } from '../clientSetup';
 import { ProviderIdentity } from '../ProviderIdentity';
 import { EmptyState, Fact, LoadingState, QueryError, StatusLabel } from '../shared';
 
 type ProviderRoute = Awaited<ReturnType<LocalApi['providers']>>['providers'][number];
-
-const codexConfig = (baseUrl: string) => `model_provider = "capture-chatgpt"
-
-[model_providers.capture-chatgpt]
-name = "Exalto Capture, ChatGPT plan"
-base_url = "${baseUrl}"
-requires_openai_auth = true
-wire_api = "responses"
-supports_websockets = false`;
-
-const claudeCommand = (baseUrl: string) => `env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \\
-  ANTHROPIC_BASE_URL=${baseUrl} \\
-  claude`;
 
 const apiKeyEnvironment: Record<string, string> = {
   anthropic: 'ANTHROPIC_API_KEY',
@@ -75,14 +63,14 @@ function ClientSetupCard({
 }) {
   const codex = client === 'codex';
   const name = codex ? 'Codex CLI' : 'Claude Code';
-  const setup = codex ? codexConfig(route.proxy_base_url) : claudeCommand(route.proxy_base_url);
+  const setup = codex ? codexProfile(route.proxy_base_url) : claudeCommand(route.proxy_base_url);
   return (
     <Paper className="settings-panel provider-route">
       <Group justify="space-between" align="flex-start">
         <div>
           <Title order={2}>{name}</Title>
           <Text className="provider-route-subtitle">
-            {codex ? 'Uses the saved ChatGPT sign-in' : 'Uses the saved claude.ai sign-in'}
+            {codex ? 'Uses the saved ChatGPT sign-in' : 'Uses ANTHROPIC_API_KEY'}
           </Text>
         </div>
         <StatusLabel state={route.ready ? 'ready' : 'unavailable'} />
@@ -92,13 +80,13 @@ function ClientSetupCard({
         <summary>Setup {name}</summary>
         <Text>
           {codex
-            ? 'Add this named provider to ~/.codex/config.toml. Do not add env_key, then run Codex normally. Keep your current model setting.'
-            : 'Run Claude Code with its API-key overrides removed so it uses the saved claude.ai login. Keep your current model setting.'}
+            ? 'Add this profile to ~/.codex/config.toml, then run codex --profile exalto-capture. Your default Codex setup is unchanged.'
+            : 'Run Claude Code with this command. It needs ANTHROPIC_API_KEY and is billed to the API, not a Claude subscription.'}
         </Text>
         <dl className="receipt-list">
           <Fact
-            label="Check sign-in"
-            value={<code>{codex ? 'codex login status' : 'claude auth status'}</code>}
+            label={codex ? 'Check sign-in' : 'Check key'}
+            value={<code>{codex ? 'codex login status' : 'test -n "$ANTHROPIC_API_KEY"'}</code>}
           />
           <Fact
             label={codex ? 'Config key' : 'Environment variable'}
@@ -116,8 +104,7 @@ function ClientSetupCard({
         </Button>
         {!codex && (
           <Text className="provider-setup-note">
-            If Claude Code is signed out, unset ANTHROPIC_BASE_URL and sign in directly first. The
-            native Claude desktop app cannot use this loopback route.
+            The native Claude desktop app cannot use this loopback route.
           </Text>
         )}
       </details>

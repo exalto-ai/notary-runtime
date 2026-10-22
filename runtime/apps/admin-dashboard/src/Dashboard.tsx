@@ -23,7 +23,7 @@ import {
   ShieldCheck,
   Unplug,
 } from 'lucide-react';
-import { type FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import './styles.css';
@@ -322,6 +322,7 @@ export function InlineDashboard({
   route,
   desktopShell = false,
   desktopSettings = null,
+  desktopConnections,
   onDesktopSettingsAction,
   onNavigate,
   onTraceActionConsumed,
@@ -331,6 +332,8 @@ export function InlineDashboard({
   route: Route;
   desktopShell?: boolean;
   desktopSettings?: DesktopSettingsState | null;
+  /** The desktop app's own Connections section, shown first in its Settings. */
+  desktopConnections?: ReactNode;
   onDesktopSettingsAction?: (action: DesktopSettingsAction) => void;
   onNavigate: (route: Route) => void;
   onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
@@ -358,6 +361,7 @@ export function InlineDashboard({
 
   const desktopBridge = {
     state: desktopSettings,
+    connections: desktopConnections,
     send: (action: DesktopSettingsAction) => onDesktopSettingsAction?.(action),
   };
   const consumeTraceAction = (traceId: string, action: 'first-proof') => {
@@ -402,6 +406,7 @@ function View({
   onTraceActionConsumed: (traceId: string, action: 'first-proof') => void;
   desktopBridge: {
     state: DesktopSettingsState | null;
+    connections?: ReactNode;
     send: (action: DesktopSettingsAction) => void;
   };
 }) {
@@ -429,6 +434,7 @@ function View({
           api={api}
           apiBaseUrl={apiBaseUrl}
           desktopSettings={desktopBridge.state}
+          connections={desktopBridge.connections}
           onDesktopAction={desktopBridge.send}
         />
       ) : (

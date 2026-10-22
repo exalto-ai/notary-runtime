@@ -1,6 +1,6 @@
 import type { DesktopState } from './bridge';
 
-export type View = 'home' | 'chat' | 'traces' | 'providers' | 'settings';
+export type View = 'home' | 'chat' | 'traces' | 'settings';
 export type WorkspaceView = Exclude<View, 'home' | 'chat'>;
 export type TraceConstraint =
   | 'state=captured'
@@ -50,14 +50,12 @@ export const viewMeta: Record<View, { title: string; subtitle: string }> = {
   chat: { title: 'Chat', subtitle: 'Chat in Capture and keep a Trace of each exchange' },
   home: { title: 'Capture', subtitle: 'Private traces on this Mac' },
   traces: { title: 'Traces', subtitle: 'Capture, seal, verify, and share' },
-  providers: { title: 'Connections', subtitle: 'Connect the tools you already use' },
-  settings: { title: 'Preferences', subtitle: 'Local capture, privacy, and app behavior' },
+  settings: { title: 'Settings', subtitle: 'Connections, sealing, privacy, and app behavior' },
 };
 
 export const workspaceRoutes: Partial<Record<View, WorkspaceView>> = {
   settings: 'settings',
   traces: 'traces',
-  providers: 'providers',
 };
 
 export function vaultProtection(mode: string) {

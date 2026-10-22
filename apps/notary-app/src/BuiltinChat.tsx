@@ -7,7 +7,7 @@ import { ChatComposer } from './ChatComposer';
 import { ChatTranscript, type Exchange } from './ChatTranscript';
 import { blockedAction, type Catalog, type Choice, ModelPicker } from './ModelPicker';
 import notaryMark from './notary-mark.svg';
-import { connectionNames, ProviderConnections, readConnections } from './ProviderConnections';
+import { ConnectionsSheet, connectionNames, readConnections } from './ProviderConnections';
 import { SfSymbol } from './SfSymbol';
 import './chat.css';
 
@@ -36,9 +36,6 @@ function resolveChoice(
   }
   return null;
 }
-
-// A stable callback ref runs once, so re-renders never pull focus out of the dialog's fields.
-const focusOnMount = (node: HTMLElement | null) => node?.focus();
 
 export function BuiltinChat({
   state,
@@ -304,31 +301,7 @@ export function BuiltinChat({
         </div>
       )}
       {showConnections && (
-        // biome-ignore lint/a11y/noStaticElementInteractions: the backdrop click is a pointer-only shortcut; keyboard users dismiss the focused dialog with Escape or Done.
-        // biome-ignore lint/a11y/useKeyWithClickEvents: Escape on the focused dialog and the Done button are the keyboard equivalents of this backdrop click.
-        <div className="chat-sheet-overlay" onClick={closeConnections}>
-          <section
-            className="chat-sheet"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Connections"
-            tabIndex={-1}
-            ref={focusOnMount}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') closeConnections();
-            }}
-          >
-            <div className="chat-sheet-body">
-              <ProviderConnections disabled={busy} onChange={setConnections} />
-            </div>
-            <footer className="chat-sheet-footer">
-              <button className="mac-button is-primary" type="button" onClick={closeConnections}>
-                Done
-              </button>
-            </footer>
-          </section>
-        </div>
+        <ConnectionsSheet disabled={busy} onChange={setConnections} onClose={closeConnections} />
       )}
     </section>
   );

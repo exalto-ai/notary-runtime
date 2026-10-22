@@ -13,6 +13,7 @@ export function HomeView({
   onStartCapture,
   onStopCapture,
   onRetryConnections,
+  onOpenSetup,
 }: {
   state: DesktopState;
   busy: string | null;
@@ -23,6 +24,7 @@ export function HomeView({
   onStartCapture: () => void;
   onStopCapture: () => void;
   onRetryConnections: () => void;
+  onOpenSetup: () => void;
 }) {
   const vault = vaultProtection(state.vault_mode);
   const recording = state.running && state.capture_enabled;
@@ -200,7 +202,7 @@ export function HomeView({
             ) : (
               <div className="capture-empty">
                 <p>Start capturing, then make a request in a connected AI client.</p>
-                <button type="button" onClick={() => onNavigate('providers')}>
+                <button type="button" onClick={onOpenSetup}>
                   Set up an AI connection{' '}
                   <SfSymbol
                     name="chevron.right"
@@ -268,7 +270,7 @@ export function HomeView({
               Codex CLI, Claude Code, and API clients can send their normal provider request through
               Exalto Capture.
             </p>
-            <button type="button" onClick={() => onNavigate('providers')}>
+            <button type="button" onClick={onOpenSetup}>
               Set up a connection{' '}
               <SfSymbol name="chevron.right" fallback={ChevronRight} size={12} weight="semibold" />
             </button>

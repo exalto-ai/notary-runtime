@@ -1,5 +1,6 @@
 import { ExternalLink } from 'lucide-react';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AxisSelect } from '../../../runtime/apps/admin-dashboard/src/shared';
 import { errorMessage } from './bridge';
 import * as bridge from './builtinBridge';
@@ -282,5 +283,51 @@ export function ProviderConnections({
         it at the provider. Private captures may retain encrypted credential bytes.
       </p>
     </section>
+  );
+}
+
+// A stable callback ref runs once, so re-renders never pull focus out of the dialog's fields.
+const focusOnMount = (node: HTMLElement | null) => node?.focus();
+
+/**
+ * The connections list as a centred, dismissable dialog over the window's
+ * content pane, so it covers the whole pane even from a scrolled view.
+ */
+export function ConnectionsSheet({
+  onClose,
+  onChange,
+  disabled = false,
+}: {
+  onClose: () => void;
+  onChange?: (connections: bridge.Connection[]) => void;
+  disabled?: boolean;
+}) {
+  return createPortal(
+    // biome-ignore lint/a11y/noStaticElementInteractions: the backdrop click is a pointer-only shortcut; keyboard users dismiss the focused dialog with Escape or Done.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Escape on the focused dialog and the Done button are the keyboard equivalents of this backdrop click.
+    <div className="connections-sheet-overlay" onClick={onClose}>
+      <section
+        className="connections-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Connections"
+        tabIndex={-1}
+        ref={focusOnMount}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose();
+        }}
+      >
+        <div className="connections-sheet-body">
+          <ProviderConnections disabled={disabled} onChange={onChange} />
+        </div>
+        <footer className="connections-sheet-footer">
+          <button className="mac-button is-primary" type="button" onClick={onClose}>
+            Done
+          </button>
+        </footer>
+      </section>
+    </div>,
+    document.querySelector('.window-content') ?? document.body,
   );
 }

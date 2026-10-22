@@ -1353,4 +1353,15 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline-color:
   overflow-wrap: anywhere;
   text-align: right;
 }
+.dashboard-shell--inline .preference-link {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.dashboard-shell--inline .preference-link:active { background: var(--rule-soft); }
+.dashboard-shell--inline .preference-back { justify-self: start; margin: 0 0 -8px; }
 .dashboard-shell--inline .preference-notice { margin: 0; padding: 0 10px; color: var(--muted); font-size: 12px; }

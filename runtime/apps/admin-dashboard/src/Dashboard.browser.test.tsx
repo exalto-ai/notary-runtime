@@ -1044,11 +1044,14 @@ describe('Notary admin dashboard', () => {
     await expect
       .element(page.getByText(/base_url = "http:\/\/127\.0\.0\.1:8787\/codex"/))
       .toBeVisible();
-    await expect.element(page.getByText(/model_provider = "capture-chatgpt"/)).toBeVisible();
+    await expect.element(page.getByText(/model_provider = "exalto-capture"/)).toBeVisible();
     await page.getByText('Setup Claude Code', { exact: true }).click();
     await expect
       .element(page.getByText(/ANTHROPIC_BASE_URL=http:\/\/127\.0\.0\.1:8787\/anthropic/))
       .toBeVisible();
+    // Claude capture keeps the API key and never falls back to a subscription login.
+    await expect.element(page.getByText(/test -n "\$ANTHROPIC_API_KEY" &&/)).toBeVisible();
+    await expect.element(page.getByText(/claude\.ai/)).not.toBeInTheDocument();
     await page.getByText('OpenAI route details', { exact: true }).click();
     await expect.element(page.getByText('api.openai.com', { exact: true }).first()).toBeVisible();
     await expect
@@ -1297,7 +1300,7 @@ describe('Notary admin dashboard', () => {
     await expect.element(page.getByRole('navigation', { name: 'Admin dashboard' })).toBeVisible();
   });
 
-  test('groups desktop Preferences into short sections with controls on the right', async () => {
+  test('groups desktop Settings into short sections with controls on the right', async () => {
     const actions: DesktopSettingsAction[] = [];
     renderDashboard('/settings', createFixtureApi(), desktopSettings, (action) =>
       actions.push(action),
@@ -1308,7 +1311,8 @@ describe('Notary admin dashboard', () => {
           (heading) => heading.textContent,
         ),
       )
-      .toEqual(['Account', 'Sealing', 'Privacy', 'Appearance', 'General', 'Advanced']);
+      .toEqual(['Sealing', 'Privacy', 'General']);
+    await expect.element(page.getByRole('button', { name: 'Advanced' })).toBeVisible();
     await expect
       .element(page.getByRole('switch', { name: 'Open Exalto Capture at sign-in' }))
       .toBeChecked();
@@ -1324,7 +1328,7 @@ describe('Notary admin dashboard', () => {
     ]);
   });
 
-  test('keeps only actionable facts in desktop Preferences', async () => {
+  test('keeps only actionable facts in desktop Settings', async () => {
     renderDashboard('/settings', createFixtureApi(), desktopSettings);
     await expect.element(page.getByText('Sample User', { exact: true })).toBeVisible();
     await expect.element(page.getByText('Protected by Keychain', { exact: true })).toBeVisible();
@@ -1348,12 +1352,42 @@ describe('Notary admin dashboard', () => {
       .element(page.getByRole('link', { name: 'Open generated OpenAPI' }))
       .not.toBeInTheDocument();
     expect(document.querySelectorAll('.preferences a[target="_blank"]')).toHaveLength(0);
-    await expect.element(page.getByRole('button', { name: 'Copy OpenAPI URL' })).toBeVisible();
+    await expect
+      .element(page.getByRole('button', { name: 'Copy OpenAPI URL' }))
+      .not.toBeInTheDocument();
+    await expect.element(page.getByText('Operator', { exact: true })).not.toBeInTheDocument();
 
+    await page.getByRole('button', { name: 'Advanced' }).click();
+    await expect.element(page.getByRole('button', { name: 'Copy OpenAPI URL' })).toBeVisible();
     await expect.element(page.getByText('Operator', { exact: true }).first()).not.toBeVisible();
     await page.getByText('Details', { exact: true }).click();
     await expect.element(page.getByText('Operator', { exact: true }).first()).toBeVisible();
     await expect.element(page.getByText('seal3', { exact: true })).toBeVisible();
+  });
+
+  test('puts routes, sealing details, and service facts on the Advanced page', async () => {
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+    renderDashboard('/settings', createFixtureApi(), desktopSettings);
+    await page.getByRole('button', { name: 'Advanced' }).click();
+    await expect
+      .poll(() =>
+        Array.from(document.querySelectorAll('.preference-section > h2')).map(
+          (heading) => heading.textContent,
+        ),
+      )
+      .toEqual(['Codex and Claude Code', 'API base URLs', 'Sealing service', 'Local service']);
+    await page.getByRole('button', { name: 'Copy profile' }).click();
+    expect(writeText).toHaveBeenLastCalledWith(
+      expect.stringContaining('[profiles.exalto-capture]'),
+    );
+    await page.getByRole('button', { name: 'Copy command' }).click();
+    expect(writeText).toHaveBeenLastCalledWith(
+      expect.stringContaining('test -n "$ANTHROPIC_API_KEY"'),
+    );
+    await page.getByRole('button', { name: 'Copy OpenAI base URL' }).click();
+    expect(writeText).toHaveBeenLastCalledWith('http://127.0.0.1:8787/openai/v1');
+    await page.getByRole('button', { name: 'Back to Settings' }).click();
+    await expect.element(page.getByRole('button', { name: 'Advanced' })).toBeVisible();
   });
 
   test('switches the desktop theme between System, Light, and Dark', async () => {
