@@ -1370,7 +1370,7 @@ function AccountReadyStep({
             <button
               className="mac-button is-large"
               type="button"
-              onClick={() => void onFinish('home')}
+              onClick={() => void onFinish('traces')}
               disabled={busy}
             >
               Keep it local for now
@@ -1381,7 +1381,7 @@ function AccountReadyStep({
             <button
               className="mac-button is-primary is-large"
               type="button"
-              onClick={() => void onFinish('home')}
+              onClick={() => void onFinish('traces')}
               disabled={busy}
             >
               {busy ? 'Finishing setup…' : 'Open Capture and retry Seal'}
@@ -1396,24 +1396,14 @@ function AccountReadyStep({
             </button>
           </>
         ) : (
-          <>
-            <button
-              className="mac-button is-primary is-large"
-              type="button"
-              onClick={() => void onFinish('home')}
-              disabled={busy}
-            >
-              {busy ? 'Finishing setup…' : 'Open Capture'}
-            </button>
-            <button
-              className="mac-button is-large"
-              type="button"
-              onClick={() => void onFinish('traces')}
-              disabled={busy}
-            >
-              Open Traces
-            </button>
-          </>
+          <button
+            className="mac-button is-primary is-large"
+            type="button"
+            onClick={() => void onFinish('traces')}
+            disabled={busy}
+          >
+            {busy ? 'Finishing setup…' : 'Open Capture'}
+          </button>
         )}
       </div>
     </>

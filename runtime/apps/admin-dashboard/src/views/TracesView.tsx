@@ -454,6 +454,7 @@ export function TracesView({
   initialFilters,
   navigate,
   hideActivity = false,
+  emptyAction,
   onTraceActionConsumed,
 }: {
   api: LocalApi;
@@ -462,6 +463,7 @@ export function TracesView({
   initialFilters?: Route['filters'];
   navigate: (route: Route) => void;
   hideActivity?: boolean;
+  emptyAction?: ReactNode;
   onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
 }) {
   const [query, setQuery] = useState('');
@@ -536,9 +538,10 @@ export function TracesView({
   const activeId = selectedId ?? visible[0]?.trace_id;
   const active = visible.find((capture) => capture.trace_id === activeId) ?? selectedDetail.data;
   const showDetail = Boolean(mobile && selectedId);
-  const hasAdditionalFilters = Boolean(
-    query || model || provider || operationalStatus || streaming || time,
-  );
+  const moreFilterCount = [provider, time, model, operationalStatus, streaming].filter(
+    Boolean,
+  ).length;
+  const hasAdditionalFilters = Boolean(query || moreFilterCount);
   const emptyCopy = hasAdditionalFilters
     ? 'No traces match these filters.'
     : traceState === 'captured'
@@ -573,39 +576,39 @@ export function TracesView({
               ]}
               onChange={(next) => setTraceState(next === 'all' ? null : (next as TraceStateFilter))}
             />
-            <AxisSelect
-              ariaLabel="Provider filter"
-              placeholder="All providers"
-              data={['openai', 'anthropic', 'deepseek', 'openrouter'].map((value) => ({
-                value,
-                label: providerDisplayName(value),
-                content: <ProviderIdentity provider={value} />,
-              }))}
-              value={provider}
-              onChange={setProvider}
-            />
-            <AxisSelect
-              ariaLabel="Trace time filter"
-              placeholder="Any date"
-              data={[
-                { value: 'hour', label: 'Last hour' },
-                { value: 'day', label: 'Last 24 hours' },
-                { value: 'week', label: 'Last 7 days' },
-              ]}
-              value={time}
-              onChange={setTime}
-            />
             <Button
               className="trace-more-filters"
-              variant={moreOpen || operationalStatus || model || streaming ? 'light' : 'outline'}
+              variant={moreOpen || moreFilterCount ? 'light' : 'outline'}
               onClick={() => setMoreOpen((open) => !open)}
               aria-expanded={moreOpen}
             >
-              More filters
+              {moreFilterCount ? `More filters · ${moreFilterCount}` : 'More filters'}
             </Button>
           </div>
           {moreOpen && (
             <div className="trace-filter-more">
+              <AxisSelect
+                ariaLabel="Provider filter"
+                placeholder="All providers"
+                data={['openai', 'anthropic', 'deepseek', 'openrouter'].map((value) => ({
+                  value,
+                  label: providerDisplayName(value),
+                  content: <ProviderIdentity provider={value} />,
+                }))}
+                value={provider}
+                onChange={setProvider}
+              />
+              <AxisSelect
+                ariaLabel="Trace time filter"
+                placeholder="Any date"
+                data={[
+                  { value: 'hour', label: 'Last hour' },
+                  { value: 'day', label: 'Last 24 hours' },
+                  { value: 'week', label: 'Last 7 days' },
+                ]}
+                value={time}
+                onChange={setTime}
+              />
               <TextInput
                 aria-label="Model filter"
                 autoCorrect="off"
@@ -654,6 +657,7 @@ export function TracesView({
           <EmptyState
             title={emptyCopy}
             copy="Send a request through a configured provider route."
+            action={hasAdditionalFilters || traceState ? undefined : emptyAction}
           />
         </div>
       ) : (
@@ -668,6 +672,7 @@ export function TracesView({
                       active={capture.trace_id === activeId}
                       onClick={() => navigate({ view: 'traces', id: capture.trace_id })}
                     />
+                    {canSeal(capture) && <RowSealButton api={api} capture={capture} />}
                   </li>
                 ))}
               </ul>
@@ -702,6 +707,64 @@ export function TracesView({
         </ResizableSplit>
       )}
     </div>
+  );
+}
+
+/** Starts sealing a Trace; the row and the inspector share the queueing, notice, and refresh. */
+function useSealTrace(
+  api: LocalApi,
+  traceId: string,
+  handlers: { onMutate?: () => void; onSuccess?: () => void; onError?: () => void } = {},
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.startNotarization(traceId),
+    onMutate: handlers.onMutate,
+    onSuccess: (result) => {
+      notifications.show({
+        title: result.deduplicated ? 'Already in the queue' : 'Sealing queued',
+        message: result.deduplicated
+          ? 'The existing operation remains active.'
+          : 'Proof generation will run in the background.',
+      });
+      for (const queryKey of [
+        ['traces'],
+        ['capture', traceId],
+        ['operations'],
+        ['status'],
+        ['events'],
+      ])
+        queryClient.invalidateQueries({ queryKey });
+      handlers.onSuccess?.();
+    },
+    onError: (error) => {
+      mutationError('Could not seal trace', error);
+      handlers.onError?.();
+    },
+  });
+}
+
+function canSeal(trace: TraceSummary) {
+  return (
+    captureStatus(trace) === 'captured' &&
+    notarizationStatus(trace) === 'not_requested' &&
+    trace.notarization_eligible
+  );
+}
+
+function RowSealButton({ api, capture }: { api: LocalApi; capture: TraceSummary }) {
+  const seal = useSealTrace(api, capture.trace_id);
+  return (
+    <Button
+      className="capture-row-seal"
+      size="compact-xs"
+      variant="light"
+      aria-label={`Seal ${traceTitle(capture)}`}
+      loading={seal.isPending}
+      onClick={() => seal.mutate()}
+    >
+      Seal
+    </Button>
   );
 }
 
@@ -868,7 +931,6 @@ function CapturedTraceInspector({
   hideActivity?: boolean;
   onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
 }) {
-  const queryClient = useQueryClient();
   const handledInitialAction = useRef<string | null>(null);
   const consumedFirstProofAction = useRef<string | null>(null);
   const [firstProofRequested, setFirstProofRequested] = useState(initialAction === 'first-proof');
@@ -889,32 +951,19 @@ function CapturedTraceInspector({
     queryFn: () => api.trace(capture.trace_id),
     refetchInterval: 2_000,
   });
-  const notarize = useMutation({
-    mutationFn: () => api.startNotarization(capture.trace_id),
+  const notarize = useSealTrace(api, capture.trace_id, {
     onMutate: () => setFirstProofStartError(null),
-    onSuccess: (result) => {
+    onSuccess: () => {
       if (firstProofRequested) {
         consumeFirstProofAction();
       }
-      notifications.show({
-        title: result.deduplicated ? 'Already in the queue' : 'Sealing queued',
-        message: result.deduplicated
-          ? 'The existing operation remains active.'
-          : 'Proof generation will run in the background.',
-      });
-      queryClient.invalidateQueries({ queryKey: ['traces'] });
-      queryClient.invalidateQueries({ queryKey: ['capture', capture.trace_id] });
-      queryClient.invalidateQueries({ queryKey: ['operations'] });
-      queryClient.invalidateQueries({ queryKey: ['status'] });
-      queryClient.invalidateQueries({ queryKey: ['events'] });
       navigate({
         view: 'traces',
         id: capture.trace_id,
         action: initialAction === 'first-proof' ? undefined : initialAction,
       });
     },
-    onError: (error) => {
-      mutationError('Could not seal trace', error);
+    onError: () => {
       if (firstProofRequested) {
         setFirstProofStartError(
           'Automatic sealing could not start. Review the error, then choose Seal trace when you are ready to retry.',
@@ -978,11 +1027,7 @@ function CapturedTraceInspector({
   const incompatibleProviderResponse =
     captureStatus(capture) === 'captured' &&
     capture.notarization_ineligibility_code === 'unsupported_provider_http_status';
-  const canNotarize =
-    captureStatus(capture) === 'captured' &&
-    notarizationStatus(capture) === 'not_requested' &&
-    capture.notarization_eligible &&
-    !value.notarization;
+  const canNotarize = canSeal(capture) && !value.notarization;
   const canRetry = Boolean(value.notarization?.retryable);
   return (
     <article className="inspector capture-inspector">

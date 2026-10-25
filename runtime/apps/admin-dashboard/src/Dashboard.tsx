@@ -323,6 +323,7 @@ export function InlineDashboard({
   desktopShell = false,
   desktopSettings = null,
   desktopConnections,
+  desktopTracesEmptyAction,
   onDesktopSettingsAction,
   onNavigate,
   onTraceActionConsumed,
@@ -334,6 +335,8 @@ export function InlineDashboard({
   desktopSettings?: DesktopSettingsState | null;
   /** The desktop app's own Connections section, shown first in its Settings. */
   desktopConnections?: ReactNode;
+  /** The desktop app's next step when no Trace has been captured yet. */
+  desktopTracesEmptyAction?: ReactNode;
   onDesktopSettingsAction?: (action: DesktopSettingsAction) => void;
   onNavigate: (route: Route) => void;
   onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
@@ -362,6 +365,7 @@ export function InlineDashboard({
   const desktopBridge = {
     state: desktopSettings,
     connections: desktopConnections,
+    tracesEmptyAction: desktopTracesEmptyAction,
     send: (action: DesktopSettingsAction) => onDesktopSettingsAction?.(action),
   };
   const consumeTraceAction = (traceId: string, action: 'first-proof') => {
@@ -407,6 +411,7 @@ function View({
   desktopBridge: {
     state: DesktopSettingsState | null;
     connections?: ReactNode;
+    tracesEmptyAction?: ReactNode;
     send: (action: DesktopSettingsAction) => void;
   };
 }) {
@@ -420,6 +425,7 @@ function View({
           initialFilters={route.filters}
           navigate={navigate}
           hideActivity={desktopShell}
+          emptyAction={desktopBridge.tracesEmptyAction}
           onTraceActionConsumed={onTraceActionConsumed}
         />
       );

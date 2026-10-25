@@ -127,7 +127,8 @@ beforeEach(() => {
         });
       }
       if (path === '/v1/traces') {
-        return response({ items: [browserTraceSummary()], next_cursor: null });
+        const items = window.location.search.includes('no-traces') ? [] : [browserTraceSummary()];
+        return response({ items, next_cursor: null });
       }
       if (/^\/v1\/traces\/[^/]+\/notarizations$/.test(path)) {
         return response(
@@ -206,7 +207,7 @@ describe('Exalto Capture desktop shell', () => {
           node.textContent?.replace(/\d+$/, ''),
         ),
       )
-      .toEqual(['Overview', 'Chat', 'Traces', 'Settings']);
+      .toEqual(['Traces', 'Chat', 'Settings']);
     await expect.element(page.getByText('Captures', { exact: true })).not.toBeInTheDocument();
     await expect.element(page.getByText('Finalizations', { exact: true })).not.toBeInTheDocument();
     await expect.element(page.getByText('Share', { exact: true })).not.toBeInTheDocument();
@@ -242,35 +243,16 @@ describe('Exalto Capture desktop shell', () => {
     expect(second).not.toBe(first);
   });
 
-  test('routes every Capture count to Traces with a visible constraint', async () => {
-    renderApp('?screen=capture-on');
-    const expected = [
-      ['Captured', 'state=captured'],
-      ['Sealing', 'status=notarizing'],
-      ['Sealed', 'state=notarized'],
-      ['Needs attention', 'status=needs_attention'],
-    ] as const;
-
-    for (const [label, constraint] of expected) {
-      await userEvent.click(page.getByRole('button', { name: new RegExp(label) }));
-      await expect.element(page.getByPlaceholder('Search traces')).toBeVisible();
-      expect(document.querySelector('.workspace-frame')).toBeNull();
-      expect(document.querySelector('.inline-dashboard-page')).not.toBeNull();
-      if (constraint.startsWith('state=')) {
-        const labelName = constraint === 'state=notarized' ? 'Sealed' : 'Captured';
-        await expect
-          .element(page.getByRole('radio', { name: labelName, exact: true }))
-          .toBeChecked();
-      } else {
-        await expect
-          .element(page.getByRole('button', { name: 'More filters' }))
-          .toHaveAttribute('aria-expanded', 'true');
-        await expect
-          .element(page.getByRole('combobox', { name: 'Operational status filter' }))
-          .toHaveValue(label);
-      }
-      await userEvent.click(page.getByRole('button', { name: 'Overview' }));
-    }
+  test('opens on Traces with the capture switch in its header', async () => {
+    renderApp('?screen=capture-off');
+    await expect.element(page.getByRole('heading', { name: 'Traces', exact: true })).toBeVisible();
+    await expect.element(page.getByPlaceholder('Search traces')).toBeVisible();
+    const capture = page.getByRole('switch', { name: 'Capture' });
+    await expect.element(capture).not.toBeChecked();
+    await expect.element(capture).toBeEnabled();
+    await expect
+      .element(page.getByText(/^Capture is off\. Requests sent while it is off/))
+      .toBeVisible();
   });
 
   test('resumes and consumes a pending first-proof handoff across app restarts', async () => {
@@ -306,8 +288,8 @@ describe('Exalto Capture desktop shell', () => {
     expect(document.querySelector('.workspace-frame')).toBeNull();
   });
 
-  test('opens connection setup from Overview', async () => {
-    renderApp('?screen=capture-on');
+  test('opens connection setup from an empty Traces list', async () => {
+    renderApp('?screen=capture-on&no-traces');
     await userEvent.click(page.getByRole('button', { name: 'Set up a connection' }));
     await expect
       .element(page.getByRole('heading', { name: 'Where would you like to chat?' }))
@@ -325,16 +307,7 @@ describe('Exalto Capture desktop shell', () => {
     await expect.element(page.getByPlaceholder('Search traces')).toBeVisible();
   });
 
-  test('clears a Trace count filter when the native Traces destination is selected again', async () => {
-    renderApp('?screen=capture-on');
-    await userEvent.click(page.getByRole('button', { name: /Captured/ }));
-    await expect.element(page.getByRole('radio', { name: 'Captured', exact: true })).toBeChecked();
-    await userEvent.click(page.getByRole('button', { name: /^Traces/ }));
-    await expect.element(page.getByRole('radio', { name: 'All', exact: true })).toBeChecked();
-    expect(document.querySelector('.workspace-frame')).toBeNull();
-  });
-
-  test('keeps the primary capture control on Capture', async () => {
+  test('keeps the capture switch beside the offline Traces workspace', async () => {
     renderApp('?screen=service-off&view=traces');
     await expect
       .element(
@@ -344,11 +317,7 @@ describe('Exalto Capture desktop shell', () => {
       )
       .toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Start local service' })).toBeVisible();
-    await expect
-      .element(page.getByRole('button', { name: 'Start capturing' }))
-      .not.toBeInTheDocument();
-    await userEvent.click(page.getByRole('button', { name: 'Overview' }));
-    await expect.element(page.getByRole('button', { name: 'Start capturing' })).toBeVisible();
+    await expect.element(page.getByRole('switch', { name: 'Capture' })).toBeEnabled();
   });
 
   test('shows start failures beside the retry action on every offline workspace', async () => {
@@ -377,54 +346,34 @@ describe('Exalto Capture desktop shell', () => {
 
   test('shows a neutral startup state instead of a false sealing failure', async () => {
     renderApp('?screen=service-off');
-    await expect.element(page.getByRole('heading', { name: 'Capture is off' })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Start capturing' })).toBeEnabled();
+    await expect.element(page.getByText(/^Capture is off\./)).toBeVisible();
+    await expect.element(page.getByRole('switch', { name: 'Capture' })).toBeEnabled();
     await expect
-      .element(page.getByRole('button', { name: 'Start capturing' }))
-      .toHaveAttribute(
-        'title',
-        'Start the local service and connect its trusted capture transport.',
-      );
-    await expect.element(page.getByText('Exalto Seal · Service off')).toBeVisible();
-    await expect
-      .element(page.getByText(/is starting|needs attention|cannot be reached/))
+      .element(page.getByText(/is starting|needs attention|can’t be reached/))
       .not.toBeInTheDocument();
 
     cleanup();
     renderApp('?screen=service-starting');
-    await expect.element(page.getByText('Exalto Seal is starting')).toBeVisible();
-    await expect.element(page.getByText(/Checking the trusted capture transport/)).toBeVisible();
+    await expect.element(page.getByText(/Checking the connection to Exalto Seal/)).toBeVisible();
     await expect.element(page.getByText('Sealing service is unavailable')).not.toBeInTheDocument();
-    await expect.element(page.getByRole('button', { name: 'Start capturing' })).toBeDisabled();
-    await expect
-      .element(page.getByText(/Capture will be available when this check succeeds/))
-      .toBeVisible();
-    await expect.element(page.getByText(/Exalto Seal account is not required/)).toBeVisible();
+    await expect.element(page.getByRole('switch', { name: 'Capture' })).toBeDisabled();
   });
 
-  test('shows capture changes as a temporary corner toast', async () => {
+  test('shows capture changes as a temporary notification', async () => {
     renderApp('?screen=capture-on');
-    await userEvent.click(page.getByRole('button', { name: 'Stop capturing' }));
-    await expect
-      .poll(() => document.querySelector<HTMLElement>('.capture-toast')?.textContent)
-      .toBe('Capture is off.');
-    const toast = present(
-      document.querySelector<HTMLElement>('.capture-toast'),
-      'the capture toast',
-    );
-    expect(getComputedStyle(toast).position).toBe('fixed');
-    expect(getComputedStyle(toast).bottom).toBe('18px');
-    expect(document.querySelector('.capture-page > .native-notice')).toBeNull();
+    const capture = page.getByRole('switch', { name: 'Capture' });
+    await expect.element(capture).toBeChecked();
+    await userEvent.click(capture);
+    await expect.element(page.getByText('Capture is off.', { exact: true })).toBeVisible();
+    expect(document.querySelector('.traces-header-notice')).toBeNull();
   });
 
   test('distinguishes trusted but unreachable Seal from unavailable trust', async () => {
     renderApp('?screen=seal-unreachable');
-    await expect.element(page.getByText('Exalto Seal cannot be reached')).toBeVisible();
+    await expect.element(page.getByText('Exalto Seal can’t be reached')).toBeVisible();
     await expect.element(page.getByText(/transport handshake did not complete/)).toBeVisible();
-    await expect.element(page.getByText('Exalto Seal · Unreachable')).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Start capturing' })).toBeDisabled();
-    await expect.element(page.getByText(/Capture needs this trusted transport/)).toBeVisible();
-    await expect.element(page.getByText(/does not require an Exalto Seal account/)).toBeVisible();
+    await expect.element(page.getByRole('switch', { name: 'Capture' })).toBeDisabled();
+    await expect.element(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 
     cleanup();
     renderApp('?screen=seal-trust-unavailable');
@@ -432,18 +381,13 @@ describe('Exalto Capture desktop shell', () => {
     await expect
       .element(page.getByText(/could not resolve a trusted sealing endpoint/))
       .toBeVisible();
-    await expect.element(page.getByText('Exalto Seal · Trust unavailable')).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Start capturing' })).toBeDisabled();
+    await expect.element(page.getByRole('switch', { name: 'Capture' })).toBeDisabled();
   });
 
   test('reports Seal ready only after trust and transport checks succeed', async () => {
     renderApp('?screen=capture-off');
-    await expect.element(page.getByText('Exalto Seal · Ready')).toBeVisible();
-    await expect
-      .element(page.getByText(/Exalto Seal is ready to receive ciphertext/))
-      .toBeVisible();
-    await expect.element(page.getByText(/cannot be reached/)).not.toBeInTheDocument();
-    await expect.element(page.getByRole('button', { name: 'Start capturing' })).toBeEnabled();
+    await expect.element(page.getByText(/can’t be reached/)).not.toBeInTheDocument();
+    await expect.element(page.getByRole('switch', { name: 'Capture' })).toBeEnabled();
   });
 
   test('separates built-in credentials from external setup and makes testing optional', async () => {
@@ -525,8 +469,8 @@ describe('Exalto Capture desktop shell', () => {
 
     cleanup();
     renderApp('?screen=capture-third-party');
-    await expect.element(page.getByText('Northstar Seal', { exact: true }).first()).toBeVisible();
-    await expect.element(page.getByText('Exalto Seal', { exact: true })).not.toBeInTheDocument();
+    await expect.element(page.getByRole('switch', { name: 'Capture' })).toBeEnabled();
+    expect(document.body.textContent).not.toContain('Exalto Seal');
   });
 
   test('keeps the connection setup action visible at the minimum desktop size', async () => {

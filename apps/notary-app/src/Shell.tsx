@@ -1,4 +1,4 @@
-import { FileCheck2, MessageSquare, Radio, Settings } from 'lucide-react';
+import { FileCheck2, MessageSquare, Settings } from 'lucide-react';
 import type { DesktopState } from './bridge';
 import notaryMark from './notary-mark.svg';
 import { DISPLAY_NAME, type View } from './product';
@@ -21,12 +21,10 @@ export function Sidebar({
   const items: Array<{
     view: View;
     label: string;
-    icon: typeof Radio;
+    icon: typeof FileCheck2;
     symbol: string;
     count?: number;
   }> = [
-    { view: 'home', label: 'Overview', icon: Radio, symbol: 'dot.radiowaves.left.and.right' },
-    { view: 'chat', label: 'Chat', icon: MessageSquare, symbol: 'bubble.left' },
     {
       view: 'traces',
       label: 'Traces',
@@ -34,6 +32,7 @@ export function Sidebar({
       symbol: 'doc.text',
       count: traceCount,
     },
+    { view: 'chat', label: 'Chat', icon: MessageSquare, symbol: 'bubble.left' },
     { view: 'settings', label: 'Settings', icon: Settings, symbol: 'gearshape' },
   ];
 

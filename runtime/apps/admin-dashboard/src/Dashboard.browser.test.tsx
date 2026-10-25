@@ -120,7 +120,7 @@ describe('Notary admin dashboard', () => {
     await expect.element(page.getByText('trc-20260727-benchmark').first()).toBeVisible();
   });
 
-  test('keeps lifecycle primary while placing operational filters under More filters', async () => {
+  test('keeps search and lifecycle primary while placing other filters under More filters', async () => {
     renderDashboard('/traces?status=notarizing');
     await expect.element(page.getByText('All', { exact: true }).first()).toBeVisible();
     await expect.element(page.getByText('Captured', { exact: true }).first()).toBeVisible();
@@ -133,15 +133,21 @@ describe('Notary admin dashboard', () => {
     await expect
       .element(page.getByRole('combobox', { name: 'Operational status filter' }))
       .toHaveValue('Sealing');
+    await expect.element(page.getByRole('button', { name: 'More filters · 1' })).toBeVisible();
 
     cleanup();
     renderDashboard('/traces');
     await expect
       .element(page.getByRole('combobox', { name: 'Operational status filter' }))
       .not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole('combobox', { name: 'Provider filter' }))
+      .not.toBeInTheDocument();
     const moreFilters = page.getByRole('button', { name: 'More filters' });
     await expect.element(moreFilters).toHaveClass(/trace-more-filters/);
     await moreFilters.click();
+    await expect.element(page.getByRole('combobox', { name: 'Provider filter' })).toBeVisible();
+    await expect.element(page.getByRole('combobox', { name: 'Trace time filter' })).toBeVisible();
     await expect.element(page.getByLabelText('Model filter')).toBeVisible();
     await expect.element(page.getByRole('combobox', { name: 'Streaming filter' })).toBeVisible();
   });
@@ -510,6 +516,22 @@ describe('Notary admin dashboard', () => {
     await expect
       .element(page.getByRole('button', { name: 'Seal trace', exact: true }))
       .not.toBeInTheDocument();
+  });
+
+  test('seals a Captured Trace from its list row without opening it', async () => {
+    const fixture = createFixtureApi();
+    const startNotarization = vi.fn((id: string) => fixture.startNotarization(id));
+    renderDashboard('/traces', { ...fixture, startNotarization });
+    const sealable = fixtureCaptures.filter(
+      (trace) => trace.state === 'captured' && trace.status == null && trace.notarization_eligible,
+    );
+    const rowButtons = page.getByRole('list', { name: 'Traces' }).getByRole('button', {
+      name: /^Seal /,
+    });
+    await expect.poll(() => rowButtons.elements().length).toBe(sealable.length);
+    await rowButtons.first().click();
+    await expect.poll(() => startNotarization).toHaveBeenCalledWith(sealable[0].trace_id);
+    expect(window.location.hash).toBe('#/traces');
   });
 
   test('moves a Trace atomically from Captured to Sealed on the same route', async () => {
@@ -1002,6 +1024,7 @@ describe('Notary admin dashboard', () => {
       },
     };
     renderDashboard('/traces', api);
+    await page.getByRole('button', { name: 'More filters' }).click();
     await page.getByRole('combobox', { name: 'Trace time filter' }).click();
     await page.getByRole('option', { name: 'Last 24 hours' }).click();
     await expect.poll(() => filters.at(-1)?.created_from_unix_ms).toBeTypeOf('number');

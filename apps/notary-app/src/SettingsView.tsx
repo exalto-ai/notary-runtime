@@ -236,6 +236,11 @@ export function SettingsView({
         desktopConnections={
           route === 'settings' ? <ConnectionsSection onOpenSetup={onOpenSetup} /> : undefined
         }
+        desktopTracesEmptyAction={
+          <Button variant="outline" onClick={onOpenSetup}>
+            Set up a connection
+          </Button>
+        }
         onDesktopSettingsAction={handleDesktopAction}
         desktopShell
         onNavigate={(next) => onNavigate(next.view as View, next)}

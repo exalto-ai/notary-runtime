@@ -93,7 +93,6 @@ pub(super) fn app_menu_action(id: &str) -> Option<AppMenuAction> {
         "help_guide" => Some(AppMenuAction::HelpGuide),
         "help_report" => Some(AppMenuAction::HelpReport),
         "file_new_chat" => Some(AppMenuAction::Command("new-chat")),
-        "view_home" => Some(AppMenuAction::Command("home")),
         "view_chat" => Some(AppMenuAction::Command("chat")),
         "view_traces" => Some(AppMenuAction::Command("traces")),
         "view_settings" => Some(AppMenuAction::Command("settings")),
@@ -222,12 +221,11 @@ pub(super) fn create_app_menu(app: &tauri::App) -> tauri::Result<CheckMenuItem<t
         menu.insert(&file, 1)?;
     }
 
-    // View: the four sections and Find.
+    // View: the three sections and Find.
     let view_items = [
-        MenuItem::with_id(app, "view_home", "Overview", true, Some("CmdOrCtrl+1"))?,
+        MenuItem::with_id(app, "view_traces", "Traces", true, Some("CmdOrCtrl+1"))?,
         MenuItem::with_id(app, "view_chat", "Chat", true, Some("CmdOrCtrl+2"))?,
-        MenuItem::with_id(app, "view_traces", "Traces", true, Some("CmdOrCtrl+3"))?,
-        MenuItem::with_id(app, "view_settings", "Settings", true, Some("CmdOrCtrl+4"))?,
+        MenuItem::with_id(app, "view_settings", "Settings", true, Some("CmdOrCtrl+3"))?,
     ];
     let find = MenuItem::with_id(app, "view_find", "Find", true, Some("CmdOrCtrl+F"))?;
     let view_separator = PredefinedMenuItem::separator(app)?;
@@ -236,7 +234,6 @@ pub(super) fn create_app_menu(app: &tauri::App) -> tauri::Result<CheckMenuItem<t
         &view_items[0],
         &view_items[1],
         &view_items[2],
-        &view_items[3],
         &view_separator,
         &find,
         &find_separator,

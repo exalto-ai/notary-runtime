@@ -3,7 +3,7 @@ import {
   MantineProvider,
   useMantineColorScheme,
 } from '@mantine/core';
-import { Notifications } from '@mantine/notifications';
+import { Notifications, notifications } from '@mantine/notifications';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '@mantine/core/styles.css';
@@ -27,7 +27,6 @@ import {
   setWindowTheme,
   startDaemon,
 } from './bridge';
-import { HomeView } from './HomeView';
 import { LoadingWindow, VaultUnlock } from './LockedState';
 import { Onboarding } from './Onboarding';
 import {
@@ -42,6 +41,7 @@ import {
 } from './product';
 import { SettingsView } from './SettingsView';
 import { Sidebar } from './Shell';
+import { TracesHeader } from './TracesHeader';
 
 export const SENSITIVE_INPUT_RESET_EVENT = 'exalto:sensitive-input-reset';
 export const CAPTURE_STATE_CHANGED_EVENT = 'exalto:capture-state-changed';
@@ -52,7 +52,7 @@ function AppContent() {
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
   const requestedView = query.get('view') as View | null;
   const [view, setView] = useState<View>(
-    requestedView && requestedView in viewMeta ? requestedView : 'home',
+    requestedView && requestedView in viewMeta ? requestedView : 'traces',
   );
   const [traceConstraint, setTraceConstraint] = useState<TraceConstraint | null>(null);
   const [traceTarget, setTraceTarget] = useState<TraceTarget | null>(pendingFirstProofTarget);
@@ -60,7 +60,6 @@ function AppContent() {
   const [updateState, setUpdateState] = useState<DesktopUpdateState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [captureToast, setCaptureToast] = useState<string | null>(null);
   const [serviceStartError, setServiceStartError] = useState<string | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const lastWorkspaceRoute = useRef<WorkspaceView | null>(null);
@@ -86,12 +85,6 @@ function AppContent() {
   useEffect(() => {
     if (state?.running) setServiceStartError(null);
   }, [state?.running]);
-
-  useEffect(() => {
-    if (!captureToast) return;
-    const timer = window.setTimeout(() => setCaptureToast(null), 3500);
-    return () => window.clearTimeout(timer);
-  }, [captureToast]);
 
   useEffect(() => {
     if (!state?.onboarding_complete || setupOpen || pendingFirstProofApplied.current) return;
@@ -142,7 +135,7 @@ function AppContent() {
     void listen<string>('exalto:menu', (event) => {
       if (!state?.onboarding_complete || setupOpen) return;
       const target = event.payload;
-      if (target === 'home' || target === 'chat' || target === 'traces' || target === 'settings') {
+      if (target === 'chat' || target === 'traces' || target === 'settings') {
         setTraceConstraint(null);
         setTraceTarget(null);
         setView(target);
@@ -330,6 +323,8 @@ function AppContent() {
     throw lastError ?? new Error('The local capture service did not become ready.');
   };
 
+  const showCaptureChange = (message: string) => notifications.show({ message });
+
   const startLocalService = async () => {
     if (!state?.running) await startDaemon();
     let lastError: unknown = null;
@@ -415,24 +410,36 @@ function AppContent() {
     );
     setView(next);
   };
-  const openTraces = (constraint: TraceConstraint) => {
-    setTraceConstraint(constraint);
-    setTraceTarget(null);
-    setView('traces');
-  };
   return (
     <div className="native-window" key={`shell-${sensitiveInputGeneration}`}>
       <Sidebar state={state} view={view} onNavigate={navigate} />
       <section className="window-content">
-        <main
-          className={`native-content ${route ? 'has-workspace' : ''} ${view === 'home' ? 'has-view-toolbar' : ''}`}
-        >
-          {view === 'home' && (
-            <header className="view-toolbar" data-tauri-drag-region="deep">
-              <h1 data-tauri-drag-region>Overview</h1>
-            </header>
+        <main className={`native-content ${route ? 'has-workspace' : ''}`}>
+          {view === 'traces' && (
+            <TracesHeader
+              state={state}
+              busy={busy}
+              notice={notice}
+              onStartCapture={() =>
+                void runAction('capture-start', startCapturing, 'Capture is on.', {
+                  onSuccess: showCaptureChange,
+                })
+              }
+              onStopCapture={() =>
+                void runAction(
+                  'capture-stop',
+                  async () => {
+                    await setCaptureEnabled(false);
+                  },
+                  'Capture is off.',
+                  { onSuccess: showCaptureChange },
+                )
+              }
+              onRetryConnections={() => void refresh(true)}
+              onNavigate={navigate}
+            />
           )}
-          {route && (
+          {route === 'settings' && (
             <header className="native-page-header" data-tauri-drag-region="deep">
               <div>
                 <h1 data-tauri-drag-region>{viewMeta[view].title}</h1>
@@ -451,33 +458,6 @@ function AppContent() {
               }}
             />
           </div>
-          {view === 'home' && (
-            <HomeView
-              state={state}
-              busy={busy}
-              notice={notice}
-              captureToast={captureToast}
-              onNavigate={navigate}
-              onOpenTraces={openTraces}
-              onStartCapture={() =>
-                void runAction('capture-start', startCapturing, 'Capture is on.', {
-                  onSuccess: setCaptureToast,
-                })
-              }
-              onStopCapture={() =>
-                void runAction(
-                  'capture-stop',
-                  async () => {
-                    await setCaptureEnabled(false);
-                  },
-                  'Capture is off.',
-                  { onSuccess: setCaptureToast },
-                )
-              }
-              onRetryConnections={() => void refresh(true)}
-              onOpenSetup={() => setSetupOpen(true)}
-            />
-          )}
           {lastWorkspaceRoute.current && (
             <div className="workspace-view-container" hidden={!route}>
               <SettingsView

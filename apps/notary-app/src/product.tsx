@@ -1,7 +1,7 @@
 import type { DesktopState } from './bridge';
 
-export type View = 'home' | 'chat' | 'traces' | 'settings';
-export type WorkspaceView = Exclude<View, 'home' | 'chat'>;
+export type View = 'traces' | 'chat' | 'settings';
+export type WorkspaceView = Exclude<View, 'chat'>;
 export type TraceConstraint =
   | 'state=captured'
   | 'status=notarizing'
@@ -48,8 +48,7 @@ export const DISPLAY_NAME = 'Exalto Capture';
 
 export const viewMeta: Record<View, { title: string; subtitle: string }> = {
   chat: { title: 'Chat', subtitle: 'Chat in Capture and keep a Trace of each exchange' },
-  home: { title: 'Capture', subtitle: 'Private traces on this Mac' },
-  traces: { title: 'Traces', subtitle: 'Capture, seal, verify, and share' },
+  traces: { title: 'Traces', subtitle: 'Private traces on this Mac' },
   settings: { title: 'Settings', subtitle: 'Connections, sealing, privacy, and app behavior' },
 };
 

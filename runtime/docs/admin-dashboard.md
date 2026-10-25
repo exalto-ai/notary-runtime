@@ -42,9 +42,12 @@ Removed Milestone 1 URLs such as `#/captures`, `#/notarizations`, and
 
 Traces is the one workspace for captured, capturing, failed, notarizing,
 notarized, and interrupted work. Search uses stored privacy-aware previews.
-Filters cover model, provider, trace state, operational status, streaming
-mode, and time. Results are cursor-paginated and each row has a textual state;
-color is only a secondary signal.
+Search and the All, Captured, and Sealed states stay in the toolbar; provider,
+date, model, operational status, and streaming mode sit under **More
+filters**, which counts the ones in use. Results are cursor-paginated and each
+row has a textual state; color is only a secondary signal. A Captured Trace
+that can be sealed has a **Seal** button on its row, so it can be queued
+without opening it.
 
 ![Unified Traces workspace in dark mode showing provider and state filters, a selected trace, privacy-aware previews, safe metadata, and retained artifacts.](images/admin-dashboard/traces-dark.png)
 
