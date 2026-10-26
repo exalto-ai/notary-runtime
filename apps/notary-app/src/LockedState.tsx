@@ -1,6 +1,6 @@
 import { ChevronRight, KeyRound } from 'lucide-react';
 import { useState } from 'react';
-import { errorMessage, recoverTemporaryCapture, startDaemon, unlockVault } from './bridge';
+import { errorMessage, startDaemon, unlockVault } from './bridge';
 import notaryMark from './notary-mark.svg';
 
 export function LoadingWindow() {
@@ -25,7 +25,6 @@ export function VaultUnlock({ refresh }: { refresh: () => Promise<void> }) {
       await unlockVault(passphrase);
       setPassphrase('');
       await startDaemon();
-      await recoverTemporaryCapture();
       await new Promise((resolve) => window.setTimeout(resolve, 700));
       await refresh();
     } catch (caught) {

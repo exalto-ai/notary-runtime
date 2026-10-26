@@ -12,16 +12,6 @@ export type TraceCounts = {
   capture_failed: number;
 };
 
-export type TraceProbe = {
-  trace_id: string;
-  state: string | null;
-  status: string | null;
-  created_at_unix_ms: number;
-  provider: string;
-  http_status: number | null;
-  prompt_preview: string;
-};
-
 export type DesktopState = {
   running: boolean;
   managed_by_desktop: boolean;
@@ -39,7 +29,6 @@ export type DesktopState = {
   sealing_service: SealingServiceIdentity | null;
   sealing_service_readiness: SealingServiceReadiness;
   capture_enabled: boolean;
-  temporary_capture_generation: number;
   counts: TraceCounts;
   message: string | null;
 };
@@ -156,7 +145,6 @@ function fallbackState(overrides: Partial<DesktopState> = {}): DesktopState {
       message: null,
     },
     capture_enabled: false,
-    temporary_capture_generation: 1,
     counts: emptyCounts,
     message: null,
     ...overrides,
@@ -396,7 +384,6 @@ export async function getDesktopState(refreshSealingService = false): Promise<De
       sealing_service: null,
       sealing_service_readiness: sealingServiceReadiness,
       capture_enabled: status.capture_enabled,
-      temporary_capture_generation: 1,
       counts: status.counts,
       message: null,
     };
@@ -446,44 +433,6 @@ export async function startDaemon(): Promise<void> {
 export async function setCaptureEnabled(enabled: boolean): Promise<boolean> {
   if (!isTauri()) return enabled;
   return invoke<boolean>('set_capture_enabled', { enabled });
-}
-
-export async function beginTemporaryCapture(
-  windowGeneration: number,
-  leaseId: string,
-): Promise<boolean> {
-  if (!isTauri()) return false;
-  return invoke<boolean>('begin_temporary_capture', { windowGeneration, leaseId });
-}
-
-export async function endTemporaryCapture(leaseId: string): Promise<boolean> {
-  if (!isTauri()) return false;
-  return invoke<boolean>('end_temporary_capture', { leaseId });
-}
-
-export async function recoverTemporaryCapture(): Promise<boolean> {
-  if (!isTauri()) return false;
-  return invoke<boolean>('recover_temporary_capture');
-}
-
-export async function getRecentTraceProbes(leaseId: string): Promise<TraceProbe[]> {
-  if (!isTauri()) return [];
-  return invoke<TraceProbe[]>('get_recent_trace_probes', { leaseId });
-}
-
-export async function confirmDisposableTrace(
-  baselineTraceIds: string[],
-  expectedProvider: string,
-  confirmationMarker: string,
-  leaseId: string,
-): Promise<string | null> {
-  if (!isTauri()) return null;
-  return invoke<string | null>('confirm_disposable_trace', {
-    baselineTraceIds,
-    expectedProvider,
-    confirmationMarker,
-    leaseId,
-  });
 }
 
 export async function getUpdateState(): Promise<DesktopUpdateState> {

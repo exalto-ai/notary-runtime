@@ -36,7 +36,7 @@ ${CLAUDE_COMMAND}
 The key must be nonempty before launching; never fall back to subscription authentication. Explain that a newly launched CLI session is required.`) +
     `
 
-Do not send a provider request yet, start/stop the local service, or change capture/vault settings. Return me to Exalto Capture to optionally test the configured route. Configuration or opening this conversation alone does not prove capture works.`
+Do not send a provider request yet, start/stop the local service, or change capture/vault settings. Then return me to Exalto Capture. Configuration alone does not prove capture works: a request sent through the route appears in Capture's Traces.`
   );
 }
 
@@ -44,13 +44,11 @@ export function AgentSetup({
   client,
   prompt,
   manual,
-  test = false,
   disabled = false,
 }: {
   client: 'codex' | 'claude';
   prompt: string;
   manual: ReactNode;
-  test?: boolean;
   disabled?: boolean;
 }) {
   const [apps, setApps] = useState<AgentApps | null>(null);
@@ -132,10 +130,8 @@ export function AgentSetup({
   return (
     <div className="connection-instructions agent-setup">
       <div className="instruction-heading">
-        <span>
-          {test ? 'ASK YOUR AI TOOL TO RUN THE TEST' : 'LET YOUR AI TOOL CONFIGURE ITSELF'}
-        </span>
-        <strong>{test ? 'Send the test to your coding session' : `Continue in ${label}`}</strong>
+        <span>LET YOUR AI TOOL CONFIGURE ITSELF</span>
+        <strong>Continue in {label}</strong>
       </div>
       <p role="status">
         {detecting
@@ -163,15 +159,13 @@ export function AgentSetup({
           disabled={busy}
           onClick={() => void copy()}
         >
-          Copy {test ? 'test' : 'setup'} prompt
+          Copy setup prompt
         </button>
       </div>
       <p>
-        {test
-          ? 'Your coding tool runs the disposable request. Return here to check for its Trace.'
-          : client === 'codex'
-            ? 'Keep your existing ChatGPT sign-in or API key. The setup assistant selects the matching capture route without importing credentials. This configures a separate CLI session.'
-            : 'Claude Desktop helps configure a separate CLI capture session. Its own conversations are not captured. API usage is billed separately from your subscription.'}
+        {client === 'codex'
+          ? 'Keep your existing ChatGPT sign-in or API key. The setup assistant selects the matching capture route without importing credentials. This configures a separate CLI session.'
+          : 'Claude Desktop helps configure a separate CLI capture session. Its own conversations are not captured. API usage is billed separately from your subscription.'}
       </p>
       {message && (
         <p role="status" aria-live="polite">
@@ -180,16 +174,16 @@ export function AgentSetup({
       )}
       {error && <p role="alert">{error}</p>}
       <details open={showPrompt} onToggle={(event) => setShowPrompt(event.currentTarget.open)}>
-        <summary>Review {test ? 'test' : 'setup'} prompt</summary>
+        <summary>Review setup prompt</summary>
         <textarea
-          aria-label={test ? 'Test prompt' : 'Setup prompt'}
+          aria-label="Setup prompt"
           readOnly
           value={prompt}
           onFocus={(event) => event.target.select()}
         />
       </details>
       <details>
-        <summary>Manual {test ? 'test' : 'configuration'}</summary>
+        <summary>Manual configuration</summary>
         {manual}
       </details>
     </div>

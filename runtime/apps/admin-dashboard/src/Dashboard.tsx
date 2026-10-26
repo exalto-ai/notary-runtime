@@ -258,9 +258,6 @@ export function Dashboard({
     closeNav();
     goTo(next);
   };
-  const consumeTraceAction = (traceId: string, _action: 'first-proof') => {
-    goTo({ view: 'traces', id: traceId });
-  };
 
   if (statusQuery.isLoading) return <LoadingState label="Connecting to the local service" />;
   if (statusQuery.error && (statusQuery.error as LocalApiError).status === 401) {
@@ -303,7 +300,6 @@ export function Dashboard({
           navigate={navigate}
           fixture={fixture}
           desktopShell={false}
-          onTraceActionConsumed={consumeTraceAction}
           desktopBridge={desktopBridge}
         />
       </AppShell.Main>
@@ -326,7 +322,6 @@ export function InlineDashboard({
   desktopTracesEmptyAction,
   onDesktopSettingsAction,
   onNavigate,
-  onTraceActionConsumed,
 }: {
   api: LocalApi;
   apiBaseUrl?: string;
@@ -339,7 +334,6 @@ export function InlineDashboard({
   desktopTracesEmptyAction?: ReactNode;
   onDesktopSettingsAction?: (action: DesktopSettingsAction) => void;
   onNavigate: (route: Route) => void;
-  onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
 }) {
   const queryClient = useQueryClient();
   const statusQuery = useQuery({
@@ -368,10 +362,6 @@ export function InlineDashboard({
     tracesEmptyAction: desktopTracesEmptyAction,
     send: (action: DesktopSettingsAction) => onDesktopSettingsAction?.(action),
   };
-  const consumeTraceAction = (traceId: string, action: 'first-proof') => {
-    onTraceActionConsumed?.(traceId, action);
-    onNavigate({ view: 'traces', id: traceId });
-  };
 
   return (
     <main className="dashboard-shell dashboard-shell--inline dashboard-main">
@@ -383,7 +373,6 @@ export function InlineDashboard({
         navigate={onNavigate}
         fixture={false}
         desktopShell={desktopShell}
-        onTraceActionConsumed={consumeTraceAction}
         desktopBridge={desktopBridge}
       />
     </main>
@@ -397,7 +386,6 @@ function View({
   apiBaseUrl,
   navigate,
   desktopShell,
-  onTraceActionConsumed,
   desktopBridge,
 }: {
   route: Route;
@@ -407,7 +395,6 @@ function View({
   navigate: (route: Route) => void;
   fixture: boolean;
   desktopShell: boolean;
-  onTraceActionConsumed: (traceId: string, action: 'first-proof') => void;
   desktopBridge: {
     state: DesktopSettingsState | null;
     connections?: ReactNode;
@@ -426,7 +413,6 @@ function View({
           navigate={navigate}
           hideActivity={desktopShell}
           emptyAction={desktopBridge.tracesEmptyAction}
-          onTraceActionConsumed={onTraceActionConsumed}
         />
       );
     case 'activity':

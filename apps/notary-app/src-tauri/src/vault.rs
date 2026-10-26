@@ -10,7 +10,6 @@ use zeroize::Zeroizing;
 
 const CONVENIENCE_MARKER: &str = "desktop-convenience-v1";
 const ONBOARDING_MARKER: &str = "desktop-onboarding-v1";
-const TEMPORARY_CAPTURE_MARKER: &str = "desktop-temporary-capture-v1";
 
 #[derive(Default)]
 pub(super) struct VaultSession(pub(super) Mutex<Option<Vault>>);
@@ -53,33 +52,6 @@ fn convenience_marker_path() -> Result<PathBuf, String> {
 
 pub(super) fn onboarding_marker_path() -> Result<PathBuf, String> {
     local_marker_path(ONBOARDING_MARKER)
-}
-
-fn temporary_capture_marker_path() -> Result<PathBuf, String> {
-    local_marker_path(TEMPORARY_CAPTURE_MARKER)
-}
-
-pub(super) fn temporary_capture_recovery_pending() -> bool {
-    temporary_capture_marker_path().is_ok_and(|path| path.exists())
-}
-
-pub(super) fn mark_temporary_capture_recovery() -> Result<(), String> {
-    write_private_marker(
-        &temporary_capture_marker_path()?,
-        b"Exalto Capture temporary capture recovery\n",
-    )
-}
-
-pub(super) fn clear_temporary_capture_recovery() -> Result<(), String> {
-    let path = temporary_capture_marker_path()?;
-    match fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!(
-            "Could not clear temporary capture recovery at {}: {error}",
-            path.display()
-        )),
-    }
 }
 
 pub(super) fn agent_config_path() -> Result<PathBuf, String> {

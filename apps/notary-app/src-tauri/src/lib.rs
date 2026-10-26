@@ -23,11 +23,8 @@ use daemon::{
     request_managed_daemon_shutdown_inner, start_daemon,
 };
 use service_client::{
-    SealingServiceIdentity, TemporaryCaptureState, begin_temporary_capture,
-    confirm_disposable_trace, daemon_is_healthy, end_temporary_capture, get_recent_trace_probes,
-    open_account_link, open_product_link, read_admin_status, read_sealing_service,
-    read_sealing_service_readiness, recover_temporary_capture, restore_temporary_capture,
-    set_capture_enabled,
+    SealingServiceIdentity, daemon_is_healthy, open_account_link, open_product_link,
+    read_admin_status, read_sealing_service, read_sealing_service_readiness, set_capture_enabled,
 };
 use tray::{
     AppMenuAction, app_menu_action, create_app_menu, create_tray, schedule_capture_menu_updates,
@@ -39,8 +36,7 @@ use updates::{
 };
 use vault::{
     VaultSession, agent_config_path, complete_onboarding, configure_vault, local_vault_mode,
-    onboarding_marker_path, passphrase_vault_is_locked, should_auto_start,
-    temporary_capture_recovery_pending, unlock_vault,
+    onboarding_marker_path, passphrase_vault_is_locked, should_auto_start, unlock_vault,
 };
 
 #[cfg(test)]
@@ -81,7 +77,6 @@ struct DesktopState {
     sealing_service: Option<SealingServiceIdentity>,
     sealing_service_readiness: SealingServiceReadiness,
     capture_enabled: bool,
-    temporary_capture_generation: u64,
     counts: TraceCounts,
     message: Option<String>,
 }
@@ -159,15 +154,8 @@ impl SealingServiceReadiness {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
-struct TemporaryCaptureEvent {
-    window_generation: u64,
-    lease_id: Option<String>,
-}
-
-fn can_defer_capture_restore(recovery_pending: bool, managed: bool, healthy: bool) -> bool {
-    recovery_pending && !managed && !healthy
-}
+/// Sent when the main window closes, so the web view forgets unsaved sensitive input.
+const WINDOW_CLOSED_EVENT: &str = "exalto:window-closed";
 
 const AUTOSTART_NAME: &str = "Exalto Capture";
 
@@ -182,7 +170,6 @@ fn autostart_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
 async fn get_desktop_state(
     process: tauri::State<'_, DaemonProcess>,
     vault_session: tauri::State<'_, VaultSession>,
-    temporary_capture: tauri::State<'_, TemporaryCaptureState>,
     refresh_sealing_service: Option<bool>,
 ) -> Result<DesktopState, String> {
     let (vault_configured, local_mode) = local_vault_mode();
@@ -229,7 +216,6 @@ async fn get_desktop_state(
                 sealing_service,
                 sealing_service_readiness,
                 capture_enabled: status.capture_enabled,
-                temporary_capture_generation: temporary_capture.window_generation(),
                 counts: status.counts,
                 message: build_message,
             })
@@ -258,7 +244,6 @@ async fn get_desktop_state(
                 sealing_service: None,
                 sealing_service_readiness,
                 capture_enabled: false,
-                temporary_capture_generation: temporary_capture.window_generation(),
                 counts: TraceCounts::default(),
                 message: if running && !managed_child_present {
                     Some(error)
@@ -298,7 +283,6 @@ pub fn run() {
         .manage(codex_chat::CodexState::default())
         .manage(connections::Connections::default())
         .manage(VaultSession::default())
-        .manage(TemporaryCaptureState::default())
         .manage(ExitState::default())
         .manage(DesktopUpdaterState::default())
         .plugin(tauri_plugin_shell::init())
@@ -326,12 +310,7 @@ pub fn run() {
             open_product_link,
             detect_agent_apps,
             open_agent_setup,
-            get_recent_trace_probes,
-            confirm_disposable_trace,
             set_capture_enabled,
-            begin_temporary_capture,
-            end_temporary_capture,
-            recover_temporary_capture,
             configure_vault,
             unlock_vault,
             complete_onboarding,
@@ -371,34 +350,11 @@ pub fn run() {
             schedule_update_checks(app.handle().clone());
             let (vault_configured, vault_mode) = local_vault_mode();
             let onboarding_complete = onboarding_marker_path().is_ok_and(|path| path.exists());
-            let temporary_capture_recovery = app
-                .state::<TemporaryCaptureState>()
-                .recovery_owner()
-                .ok()
-                .flatten();
-            if should_auto_start(vault_configured, &vault_mode, onboarding_complete)
-                || temporary_capture_recovery.is_some()
-            {
+            if should_auto_start(vault_configured, &vault_mode, onboarding_complete) {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     let process = app_handle.state::<DaemonProcess>();
-                    if start_daemon(app_handle.clone(), process).await.is_ok()
-                        && let Some(recovery_owner) = temporary_capture_recovery
-                    {
-                        let temporary_capture = app_handle.state::<TemporaryCaptureState>();
-                        let process = app_handle.state::<DaemonProcess>();
-                        if let Err(error) = restore_temporary_capture(
-                            &temporary_capture,
-                            &process,
-                            Some(&recovery_owner),
-                        )
-                        .await
-                        {
-                            eprintln!(
-                                "Could not recover the interrupted disposable capture: {error}"
-                            );
-                        }
-                    }
+                    let _ = start_daemon(app_handle.clone(), process).await;
                 });
             }
             Ok(())
@@ -408,105 +364,7 @@ pub fn run() {
                 api.prevent_close();
                 window.app_handle().state::<chat::ChatState>().cancel_all();
                 if window.label() == "main" {
-                    let temporary_capture = window.app_handle().state::<TemporaryCaptureState>();
-                    let (window_generation, lease_id) =
-                        match temporary_capture.suspend_live_leases_and_invalidate() {
-                        Ok(closing) => closing,
-                        Err(error) => {
-                            eprintln!("Could not inspect disposable capture on close: {error}");
-                            show_main_window(window.app_handle());
-                            return;
-                        }
-                    };
-                    let cancellation = TemporaryCaptureEvent {
-                        window_generation,
-                        lease_id: lease_id.clone(),
-                    };
-                    let _ = window
-                        .app_handle()
-                        .emit("exalto:temporary-capture-cancelled", cancellation.clone());
-                    let Some(lease_id) = lease_id else {
-                        match temporary_capture.finish_close_if_current(window_generation, || {
-                            let _ = window.hide();
-                            #[cfg(target_os = "macos")]
-                            let _ = window
-                                .app_handle()
-                                .set_activation_policy(tauri::ActivationPolicy::Accessory);
-                        }) {
-                            Ok(true) => {}
-                            Ok(false) => {}
-                            Err(error) => eprintln!(
-                                "Could not finish closing Exalto Capture safely: {error}"
-                            ),
-                        }
-                        return;
-                    };
-                    let app_handle = window.app_handle().clone();
-                    let window = window.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let state = app_handle.state::<TemporaryCaptureState>();
-                        let process = app_handle.state::<DaemonProcess>();
-                        match restore_temporary_capture(&state, &process, Some(&lease_id)).await {
-                            Ok(_) => {
-                                let _ = app_handle.emit(
-                                    "exalto:temporary-capture-restored",
-                                    TemporaryCaptureEvent {
-                                        window_generation,
-                                        lease_id: Some(lease_id),
-                                    },
-                                );
-                                match state.finish_close_if_current(window_generation, || {
-                                    let _ = window.hide();
-                                    #[cfg(target_os = "macos")]
-                                    let _ = app_handle
-                                        .set_activation_policy(tauri::ActivationPolicy::Accessory);
-                                }) {
-                                    Ok(true) => {}
-                                    Ok(false) => {}
-                                    Err(error) => eprintln!(
-                                        "Could not finish closing Exalto Capture safely: {error}"
-                                    ),
-                                }
-                            }
-                            Err(error) => {
-                                eprintln!("Could not restore capture after setup closed: {error}");
-                                let managed = owned_child_present(
-                                    &app_handle.state::<DaemonProcess>(),
-                                )
-                                .unwrap_or(true);
-                                let healthy = daemon_is_healthy().await;
-                                if can_defer_capture_restore(
-                                    temporary_capture_recovery_pending(),
-                                    managed,
-                                    healthy,
-                                ) {
-                                    eprintln!(
-                                        "Preserved interrupted-test recovery for the next unlocked launch."
-                                    );
-                                    match state.finish_close_if_current(window_generation, || {
-                                        let _ = window.hide();
-                                        #[cfg(target_os = "macos")]
-                                        let _ = app_handle.set_activation_policy(
-                                            tauri::ActivationPolicy::Accessory,
-                                        );
-                                    }) {
-                                        Ok(true) => {}
-                                        Ok(false) => {}
-                                        Err(error) => eprintln!(
-                                            "Could not finish closing Exalto Capture safely: {error}"
-                                        ),
-                                    }
-                                } else {
-                                    let _ = app_handle.emit(
-                                        "exalto:temporary-capture-restore-failed",
-                                        error,
-                                    );
-                                    show_main_window(&app_handle);
-                                }
-                            }
-                        }
-                    });
-                    return;
+                    let _ = window.app_handle().emit(WINDOW_CLOSED_EVENT, ());
                 }
                 let _ = window.hide();
                 #[cfg(target_os = "macos")]
@@ -543,74 +401,9 @@ pub fn run() {
             }
             let process = app.state::<DaemonProcess>();
             process.suspend_starts();
-            let temporary_capture = app.state::<TemporaryCaptureState>();
-            let (window_generation, temporary_capture_owner) =
-                match temporary_capture.suspend_live_leases_and_invalidate() {
-                    Ok(closing) => closing,
-                    Err(error) => {
-                        api.prevent_exit();
-                        process.resume_starts();
-                        exit.draining.store(false, Ordering::Release);
-                        eprintln!("Could not secure disposable capture before exit: {error}");
-                        show_main_window(app);
-                        return;
-                    }
-                };
-            let _ = app.emit(
-                "exalto:temporary-capture-cancelled",
-                TemporaryCaptureEvent {
-                    window_generation,
-                    lease_id: temporary_capture_owner.clone(),
-                },
-            );
             api.prevent_exit();
             let app_handle = app.clone();
             tauri::async_runtime::spawn(async move {
-                let temporary_capture = app_handle.state::<TemporaryCaptureState>();
-                if let Some(owner) = temporary_capture_owner
-                    && let Err(error) = restore_temporary_capture(
-                        &temporary_capture,
-                        &app_handle.state::<DaemonProcess>(),
-                        Some(&owner),
-                    )
-                    .await
-                {
-                    eprintln!("Could not restore capture before exit: {error}");
-                    let managed = owned_child_present(
-                        &app_handle.state::<DaemonProcess>(),
-                    )
-                    .unwrap_or(true);
-                    let healthy = daemon_is_healthy().await;
-                    if can_defer_capture_restore(
-                        temporary_capture_recovery_pending(),
-                        managed,
-                        healthy,
-                    ) {
-                        eprintln!(
-                            "Exiting with interrupted-test recovery preserved for the next unlocked launch."
-                        );
-                        app_handle
-                            .state::<ExitState>()
-                            .allowed
-                            .store(true, Ordering::Release);
-                        app_handle.exit(code.unwrap_or(0));
-                        return;
-                    }
-                    app_handle
-                        .state::<ExitState>()
-                        .draining
-                        .store(false, Ordering::Release);
-                    app_handle.state::<DaemonProcess>().resume_starts();
-                    let _ = app_handle.emit(
-                        "exalto:temporary-capture-restore-failed",
-                        error,
-                    );
-                    show_main_window(&app_handle);
-                    return;
-                }
-                // Re-read the process after restoring. A temporary-capture
-                // preparation can spawn the managed sidecar while quit is
-                // waiting on the lease mutex.
                 let process = app_handle.state::<DaemonProcess>();
                 let _lifecycle = process.lifecycle.lock().await;
                 let shutdown = request_managed_daemon_shutdown_inner(&process).await;
@@ -666,14 +459,6 @@ mod tests {
         assert!(restart_block_reason(&counts, true, false).is_some());
         assert!(restart_block_reason(&counts, true, true).is_none());
         assert!(restart_block_reason(&counts, false, false).is_none());
-    }
-
-    #[test]
-    fn pending_recovery_can_defer_only_without_a_running_service() {
-        assert!(can_defer_capture_restore(true, false, false));
-        assert!(!can_defer_capture_restore(false, false, false));
-        assert!(!can_defer_capture_restore(true, true, false));
-        assert!(!can_defer_capture_restore(true, false, true));
     }
 
     #[test]

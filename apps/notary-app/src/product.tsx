@@ -7,42 +7,8 @@ export type TraceConstraint =
   | 'status=notarizing'
   | 'state=notarized'
   | 'status=needs_attention';
-export type TraceAction = 'export' | 'share' | 'first-proof';
+export type TraceAction = 'export' | 'share';
 export type TraceTarget = { traceId: string; action?: TraceAction };
-
-const PENDING_FIRST_PROOF_KEY = 'exalto-capture:pending-first-proof';
-
-function validTraceTargetId(value: string) {
-  return (
-    value.startsWith('trc-') &&
-    value.length <= 256 &&
-    [...value].every((character) => /[A-Za-z0-9_-]/.test(character))
-  );
-}
-
-export function pendingFirstProofTarget(): TraceTarget | null {
-  try {
-    const stored = localStorage.getItem(PENDING_FIRST_PROOF_KEY);
-    if (!stored) return null;
-    const target = JSON.parse(stored) as Partial<TraceTarget>;
-    return typeof target.traceId === 'string' &&
-      validTraceTargetId(target.traceId) &&
-      target.action === 'first-proof'
-      ? { traceId: target.traceId, action: 'first-proof' }
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-export function persistPendingFirstProof(target: TraceTarget | null) {
-  if (!target) {
-    localStorage.removeItem(PENDING_FIRST_PROOF_KEY);
-    return;
-  }
-  if (target.action !== 'first-proof' || !validTraceTargetId(target.traceId)) return;
-  localStorage.setItem(PENDING_FIRST_PROOF_KEY, JSON.stringify(target));
-}
 
 export const DISPLAY_NAME = 'Exalto Capture';
 

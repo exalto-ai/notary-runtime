@@ -618,12 +618,12 @@ describe('Notary admin dashboard', () => {
     expect(downloadedAs).toBe(`${traceId}.llmtrace`);
   });
 
-  test('opens the exact post-onboarding action for a sealed Trace', async () => {
+  test('opens the exact export or share action for a sealed Trace', async () => {
     const fixture = createFixtureApi();
     const traceId = 'trc-20260727-research-brief';
-    const packageBytes = new Blob(['first proof package'], { type: 'application/zip' });
+    const packageBytes = new Blob(['sealed package'], { type: 'application/zip' });
     const downloadPackage = vi.fn(async () => packageBytes);
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:first-proof-package');
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:sealed-package');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
 
@@ -637,27 +637,6 @@ describe('Notary admin dashboard', () => {
       .element(page.getByRole('heading', { name: 'Review and share this Trace' }))
       .toBeVisible();
     expect(window.location.hash).toBe(`#/traces/${traceId}?action=share`);
-  });
-
-  test('automatically queues a captured first proof exactly once and shows sealing progress', async () => {
-    const fixture = createFixtureApi();
-    const traceId = fixtureCaptures[0].trace_id;
-    const startNotarization = vi.fn((id: string) => fixture.startNotarization(id));
-
-    renderDashboard(`/traces/${traceId}?action=first-proof`, {
-      ...fixture,
-      startNotarization,
-    });
-
-    await expect.poll(() => startNotarization).toHaveBeenCalledTimes(1);
-    expect(startNotarization).toHaveBeenCalledWith(traceId);
-    await expect.element(page.getByText('Waiting for proof worker', { exact: true })).toBeVisible();
-    expect(window.location.hash).toBe(`#/traces/${traceId}`);
-
-    await page.getByRole('tab', { name: 'Summary' }).click();
-    await page.getByRole('tab', { name: 'Sealing' }).click();
-    await new Promise((resolve) => window.setTimeout(resolve, 50));
-    expect(startNotarization).toHaveBeenCalledTimes(1);
   });
 
   test('explains a closed sealing connection where progress stopped and keeps retry explicit', async () => {
@@ -706,151 +685,6 @@ describe('Notary admin dashboard', () => {
     await expect.poll(() => startNotarization).toHaveBeenCalledWith(traceId);
   });
 
-  test('disarms a guided first proof when an active sealing attempt later fails', async () => {
-    const fixture = createFixtureApi();
-    const traceId = fixtureCaptures[0].trace_id;
-    const baseDetail = await fixture.trace(traceId);
-    const operationTemplate = structuredClone(fixtureOperations[0]);
-    let started = false;
-    let postStartDetailReads = 0;
-    const startNotarization = vi.fn(async (id: string) => {
-      const result = await fixture.startNotarization(id);
-      started = true;
-      return result;
-    });
-    const trace = vi.fn(async () => {
-      if (!started) return baseDetail;
-      postStartDetailReads += 1;
-      const failed = postStartDetailReads > 1;
-      return {
-        ...baseDetail,
-        status: failed ? ('notarization_failed' as const) : ('notarizing' as const),
-        notarization: {
-          ...operationTemplate,
-          operation_id: 'op-first-proof-transition',
-          trace_id: traceId,
-          state: failed ? ('failed' as const) : ('queued' as const),
-          retryable: failed,
-          failure_code: failed ? 'notary_capacity' : null,
-        },
-      };
-    });
-
-    renderDashboard(`/traces/${traceId}?action=first-proof`, {
-      ...fixture,
-      trace,
-      startNotarization,
-    });
-
-    await expect.poll(() => startNotarization).toHaveBeenCalledTimes(1);
-    await expect
-      .element(
-        page.getByText(
-          'A previous sealing attempt needs attention. Review it, then choose Retry sealing explicitly.',
-          { exact: true },
-        ),
-      )
-      .toBeVisible();
-    expect(startNotarization).toHaveBeenCalledTimes(1);
-    expect(window.location.hash).toBe(`#/traces/${traceId}`);
-  });
-
-  test('keeps a completed seal armed while the captured summary catches up', async () => {
-    const fixture = createFixtureApi();
-    const traceId = fixtureCaptures[0].trace_id;
-    const baseDetail = await fixture.trace(traceId);
-    const completedOperation = structuredClone(
-      fixtureOperations.find((operation) => operation.state === 'succeeded') ??
-        fixtureOperations[0],
-    );
-    const startNotarization = vi.fn((id: string) => fixture.startNotarization(id));
-    const trace = vi.fn(async () => ({
-      ...baseDetail,
-      notarization: {
-        ...completedOperation,
-        operation_id: 'op-first-proof-complete',
-        trace_id: traceId,
-        state: 'succeeded' as const,
-        retryable: false,
-      },
-    }));
-
-    renderDashboard(`/traces/${traceId}?action=first-proof`, {
-      ...fixture,
-      trace,
-      startNotarization,
-    });
-
-    await expect
-      .element(page.getByText('Creating your first proof', { exact: true }))
-      .toBeVisible();
-    await expect
-      .element(page.getByRole('button', { name: 'Seal trace', exact: true }))
-      .not.toBeInTheDocument();
-    await new Promise((resolve) => window.setTimeout(resolve, 100));
-    expect(startNotarization).not.toHaveBeenCalled();
-    expect(window.location.hash).toBe(`#/traces/${traceId}?action=first-proof`);
-  });
-
-  test('never retries a failed first-proof sealing attempt without an explicit choice', async () => {
-    const fixture = createFixtureApi();
-    const traceId = 'trc-20260727-benchmark';
-    const startNotarization = vi.fn((id: string) => fixture.startNotarization(id));
-
-    renderDashboard(`/traces/${traceId}?action=first-proof`, {
-      ...fixture,
-      startNotarization,
-    });
-
-    await expect
-      .element(
-        page.getByText(
-          'A previous sealing attempt needs attention. Review it, then choose Retry sealing explicitly.',
-          { exact: true },
-        ),
-      )
-      .toBeVisible();
-    expect(startNotarization).not.toHaveBeenCalled();
-    expect(window.location.hash).toBe(`#/traces/${traceId}`);
-    await page.getByRole('button', { name: 'Retry sealing', exact: true }).click();
-    await expect.poll(() => startNotarization).toHaveBeenCalledTimes(1);
-  });
-
-  test('automatically verifies a sealed first proof exactly once across rerenders', async () => {
-    const fixture = createFixtureApi();
-    const traceId = 'trc-20260727-research-brief';
-    const verify = vi.fn((id: string) => fixture.verify(id));
-
-    renderDashboard(`/traces/${traceId}?action=first-proof`, { ...fixture, verify });
-
-    await expect.poll(() => verify).toHaveBeenCalledTimes(1);
-    expect(verify).toHaveBeenCalledWith(traceId);
-    await expect
-      .element(page.getByText('Your first proof is sealed and verified.', { exact: true }))
-      .toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Export .llmtrace' })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Share' })).toBeVisible();
-    expect(window.location.hash).toBe(`#/traces/${traceId}`);
-
-    await page.getByRole('tab', { name: 'Technical' }).click();
-    await page.getByRole('tab', { name: 'Evidence' }).click();
-    await new Promise((resolve) => window.setTimeout(resolve, 50));
-    expect(verify).toHaveBeenCalledTimes(1);
-  });
-
-  test('keeps first-proof handoff inside the rendered desktop tree', async () => {
-    const fixture = createFixtureApi();
-    const traceId = 'trc-20260727-research-brief';
-    const postMessage = vi.spyOn(window.parent, 'postMessage');
-
-    renderDashboard(`/traces/${traceId}?action=first-proof`, fixture);
-
-    await expect
-      .element(page.getByText('Your first proof is sealed and verified.', { exact: true }))
-      .toBeVisible();
-    expect(postMessage).not.toHaveBeenCalled();
-  });
-
   test('does not celebrate a terminal verification result that did not pass', async () => {
     const fixture = createFixtureApi();
     const traceId = 'trc-20260727-research-brief';
@@ -860,17 +694,16 @@ describe('Notary admin dashboard', () => {
       failure_code: 'transcript_authentication_failed',
     }));
 
-    renderDashboard(`/traces/${traceId}?action=first-proof`, { ...fixture, verify });
+    renderDashboard(`/traces/${traceId}`, { ...fixture, verify });
+    await page.getByRole('button', { name: 'Verify locally' }).first().click();
 
     await expect.poll(() => verify).toHaveBeenCalledTimes(1);
+    await page.getByRole('tab', { name: 'Evidence' }).click();
     await expect
       .element(
         page.getByText('The sealed package did not pass local verification.', { exact: false }),
       )
       .toBeVisible();
-    await expect
-      .element(page.getByText('Your first proof is sealed and verified.', { exact: true }))
-      .not.toBeInTheDocument();
     await expect
       .element(page.getByText('Verification passed', { exact: true }))
       .not.toBeInTheDocument();
@@ -886,8 +719,11 @@ describe('Notary admin dashboard', () => {
       failure_code: 'package_version_unsupported',
     }));
 
-    renderDashboard(`/traces/${traceId}?action=first-proof`, { ...fixture, verify });
+    renderDashboard(`/traces/${traceId}`, { ...fixture, verify });
+    await page.getByRole('button', { name: 'Verify locally' }).first().click();
 
+    await expect.poll(() => verify).toHaveBeenCalledTimes(1);
+    await page.getByRole('tab', { name: 'Evidence' }).click();
     await expect
       .element(
         page.getByText('Local verification does not support this sealed package yet.', {
@@ -909,9 +745,11 @@ describe('Notary admin dashboard', () => {
       trace_id: 'trc-different-trace',
     }));
 
-    renderDashboard(`/traces/${traceId}?action=first-proof`, { ...fixture, verify });
+    renderDashboard(`/traces/${traceId}`, { ...fixture, verify });
+    await page.getByRole('button', { name: 'Verify locally' }).first().click();
 
     await expect.poll(() => verify).toHaveBeenCalledTimes(1);
+    await page.getByRole('tab', { name: 'Evidence' }).click();
     await expect
       .element(
         page.getByText('The verification result did not identify this exact Trace.', {
@@ -919,48 +757,23 @@ describe('Notary admin dashboard', () => {
         }),
       )
       .toBeVisible();
-    await expect
-      .element(page.getByText('Your first proof is sealed and verified.', { exact: true }))
-      .not.toBeInTheDocument();
     expect(window.location.hash).toBe(`#/traces/${traceId}`);
   });
 
-  test('clears a persisted first-proof handoff when its exact Trace was deleted', async () => {
-    const fixture = createFixtureApi();
-    const missingTraceId = 'trc-missing-onboarding-test';
-    const trace = vi.fn(async (id: string) => {
-      if (id === missingTraceId) {
-        throw new LocalApiError(404, 'trace_not_found', 'Trace not found');
-      }
-      return fixture.trace(id);
-    });
-
-    renderDashboard(`/traces/${missingTraceId}?action=first-proof`, { ...fixture, trace });
-
-    await expect
-      .element(page.getByText('First proof Trace not found', { exact: true }))
-      .toBeVisible();
-    expect(window.location.hash).toBe('#/traces');
-  });
-
-  test('keeps a failed guided verification explicit without hiding proof actions', async () => {
+  test('keeps a failed verification explicit without hiding proof actions', async () => {
     const fixture = createFixtureApi();
     const traceId = 'trc-20260727-research-brief';
     const verify = vi.fn(async () => {
       throw new LocalApiError(422, 'trace_verification_failed', 'Trace verification failed');
     });
 
-    renderDashboard(`/traces/${traceId}?action=first-proof`, { ...fixture, verify });
+    renderDashboard(`/traces/${traceId}`, { ...fixture, verify });
+    await page.getByRole('button', { name: 'Verify locally' }).first().click();
 
     await expect.poll(() => verify).toHaveBeenCalledTimes(1);
-    await expect
-      .element(
-        page.getByText('Your first proof was sealed, but local verification failed.', {
-          exact: true,
-        }),
-      )
-      .toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Verify locally' })).toBeVisible();
+    await page.getByRole('tab', { name: 'Evidence' }).click();
+    await expect.element(page.getByText(/Local verification could not complete/)).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Verify again' })).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Export .llmtrace' })).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Share' })).toBeVisible();
   });

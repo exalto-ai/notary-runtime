@@ -17,7 +17,7 @@ use crate::daemon::{
     DaemonProcess, managed_daemon_is_healthy, owned_child_present,
     request_managed_daemon_shutdown_inner, spawn_daemon_locked,
 };
-use crate::service_client::{TemporaryCaptureState, daemon_is_healthy, read_admin_status};
+use crate::service_client::{daemon_is_healthy, read_admin_status};
 
 struct PendingDesktopUpdate {
     build_id: String,
@@ -349,11 +349,6 @@ async fn install_update_and_restart_inner(app: &tauri::AppHandle) -> Result<(), 
     // this same lifecycle lock. Recheck only after taking the lock, so an
     // update that lost the race to quit can never enter the installer.
     ensure_install_not_draining(&app.state::<ExitState>())?;
-    if app.state::<TemporaryCaptureState>().is_active() {
-        return Err(
-            "Finish or cancel the disposable capture test before installing the update.".into(),
-        );
-    }
     let owned_child = owned_child_present(&process)?;
     let managed = managed_daemon_is_healthy(&process).await;
     if owned_child && !managed {

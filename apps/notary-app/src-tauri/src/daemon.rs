@@ -11,12 +11,9 @@ use tauri::Manager;
 use tauri_plugin_shell::{ShellExt, process::CommandChild};
 
 use crate::service_client::daemon_is_healthy;
-use crate::vault::{
-    VaultSession, local_vault_mode, temporary_capture_recovery_pending, vault_unlock_key_for_child,
-};
+use crate::vault::{VaultSession, local_vault_mode, vault_unlock_key_for_child};
 
 const DESKTOP_CONTROL_STDIN_ENV: &str = "NOTARYD_DESKTOP_CONTROL_STDIN";
-const DESKTOP_FORCE_CAPTURE_DISABLED_ENV: &str = "NOTARYD_DESKTOP_FORCE_CAPTURE_DISABLED";
 
 pub(super) struct ManagedDaemon {
     child: CommandChild,
@@ -80,7 +77,7 @@ pub(super) fn owned_child_present(process: &DaemonProcess) -> Result<bool, Strin
         .map_err(|_| "daemon process state is unavailable".into())
 }
 
-pub(super) async fn healthy_managed_generation(process: &DaemonProcess) -> Option<u64> {
+async fn healthy_managed_generation(process: &DaemonProcess) -> Option<u64> {
     let generation = process
         .child
         .lock()
@@ -99,13 +96,6 @@ pub(super) async fn healthy_managed_generation(process: &DaemonProcess) -> Optio
 
 pub(super) async fn managed_daemon_is_healthy(process: &DaemonProcess) -> bool {
     healthy_managed_generation(process).await.is_some()
-}
-
-pub(super) async fn same_managed_daemon_is_healthy(
-    process: &DaemonProcess,
-    expected_generation: u64,
-) -> bool {
-    healthy_managed_generation(process).await == Some(expected_generation)
 }
 
 async fn wait_for_managed_daemon(process: &DaemonProcess) -> Result<(), String> {
@@ -152,11 +142,6 @@ fn spawn_daemon_inner(app: &tauri::AppHandle, process: &DaemonProcess) -> Result
         .map_err(|error| format!("Could not locate the bundled local capture service: {error}"))?
         .env(CHILD_KEY_STDIN_ENV, "1")
         .env(DESKTOP_CONTROL_STDIN_ENV, "1");
-    let command = if temporary_capture_recovery_pending() {
-        command.env(DESKTOP_FORCE_CAPTURE_DISABLED_ENV, "1")
-    } else {
-        command
-    };
     let (mut events, mut child) = command
         .spawn()
         .map_err(|error| format!("Could not start the bundled local capture service: {error}"))?;

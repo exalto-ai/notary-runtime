@@ -455,7 +455,6 @@ export function TracesView({
   navigate,
   hideActivity = false,
   emptyAction,
-  onTraceActionConsumed,
 }: {
   api: LocalApi;
   selectedId?: string;
@@ -464,7 +463,6 @@ export function TracesView({
   navigate: (route: Route) => void;
   hideActivity?: boolean;
   emptyAction?: ReactNode;
-  onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
 }) {
   const [query, setQuery] = useState('');
   const [model, setModel] = useState('');
@@ -478,7 +476,6 @@ export function TracesView({
   const [streaming, setStreaming] = useState<string | null>(null);
   const [time, setTime] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(Boolean(initialFilters?.status));
-  const consumedMissingFirstProof = useRef<string | null>(null);
   const mobile = useMediaQuery('(max-width: 820px)');
   const createdAfter = useMemo(() => timeRangeStart(time), [time]);
   const traces = useInfiniteQuery({
@@ -513,24 +510,6 @@ export function TracesView({
     queryFn: () => api.trace(requiredValue(selectedId, 'selected capture')),
     enabled: Boolean(selectedId),
   });
-  useEffect(() => {
-    if (
-      initialAction !== 'first-proof' ||
-      !selectedId ||
-      !(selectedDetail.error instanceof LocalApiError) ||
-      selectedDetail.error.status !== 404 ||
-      consumedMissingFirstProof.current === selectedId
-    )
-      return;
-    consumedMissingFirstProof.current = selectedId;
-    notifications.show({
-      color: 'orange',
-      title: 'First proof Trace not found',
-      message: 'The saved onboarding handoff was cleared. Capture another test Trace to try again.',
-    });
-    onTraceActionConsumed?.(selectedId, 'first-proof');
-    navigate({ view: 'traces' });
-  }, [initialAction, navigate, onTraceActionConsumed, selectedDetail.error, selectedId]);
   const visible = useMemo(
     () => traces.data?.pages.flatMap((page) => page.items) ?? [],
     [traces.data],
@@ -700,7 +679,6 @@ export function TracesView({
                 onBack={() => navigate({ view: 'traces' })}
                 navigate={navigate}
                 hideActivity={hideActivity}
-                onTraceActionConsumed={onTraceActionConsumed}
               />
             ) : null}
           </div>
@@ -711,15 +689,10 @@ export function TracesView({
 }
 
 /** Starts sealing a Trace; the row and the inspector share the queueing, notice, and refresh. */
-function useSealTrace(
-  api: LocalApi,
-  traceId: string,
-  handlers: { onMutate?: () => void; onSuccess?: () => void; onError?: () => void } = {},
-) {
+function useSealTrace(api: LocalApi, traceId: string, onSuccess?: () => void) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => api.startNotarization(traceId),
-    onMutate: handlers.onMutate,
     onSuccess: (result) => {
       notifications.show({
         title: result.deduplicated ? 'Already in the queue' : 'Sealing queued',
@@ -735,12 +708,9 @@ function useSealTrace(
         ['events'],
       ])
         queryClient.invalidateQueries({ queryKey });
-      handlers.onSuccess?.();
+      onSuccess?.();
     },
-    onError: (error) => {
-      mutationError('Could not seal trace', error);
-      handlers.onError?.();
-    },
+    onError: (error) => mutationError('Could not seal trace', error),
   });
 }
 
@@ -808,7 +778,6 @@ function TraceInspector(props: {
   onBack: () => void;
   navigate: (route: Route) => void;
   hideActivity?: boolean;
-  onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
 }) {
   return props.capture.state === 'notarized' ? (
     <NotarizedTraceInspector
@@ -819,7 +788,6 @@ function TraceInspector(props: {
       onBack={props.onBack}
       navigate={props.navigate}
       hideActivity={props.hideActivity}
-      onTraceActionConsumed={props.onTraceActionConsumed}
     />
   ) : (
     <CapturedTraceInspector {...props} />
@@ -920,7 +888,6 @@ function CapturedTraceInspector({
   onBack,
   navigate,
   hideActivity = false,
-  onTraceActionConsumed,
 }: {
   api: LocalApi;
   capture: TraceSummary;
@@ -929,96 +896,15 @@ function CapturedTraceInspector({
   onBack: () => void;
   navigate: (route: Route) => void;
   hideActivity?: boolean;
-  onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
 }) {
-  const handledInitialAction = useRef<string | null>(null);
-  const consumedFirstProofAction = useRef<string | null>(null);
-  const [firstProofRequested, setFirstProofRequested] = useState(initialAction === 'first-proof');
-  const [firstProofStartError, setFirstProofStartError] = useState<string | null>(null);
-  const firstProofActionKey = `${capture.trace_id}:first-proof`;
-  const consumeFirstProofAction = () => {
-    if (!firstProofRequested) return;
-    if (consumedFirstProofAction.current === capture.trace_id) return;
-    consumedFirstProofAction.current = capture.trace_id;
-    if (onTraceActionConsumed) onTraceActionConsumed(capture.trace_id, 'first-proof');
-    else navigate({ view: 'traces', id: capture.trace_id });
-  };
-  useEffect(() => {
-    if (initialAction === 'first-proof') setFirstProofRequested(true);
-  }, [initialAction]);
   const detail = useQuery({
     queryKey: ['capture', capture.trace_id],
     queryFn: () => api.trace(capture.trace_id),
     refetchInterval: 2_000,
   });
-  const notarize = useSealTrace(api, capture.trace_id, {
-    onMutate: () => setFirstProofStartError(null),
-    onSuccess: () => {
-      if (firstProofRequested) {
-        consumeFirstProofAction();
-      }
-      navigate({
-        view: 'traces',
-        id: capture.trace_id,
-        action: initialAction === 'first-proof' ? undefined : initialAction,
-      });
-    },
-    onError: () => {
-      if (firstProofRequested) {
-        setFirstProofStartError(
-          'Automatic sealing could not start. Review the error, then choose Seal trace when you are ready to retry.',
-        );
-        consumeFirstProofAction();
-      }
-    },
-  });
-  const consumeFirstProofActionFromEffect = useEffectEvent(consumeFirstProofAction);
-  const startFirstProof = useEffectEvent(() => notarize.mutate());
-  useEffect(() => {
-    if (!firstProofRequested || !detail.data) return;
-    const operationState = detail.data.notarization?.state;
-    if (!capture.notarization_eligible) {
-      setFirstProofStartError(
-        'This provider response is not eligible for sealing. Keep it local or delete the disposable test.',
-      );
-      consumeFirstProofActionFromEffect();
-      return;
-    }
-    if (operationState === 'failed' || operationState === 'interrupted') {
-      setFirstProofStartError(
-        'A previous sealing attempt needs attention. Review it, then choose Retry sealing explicitly.',
-      );
-      consumeFirstProofActionFromEffect();
-      return;
-    }
-    if (operationState === 'succeeded') return;
-    if (operationState === 'queued' || operationState === 'running') return;
-    if (capture.status === 'notarization_failed' || capture.status === 'notarization_interrupted') {
-      setFirstProofStartError(
-        'A previous sealing attempt needs attention. Review it, then choose Retry sealing explicitly.',
-      );
-      consumeFirstProofActionFromEffect();
-      return;
-    }
-    if (capture.status === 'notarizing') return;
-    if (capture.state === 'captured' && capture.status == null && !detail.data.notarization) {
-      if (handledInitialAction.current === firstProofActionKey) return;
-      handledInitialAction.current = firstProofActionKey;
-      startFirstProof();
-      return;
-    }
-    setFirstProofStartError(
-      'Automatic sealing did not start because this Trace changed state. Review it before continuing.',
-    );
-    consumeFirstProofActionFromEffect();
-  }, [
-    capture.notarization_eligible,
-    capture.state,
-    capture.status,
-    detail.data,
-    firstProofActionKey,
-    firstProofRequested,
-  ]);
+  const notarize = useSealTrace(api, capture.trace_id, () =>
+    navigate({ view: 'traces', id: capture.trace_id, action: initialAction }),
+  );
   if (detail.isLoading) return <LoadingState />;
   if (detail.error) return <QueryError error={detail.error} title="Trace detail is unavailable" />;
   const value = detail.data;
@@ -1072,20 +958,6 @@ function CapturedTraceInspector({
           <DeleteTraceAction api={api} capture={capture} navigate={navigate} />
         </Group>
       </div>
-      {firstProofRequested && !firstProofStartError && (
-        <Paper withBorder p="md" role="status" aria-live="polite">
-          <Text className="eyebrow">Creating your first proof</Text>
-          <Text fw={600}>Exalto Seal is sealing this disposable test Trace.</Text>
-          <Text>You can leave this screen. Verification will begin when sealing finishes.</Text>
-        </Paper>
-      )}
-      {firstProofStartError && (
-        <Paper withBorder p="md" role="alert" aria-live="assertive">
-          <Text className="eyebrow">First proof needs attention</Text>
-          <Text fw={600}>{firstProofStartError}</Text>
-          <Text>Nothing will retry automatically.</Text>
-        </Paper>
-      )}
       {capture.status === 'capture_failed' && (
         <div className="notarization-ineligible-note" role="status">
           <XCircle size={18} aria-hidden="true" />
@@ -1108,10 +980,7 @@ function CapturedTraceInspector({
           </div>
         </div>
       )}
-      <Tabs
-        defaultValue={initialAction === 'first-proof' ? 'notarization' : 'summary'}
-        keepMounted={false}
-      >
+      <Tabs defaultValue="summary" keepMounted={false}>
         <Tabs.List>
           <Tabs.Tab value="summary">Summary</Tabs.Tab>
           <Tabs.Tab value="notarization">Sealing</Tabs.Tab>
@@ -1339,7 +1208,6 @@ function NotarizedTraceInspector({
   onBack,
   navigate,
   hideActivity = false,
-  onTraceActionConsumed,
 }: {
   api: LocalApi;
   capture: TraceSummary;
@@ -1348,7 +1216,6 @@ function NotarizedTraceInspector({
   onBack: () => void;
   navigate: (route: Route) => void;
   hideActivity?: boolean;
-  onTraceActionConsumed?: (traceId: string, action: 'first-proof') => void;
 }) {
   const queryClient = useQueryClient();
   const captureId = capture.trace_id;
@@ -1363,7 +1230,6 @@ function NotarizedTraceInspector({
   const account = useQuery(accountQuery(api)).data;
   const [verification, setVerification] = useState<Verification | null>(null);
   const [verificationFailure, setVerificationFailure] = useState<string | null>(null);
-  const [guidedFirstProof, setGuidedFirstProof] = useState(initialAction === 'first-proof');
   const [activeTab, setActiveTab] = useState<string | null>('summary');
   const [shareDialogMode, setShareDialogMode] = useState<ShareDialogMode | null>(null);
   const [shareVisibility, setShareVisibility] = useState<ShareVisibility>('unlisted');
@@ -1375,20 +1241,10 @@ function NotarizedTraceInspector({
   const [shareRequested, setShareRequested] = useState(false);
   const currentCapture = useRef(captureId);
   const handledInitialAction = useRef<string | null>(null);
-  const guidedFirstProofRequested = useRef(initialAction === 'first-proof');
-  const consumedFirstProofAction = useRef<string | null>(null);
-  const consumeFirstProofAction = () => {
-    if (!guidedFirstProofRequested.current) return;
-    if (consumedFirstProofAction.current === captureId) return;
-    consumedFirstProofAction.current = captureId;
-    if (onTraceActionConsumed) onTraceActionConsumed(captureId, 'first-proof');
-    else navigate({ view: 'traces', id: captureId });
-  };
   useEffect(() => {
     currentCapture.current = captureId;
     setVerification(null);
     setVerificationFailure(null);
-    setGuidedFirstProof(false);
     setActiveTab('summary');
     setShareDialogMode(null);
     setShareVisibility('unlisted');
@@ -1399,14 +1255,7 @@ function NotarizedTraceInspector({
     setStopConfirmation(false);
     setShareRequested(false);
     handledInitialAction.current = null;
-    guidedFirstProofRequested.current = false;
-    consumedFirstProofAction.current = null;
   }, [captureId]);
-  useEffect(() => {
-    if (initialAction !== 'first-proof') return;
-    guidedFirstProofRequested.current = true;
-    setGuidedFirstProof(true);
-  }, [initialAction]);
   const verify = useMutation({
     mutationFn: () => api.verify(captureId),
     onMutate: () => {
@@ -1425,7 +1274,6 @@ function NotarizedTraceInspector({
           title: 'Trace identity did not match',
           message: 'The returned verification result was not for this exact Trace.',
         });
-        consumeFirstProofAction();
         return;
       }
       if (result.outcome !== 'passed') {
@@ -1443,7 +1291,6 @@ function NotarizedTraceInspector({
             ? `Safe failure code: ${result.failure_code}`
             : 'Review the Trace before exporting or sharing it.',
         });
-        consumeFirstProofAction();
         return;
       }
       setVerification(result);
@@ -1453,7 +1300,6 @@ function NotarizedTraceInspector({
         title: 'Trace verified',
         message: 'The package passed every local verification check.',
       });
-      consumeFirstProofAction();
     },
     onError: (error) => {
       if (currentCapture.current !== captureId) return;
@@ -1462,7 +1308,6 @@ function NotarizedTraceInspector({
         'Local verification could not complete. Run Verify locally again before treating this Trace as proof.',
       );
       mutationError('Trace verification failed', error);
-      consumeFirstProofAction();
     },
   });
   const exportTrace = useMutation({
@@ -1544,7 +1389,6 @@ function NotarizedTraceInspector({
     onError: (error) => mutationError('Could not stop sharing', error),
   });
   const startExport = useEffectEvent(() => exportTrace.mutate());
-  const startVerification = useEffectEvent(() => verify.mutate());
   useEffect(() => {
     if (!initialAction || !trace.data || !detail.data) return;
     const actionKey = `${captureId}:${initialAction}`;
@@ -1552,11 +1396,6 @@ function NotarizedTraceInspector({
     handledInitialAction.current = actionKey;
     if (initialAction === 'export') startExport();
     else if (initialAction === 'share') setShareDialogMode('create');
-    else {
-      guidedFirstProofRequested.current = true;
-      setGuidedFirstProof(true);
-      startVerification();
-    }
   }, [captureId, detail.data, initialAction, trace.data]);
   if (trace.isLoading || detail.isLoading) return <LoadingState />;
   if (trace.error) return <QueryError error={trace.error} title="Trace package is unavailable" />;
@@ -1678,33 +1517,6 @@ function NotarizedTraceInspector({
           />
         </Group>
       </Group>
-      {guidedFirstProof && (
-        <Paper withBorder p="md" role="status" aria-live="polite">
-          {verify.isPending ? (
-            <div>
-              <Text className="eyebrow">Checking your first proof</Text>
-              <Text>The sealed package is being verified locally on this device.</Text>
-            </div>
-          ) : verification ? (
-            <div>
-              <Text className="eyebrow">First proof complete</Text>
-              <Text fw={600}>Your first proof is sealed and verified.</Text>
-              <Text>You can now export the portable package or share its disclosed evidence.</Text>
-            </div>
-          ) : verificationFailure ? (
-            <div>
-              <Text className="eyebrow">Verification needs attention</Text>
-              <Text fw={600}>Your first proof was sealed, but local verification failed.</Text>
-              <Text>{verificationFailure}</Text>
-            </div>
-          ) : (
-            <div>
-              <Text className="eyebrow">Checking your first proof</Text>
-              <Text>Local verification will begin when the sealed package is ready.</Text>
-            </div>
-          )}
-        </Paper>
-      )}
       {activeShare && (
         <Paper className="trace-share-status">
           <div>

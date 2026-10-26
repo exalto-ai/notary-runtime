@@ -30,8 +30,6 @@ import {
 import { LoadingWindow, VaultUnlock } from './LockedState';
 import { Onboarding } from './Onboarding';
 import {
-  pendingFirstProofTarget,
-  persistPendingFirstProof,
   type TraceConstraint,
   type TraceTarget,
   type View,
@@ -45,8 +43,6 @@ import { TracesHeader } from './TracesHeader';
 
 export const SENSITIVE_INPUT_RESET_EVENT = 'exalto:sensitive-input-reset';
 export const CAPTURE_STATE_CHANGED_EVENT = 'exalto:capture-state-changed';
-export const DISPOSABLE_TEST_STOPPED_MESSAGE =
-  'The disposable test stopped when setup closed. Prepare it again when you are ready.';
 
 function AppContent() {
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
@@ -55,7 +51,7 @@ function AppContent() {
     requestedView && requestedView in viewMeta ? requestedView : 'traces',
   );
   const [traceConstraint, setTraceConstraint] = useState<TraceConstraint | null>(null);
-  const [traceTarget, setTraceTarget] = useState<TraceTarget | null>(pendingFirstProofTarget);
+  const [traceTarget, setTraceTarget] = useState<TraceTarget | null>(null);
   const [state, setState] = useState<DesktopState | null>(null);
   const [updateState, setUpdateState] = useState<DesktopUpdateState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -64,9 +60,6 @@ function AppContent() {
   const [setupOpen, setSetupOpen] = useState(false);
   const lastWorkspaceRoute = useRef<WorkspaceView | null>(null);
   const [sensitiveInputGeneration, setSensitiveInputGeneration] = useState(0);
-  const [setupResumeError, setSetupResumeError] = useState<string | null>(null);
-  const disposableTestInProgress = useRef(false);
-  const pendingFirstProofApplied = useRef(false);
 
   const refresh = useCallback(async (refreshSealingService = false) => {
     try {
@@ -87,21 +80,7 @@ function AppContent() {
   }, [state?.running]);
 
   useEffect(() => {
-    if (!state?.onboarding_complete || setupOpen || pendingFirstProofApplied.current) return;
-    pendingFirstProofApplied.current = true;
-    const target = pendingFirstProofTarget();
-    if (!target) return;
-    setTraceConstraint(null);
-    setTraceTarget(target);
-    setView('traces');
-  }, [setupOpen, state?.onboarding_complete]);
-
-  useEffect(() => {
-    const resetSensitiveInputs = (event: Event) => {
-      const detail = (event as CustomEvent<{ resumeDisposableSetup?: boolean }>).detail;
-      setSetupResumeError(detail?.resumeDisposableSetup ? DISPOSABLE_TEST_STOPPED_MESSAGE : null);
-      setSensitiveInputGeneration((current) => current + 1);
-    };
+    const resetSensitiveInputs = () => setSensitiveInputGeneration((current) => current + 1);
     window.addEventListener(SENSITIVE_INPUT_RESET_EVENT, resetSensitiveInputs);
     return () => {
       window.removeEventListener(SENSITIVE_INPUT_RESET_EVENT, resetSensitiveInputs);
@@ -188,29 +167,9 @@ function AppContent() {
     if (!isTauri()) return;
     let disposed = false;
     let unlisten: UnlistenFn | null = null;
-    void listen<{ window_generation: number; lease_id: string | null }>(
-      'exalto:temporary-capture-cancelled',
-      (event) => {
-        const resumeDisposableSetup =
-          Boolean(event.payload.lease_id) || disposableTestInProgress.current;
-        disposableTestInProgress.current = false;
-        window.dispatchEvent(
-          new CustomEvent(SENSITIVE_INPUT_RESET_EVENT, {
-            detail: { resumeDisposableSetup },
-          }),
-        );
-        setState((current) =>
-          current
-            ? {
-                ...current,
-                temporary_capture_generation: Math.max(
-                  current.temporary_capture_generation,
-                  event.payload.window_generation,
-                ),
-              }
-            : current,
-        );
-      },
+    // Closing the window forgets unsaved sensitive input everywhere in the app.
+    void listen('exalto:window-closed', () =>
+      window.dispatchEvent(new Event(SENSITIVE_INPUT_RESET_EVENT)),
     ).then((stopListening) => {
       if (disposed) stopListening();
       else unlisten = stopListening;
@@ -360,25 +319,12 @@ function AppContent() {
         key={`onboarding-${sensitiveInputGeneration}`}
         state={state}
         refresh={refresh}
-        initialStep={setupOpen || setupResumeError ? 'client' : 'welcome'}
-        initialError={setupResumeError}
-        onDisposableTestChange={(active) => {
-          disposableTestInProgress.current = active;
-        }}
-        onCancel={
-          setupOpen
-            ? () => {
-                setSetupOpen(false);
-                setSetupResumeError(null);
-              }
-            : undefined
-        }
-        onFinish={(next, target) => {
+        initialStep={setupOpen ? 'client' : 'welcome'}
+        onCancel={setupOpen ? () => setSetupOpen(false) : undefined}
+        onFinish={(next) => {
           setSetupOpen(false);
-          setSetupResumeError(null);
           setTraceConstraint(null);
-          persistPendingFirstProof(target?.action === 'first-proof' ? target : null);
-          setTraceTarget(target ?? null);
+          setTraceTarget(null);
           setView(next);
         }}
       />
@@ -464,16 +410,6 @@ function AppContent() {
                 route={lastWorkspaceRoute.current}
                 constraint={route === 'traces' ? traceConstraint : null}
                 traceTarget={route === 'traces' ? traceTarget : null}
-                onTraceActionConsumed={(traceId, action) => {
-                  if (
-                    action !== 'first-proof' ||
-                    traceTarget?.action !== action ||
-                    traceTarget.traceId !== traceId
-                  )
-                    return;
-                  persistPendingFirstProof(null);
-                  setTraceTarget(null);
-                }}
                 state={state}
                 updateState={updateState}
                 busy={busy}

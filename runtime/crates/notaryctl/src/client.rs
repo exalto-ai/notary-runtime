@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs, net::SocketAddr, path::Path, time::Duration};
+use std::{fs, net::SocketAddr, path::Path, time::Duration};
 
 use reqwest::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -86,68 +86,6 @@ pub struct TraceProbe {
 #[derive(Debug, Deserialize)]
 struct TraceProbePage {
     items: Vec<TraceProbe>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TraceConfirmationDetail {
-    trace_id: String,
-    state: Option<String>,
-    provider: String,
-    http_status: Option<u16>,
-    output_preview: String,
-}
-
-const DISPOSABLE_TRACE_MARKER_PREFIX: &str = "EXALTO-CAPTURE-TEST-";
-const DISPOSABLE_TRACE_MARKER_SUFFIX_LEN: usize = 24;
-const MAX_DISPOSABLE_TRACE_BASELINE_IDS: usize = 50;
-
-/// Validate the short, non-secret token echoed by the disposable onboarding request.
-pub(crate) fn valid_disposable_trace_marker(value: &str) -> bool {
-    value
-        .strip_prefix(DISPOSABLE_TRACE_MARKER_PREFIX)
-        .is_some_and(|suffix| {
-            suffix.len() == DISPOSABLE_TRACE_MARKER_SUFFIX_LEN
-                && suffix
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'A'..=b'F'))
-        })
-}
-
-fn valid_disposable_trace_provider(value: &str) -> bool {
-    matches!(value, "openai" | "anthropic" | "openrouter")
-}
-
-fn valid_trace_id(value: &str) -> bool {
-    value.strip_prefix("trc-").is_some_and(|suffix| {
-        !suffix.is_empty()
-            && value.len() <= 256
-            && suffix
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-    })
-}
-
-fn successful_disposable_trace_candidate(trace: &TraceProbe, expected_provider: &str) -> bool {
-    trace.provider == expected_provider
-        && matches!(trace.state.as_deref(), Some("captured" | "notarized"))
-        && trace
-            .http_status
-            .is_some_and(|status| (200..=299).contains(&status))
-}
-
-fn detail_confirms_disposable_trace(
-    detail: &TraceConfirmationDetail,
-    expected_trace_id: &str,
-    expected_provider: &str,
-    confirmation_marker: &str,
-) -> bool {
-    detail.trace_id == expected_trace_id
-        && detail.provider == expected_provider
-        && matches!(detail.state.as_deref(), Some("captured" | "notarized"))
-        && detail
-            .http_status
-            .is_some_and(|status| (200..=299).contains(&status))
-        && detail.output_preview.contains(confirmation_marker)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -497,7 +435,7 @@ impl NotarydClient {
         .await
     }
 
-    /// Fetch a bounded newest-first summary used to confirm one onboarding capture.
+    /// Fetch a bounded newest-first summary of recent Traces, without previews of their output.
     pub async fn recent_trace_probes(&self) -> Result<Vec<TraceProbe>, CliError> {
         self.request_model::<TraceProbePage>(
             Method::GET,
@@ -510,83 +448,6 @@ impl NotarydClient {
         )
         .await
         .map(|page| page.items)
-    }
-
-    /// Confirm one disposable onboarding request without returning trace content to the UI.
-    ///
-    /// The list request excludes previews. Detail is fetched only for a new, successful Trace
-    /// from the expected provider, and only the matching Trace identifier crosses this boundary.
-    pub async fn confirm_disposable_trace(
-        &self,
-        baseline_trace_ids: &[String],
-        expected_provider: &str,
-        confirmation_marker: &str,
-    ) -> Result<Option<String>, CliError> {
-        if baseline_trace_ids.len() > MAX_DISPOSABLE_TRACE_BASELINE_IDS
-            || baseline_trace_ids
-                .iter()
-                .any(|trace_id| !valid_trace_id(trace_id))
-        {
-            return Err(CliError::invalid(
-                "the disposable Trace baseline is invalid",
-            ));
-        }
-        if !valid_disposable_trace_provider(expected_provider) {
-            return Err(CliError::invalid(
-                "the disposable Trace provider is invalid",
-            ));
-        }
-        if !valid_disposable_trace_marker(confirmation_marker) {
-            return Err(CliError::invalid(
-                "the disposable Trace confirmation token is invalid",
-            ));
-        }
-
-        let baseline = baseline_trace_ids
-            .iter()
-            .map(String::as_str)
-            .collect::<HashSet<_>>();
-        let page = self
-            .request_model::<TraceProbePage>(
-                Method::GET,
-                "/v1/traces",
-                &[
-                    ("provider".into(), expected_provider.into()),
-                    ("metadata_only".into(), "true".into()),
-                    (
-                        "limit".into(),
-                        MAX_DISPOSABLE_TRACE_BASELINE_IDS.to_string(),
-                    ),
-                ],
-                None,
-            )
-            .await?;
-
-        for trace in page.items {
-            if baseline.contains(trace.trace_id.as_str())
-                || !valid_trace_id(&trace.trace_id)
-                || !successful_disposable_trace_candidate(&trace, expected_provider)
-            {
-                continue;
-            }
-            let detail = self
-                .request_model::<TraceConfirmationDetail>(
-                    Method::GET,
-                    &format!("/v1/traces/{}", trace.trace_id),
-                    &[],
-                    None,
-                )
-                .await?;
-            if detail_confirms_disposable_trace(
-                &detail,
-                &trace.trace_id,
-                expected_provider,
-                confirmation_marker,
-            ) {
-                return Ok(Some(trace.trace_id));
-            }
-        }
-        Ok(None)
     }
 
     pub fn origin(&self) -> &Url {

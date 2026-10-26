@@ -98,7 +98,6 @@ export function SettingsView({
   route,
   constraint,
   traceTarget,
-  onTraceActionConsumed,
   state,
   updateState,
   busy,
@@ -113,7 +112,6 @@ export function SettingsView({
   route: WorkspaceView;
   constraint: TraceConstraint | null;
   traceTarget: TraceTarget | null;
-  onTraceActionConsumed: (traceId: string, action: 'first-proof') => void;
   state: DesktopState;
   updateState: DesktopUpdateState | null;
   busy: string | null;
@@ -244,7 +242,6 @@ export function SettingsView({
         onDesktopSettingsAction={handleDesktopAction}
         desktopShell
         onNavigate={(next) => onNavigate(next.view as View, next)}
-        onTraceActionConsumed={onTraceActionConsumed}
       />
     </div>
   );

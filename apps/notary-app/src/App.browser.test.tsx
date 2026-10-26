@@ -2,9 +2,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { formatBytes } from '../../../runtime/apps/admin-dashboard/src/shared';
-import App, { DISPOSABLE_TEST_STOPPED_MESSAGE, SENSITIVE_INPUT_RESET_EVENT } from './App';
-import { createDisposableTestMarker } from './Onboarding';
-import { pendingFirstProofTarget, persistPendingFirstProof } from './product';
+import App, { SENSITIVE_INPUT_RESET_EVENT } from './App';
 import './styles.css';
 
 const approvalUrl = 'https://capture.exalto.ai/authorize?request_id=req-browser&approval_secret=s';
@@ -235,14 +233,6 @@ describe('Exalto Capture desktop shell', () => {
     expect(formatBytes(0)).toBe('0 B');
   });
 
-  test('creates a fresh bounded marker for disposable trace confirmation', () => {
-    const first = createDisposableTestMarker();
-    const second = createDisposableTestMarker();
-    expect(first).toMatch(/^EXALTO-CAPTURE-TEST-[0-9A-F]{24}$/);
-    expect(second).toMatch(/^EXALTO-CAPTURE-TEST-[0-9A-F]{24}$/);
-    expect(second).not.toBe(first);
-  });
-
   test('opens on Traces with the capture switch in its header', async () => {
     renderApp('?screen=capture-off');
     await expect.element(page.getByRole('heading', { name: 'Traces', exact: true })).toBeVisible();
@@ -253,15 +243,6 @@ describe('Exalto Capture desktop shell', () => {
     await expect
       .element(page.getByText(/^Capture is off\. Requests sent while it is off/))
       .toBeVisible();
-  });
-
-  test('resumes and consumes a pending first-proof handoff across app restarts', async () => {
-    persistPendingFirstProof({ traceId: 'trc-browser-resume-proof', action: 'first-proof' });
-    renderApp('?screen=capture-off');
-    await expect.element(page.getByText('Trace ID · trc-browser-resume-proof')).toBeVisible();
-    expect(document.querySelector('.workspace-frame')).toBeNull();
-    expect(document.querySelector('.inline-dashboard-page')).not.toBeNull();
-    await expect.poll(pendingFirstProofTarget).toBeNull();
   });
 
   test('keeps connections inside Settings', async () => {
@@ -390,11 +371,10 @@ describe('Exalto Capture desktop shell', () => {
     await expect.element(page.getByRole('switch', { name: 'Capture' })).toBeEnabled();
   });
 
-  test('separates built-in credentials from external setup and makes testing optional', async () => {
+  test('separates built-in credentials from external setup and finishes without a test', async () => {
     renderApp('?screen=onboarding');
     await userEvent.click(page.getByRole('button', { name: /Begin setup/ }));
     await userEvent.click(page.getByRole('button', { name: /Protect traces/ }));
-    await userEvent.click(page.getByRole('button', { name: /Continue with Exalto Seal/ }));
     await expect
       .element(page.getByRole('radio', { name: 'Built-in', exact: true }))
       .toHaveAttribute('aria-checked', 'true');
@@ -408,64 +388,21 @@ describe('Exalto Capture desktop shell', () => {
     await expect
       .element(setup)
       .toHaveValue(expect.stringContaining('Preserve its existing authentication method'));
-    await userEvent.click(page.getByRole('button', { name: 'Continue without a test' }));
     await expect
-      .element(page.getByRole('heading', { name: 'Exalto Capture is ready' }))
-      .toBeVisible();
-    await expect
-      .element(page.getByText('Test trace captured', { exact: true }))
+      .element(page.getByRole('button', { name: 'Continue without a test' }))
       .not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Open Capture' })).toBeVisible();
   });
 
-  test('links an account from setup through the shared account card', async () => {
-    const windowOpen = vi.spyOn(window, 'open').mockReturnValue(null);
-    renderApp('?screen=onboarding');
-    await userEvent.click(page.getByRole('button', { name: /Begin setup/ }));
-    await userEvent.click(page.getByRole('button', { name: /Protect traces/ }));
-    await userEvent.click(page.getByRole('button', { name: /Continue with Exalto Seal/ }));
-    await userEvent.click(page.getByRole('button', { name: 'Continue without a test' }));
-    await userEvent.click(page.getByRole('button', { name: 'Connect account…' }));
-    await expect.element(page.getByText('Approve in your browser')).toBeVisible();
-    await expect.element(page.getByText('0F81-8CC9')).toBeVisible();
-    expect(windowOpen).toHaveBeenCalledWith(approvalUrl, '_blank', 'noopener,noreferrer');
-    await expect.element(page.getByText(/Next check/)).not.toBeInTheDocument();
-    window.dispatchEvent(new Event('focus'));
-    await expect.element(page.getByText('Browser Tester', { exact: true })).toBeVisible();
-    await expect.element(page.getByText('1 GB plan', { exact: true })).toBeVisible();
-    windowOpen.mockRestore();
-  });
-
-  test('blocks manual disposable capture until the trusted transport is ready', async () => {
-    renderApp('?screen=onboarding&capture-transport=starting');
-
-    await userEvent.click(page.getByRole('button', { name: /Begin setup/ }));
-    await userEvent.click(page.getByRole('button', { name: /Protect traces/ }));
-    await userEvent.click(page.getByRole('button', { name: /Continue with Exalto Seal/ }));
-    await userEvent.click(page.getByRole('radio', { name: /^Codex/ }));
-    await userEvent.click(page.getByRole('button', { name: /Start service and prepare test/ }));
-
-    await expect
-      .element(page.getByRole('heading', { name: 'Where would you like to chat?' }))
-      .toBeVisible();
-    await expect.element(page.getByText(/trusted capture transport is not ready/)).toBeVisible();
-    await expect.element(page.getByText(/No Exalto Seal account is required/)).toBeVisible();
-    await expect
-      .element(page.getByRole('heading', { name: 'Capture one disposable trace' }))
-      .not.toBeInTheDocument();
-  });
-
-  test('preserves a third-party sealing service across onboarding and Capture', async () => {
+  test('goes from protection straight to the connection choice', async () => {
     renderApp('?screen=onboarding-third-party');
     await userEvent.click(page.getByRole('button', { name: /Begin setup/ }));
     await userEvent.click(page.getByRole('button', { name: /Protect traces/ }));
     await expect
-      .element(page.getByRole('heading', { name: 'Continue with Northstar Seal' }))
+      .element(page.getByRole('heading', { name: 'Where would you like to chat?' }))
       .toBeVisible();
-    await expect
-      .element(page.getByRole('button', { name: /Continue with Northstar Seal/ }))
-      .toBeVisible();
-    await expect.element(page.getByText('Northstar Seal', { exact: true }).last()).toBeVisible();
-    await expect.element(page.getByText('Exalto Seal', { exact: true })).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('Exalto Seal');
+    expect(document.body.textContent).not.toContain('Sealing service');
 
     cleanup();
     renderApp('?screen=capture-third-party');
@@ -479,7 +416,6 @@ describe('Exalto Capture desktop shell', () => {
       renderApp('?screen=onboarding');
       await userEvent.click(page.getByRole('button', { name: /Begin setup/ }));
       await userEvent.click(page.getByRole('button', { name: /Protect traces/ }));
-      await userEvent.click(page.getByRole('button', { name: /Continue with Exalto Seal/ }));
 
       const continueButton = page.getByRole('button', { name: /Try a chat/ });
       const bounds = continueButton.element().getBoundingClientRect();
@@ -588,21 +524,6 @@ describe('Exalto Capture desktop shell', () => {
     });
     await expect.element(page.getByPlaceholder('Search traces')).toBeVisible();
     expect(document.querySelector('.workspace-frame')).toBeNull();
-
-    cleanup();
-    renderApp('?screen=onboarding');
-    await expect.element(page.getByRole('button', { name: /Begin setup/ })).toBeVisible();
-    await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent(SENSITIVE_INPUT_RESET_EVENT, {
-          detail: { resumeDisposableSetup: true },
-        }),
-      );
-    });
-    await expect
-      .element(page.getByRole('heading', { name: 'Where would you like to chat?' }))
-      .toBeVisible();
-    await expect.element(page.getByText(DISPOSABLE_TEST_STOPPED_MESSAGE)).toBeVisible();
   });
 
   test('uses private Trace language in the locked state', async () => {

@@ -10,7 +10,7 @@ use tauri::{
 
 use crate::ExitState;
 use crate::daemon::{DaemonProcess, start_daemon};
-use crate::service_client::{TemporaryCaptureState, read_admin_status, write_capture_setting};
+use crate::service_client::{read_admin_status, write_capture_setting};
 
 pub(super) const SAFE_HIDE_MENU_ID: &str = "app_hide";
 pub(super) const CAPTURE_STATE_CHANGED_EVENT: &str = "exalto:capture-state-changed";
@@ -60,8 +60,7 @@ pub(super) fn request_capture(app: &tauri::AppHandle, requested: bool) {
                 return;
             }
         }
-        let temporary_capture = app_handle.state::<TemporaryCaptureState>();
-        match write_capture_setting(requested, &temporary_capture).await {
+        match write_capture_setting(requested).await {
             Ok(enabled) => publish_capture_state(&app_handle, enabled),
             Err(_) => publish_capture_state(&app_handle, !requested),
         }
@@ -126,17 +125,8 @@ fn find_submenu(menu: &Menu<tauri::Wry>, text: &str) -> tauri::Result<Option<Sub
 }
 
 pub(super) fn show_main_window(app: &tauri::AppHandle) {
-    let exit = app.state::<ExitState>();
-    match app
-        .state::<TemporaryCaptureState>()
-        .allow_live_leases_if(|| !exit.is_draining())
-    {
-        Ok(true) => {}
-        Ok(false) => return,
-        Err(error) => {
-            eprintln!("Could not reopen disposable capture setup: {error}");
-            return;
-        }
+    if app.state::<ExitState>().is_draining() {
+        return;
     }
     #[cfg(target_os = "macos")]
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);

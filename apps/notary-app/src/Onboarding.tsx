@@ -1,96 +1,22 @@
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import {
-  BadgeCheck,
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  CircleDot,
-  FileCheck2,
-  LockKeyhole,
-  Network,
-  Server,
-  ShieldCheck,
-  SquareTerminal,
-} from 'lucide-react';
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { AccountConnectionCard } from '../../../runtime/apps/admin-dashboard/src/AccountConnection';
+import { BadgeCheck, Check, ChevronDown, ChevronLeft, CircleDot, LockKeyhole } from 'lucide-react';
+import { useState } from 'react';
 import { AgentSetup, agentSetupPrompt, CLAUDE_COMMAND, CODEX_CONFIG } from './AgentSetup';
-import {
-  beginTemporaryCapture,
-  completeOnboarding,
-  configureVault,
-  confirmDisposableTrace,
-  type DesktopState,
-  endTemporaryCapture,
-  errorMessage,
-  getDesktopState,
-  getRecentTraceProbes,
-  isTauri,
-  localApi,
-  startDaemon,
-} from './bridge';
+import { completeOnboarding, configureVault, type DesktopState, errorMessage } from './bridge';
 import notaryMark from './notary-mark.svg';
 import { ProviderConnections } from './ProviderConnections';
-import { StatusDot, type TraceTarget, type View, vaultProtection } from './product';
+import type { View } from './product';
 import './onboarding.css';
 
-type OnboardingStep = 'welcome' | 'protection' | 'notary' | 'client' | 'test' | 'account';
+type OnboardingStep = 'welcome' | 'protection' | 'client';
 type VaultSetupMode = 'keychain' | 'passphrase';
 type ClientId = 'codex' | 'claude' | 'builtin';
-type TestStatus = 'idle' | 'checking' | 'not-found' | 'unconfirmed' | 'captured';
-type TemporaryCaptureEvent = {
-  window_generation: number;
-  lease_id: string | null;
-};
 
-type OnboardingSealingService = {
-  name: string;
-  isExaltoSeal: boolean;
-  available: boolean;
-  configured: boolean;
-};
-
-function onboardingSealingService(state: DesktopState): OnboardingSealingService {
-  if (state.sealing_service) {
-    return {
-      name: state.sealing_service.name,
-      isExaltoSeal: state.sealing_service.kind === 'exalto_seal',
-      available: true,
-      configured: true,
-    };
-  }
-  if (!state.agent_configured) {
-    return {
-      name: 'Exalto Seal',
-      isExaltoSeal: true,
-      available: true,
-      configured: false,
-    };
-  }
-  return {
-    name: 'Configured sealing service',
-    isExaltoSeal: false,
-    available: false,
-    configured: true,
-  };
-}
-
-const onboardingSteps: OnboardingStep[] = [
-  'welcome',
-  'protection',
-  'notary',
-  'client',
-  'test',
-  'account',
-];
+const onboardingSteps: OnboardingStep[] = ['welcome', 'protection', 'client'];
 
 const stepNames: Record<OnboardingStep, string> = {
   welcome: 'Overview',
   protection: 'Protection',
-  notary: 'Sealing service',
   client: 'Chat',
-  test: 'Capture test',
-  account: 'Account',
 };
 
 const clientChoices = [
@@ -118,47 +44,17 @@ const clientLabels: Record<ClientId, string> = {
   claude: 'Claude Code',
 };
 
-const TEST_MARKER_PREFIX = 'EXALTO-CAPTURE-TEST-';
-
-export function createDisposableTestMarker() {
-  const bytes = new Uint8Array(12);
-  crypto.getRandomValues(bytes);
-  return `${TEST_MARKER_PREFIX}${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0'))
-    .join('')
-    .toUpperCase()}`;
-}
-
-function createTemporaryCaptureLeaseId() {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function expectedTestProvider(client: ClientId) {
-  return client === 'claude' ? 'anthropic' : 'openai';
-}
-
-function testCommand(client: ClientId, prompt: string) {
-  if (client === 'codex')
-    return `codex --profile exalto-capture exec --ephemeral --skip-git-repo-check '${prompt}'`;
-  return `${CLAUDE_COMMAND} -p '${prompt}'`;
-}
-
 export function Onboarding({
   state,
   refresh,
   onFinish,
   initialStep = 'welcome',
-  initialError = null,
-  onDisposableTestChange,
   onCancel,
 }: {
   state: DesktopState;
   refresh: () => Promise<void>;
-  onFinish: (view: View, traceTarget?: TraceTarget) => void;
+  onFinish: (view: View) => void;
   initialStep?: OnboardingStep;
-  initialError?: string | null;
-  onDisposableTestChange?: (active: boolean) => void;
   onCancel?: () => void;
 }) {
   const [step, setStep] = useState<OnboardingStep>(initialStep);
@@ -166,138 +62,27 @@ export function Onboarding({
   const [passphrase, setPassphrase] = useState('');
   const [passphraseConfirmation, setPassphraseConfirmation] = useState('');
   const [client, setClient] = useState<ClientId>('builtin');
-  const [testMarker] = useState(createDisposableTestMarker);
-  const [testBaseline, setTestBaseline] = useState<ReadonlySet<string> | null>(null);
-  const [testStatus, setTestStatus] = useState<TestStatus>('idle');
-  const [disposableTraceId, setDisposableTraceId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(initialError);
-  const temporaryCaptureLease = useRef<string | null>(null);
-  const preparationCancelled = useRef(false);
-  const testOperation = useRef(0);
-  const windowGeneration = useRef(state.temporary_capture_generation);
-  const testPrompt = `Reply with exactly: ${testMarker}`;
+  const [error, setError] = useState<string | null>(null);
   const stepIndex = onboardingSteps.indexOf(step);
-  const sealingService = onboardingSealingService(state);
-
-  useEffect(() => {
-    windowGeneration.current = Math.max(
-      windowGeneration.current,
-      state.temporary_capture_generation,
-    );
-  }, [state.temporary_capture_generation]);
 
   const chooseClient = (nextClient: ClientId) => {
     setError(null);
     setClient(nextClient);
   };
 
-  const invalidateTestWork = () => {
-    preparationCancelled.current = true;
-    testOperation.current += 1;
-  };
-
-  const testWorkIsCurrent = (operation: number, generation: number) =>
-    operation === testOperation.current &&
-    generation === windowGeneration.current &&
-    !preparationCancelled.current;
-
-  const restoreTestCapture = async (expectedLease = temporaryCaptureLease.current) => {
-    if (!expectedLease) return;
-    await endTemporaryCapture(expectedLease);
-    if (temporaryCaptureLease.current !== expectedLease) return;
-    temporaryCaptureLease.current = null;
-    onDisposableTestChange?.(false);
-    await refresh();
-  };
-
-  const invalidateTestWorkFromEffect = useEffectEvent(invalidateTestWork);
-  useEffect(() => {
-    if (!isTauri()) return;
-    let disposed = false;
-    const unlisten: UnlistenFn[] = [];
-    const retain = (stopListening: UnlistenFn) => {
-      if (disposed) stopListening();
-      else unlisten.push(stopListening);
-    };
-    void listen<TemporaryCaptureEvent>('exalto:temporary-capture-cancelled', (event) => {
-      windowGeneration.current = Math.max(
-        windowGeneration.current,
-        event.payload.window_generation,
-      );
-      const hadDisposableTest = Boolean(event.payload.lease_id || temporaryCaptureLease.current);
-      invalidateTestWorkFromEffect();
-      setPassphrase('');
-      setPassphraseConfirmation('');
-      if (temporaryCaptureLease.current !== event.payload.lease_id) {
-        temporaryCaptureLease.current = null;
-      }
-      if (!hadDisposableTest) return;
-      setBusy(false);
-      setTestStatus('idle');
-      setStep('client');
-      setError(
-        'The disposable test stopped when setup closed. Prepare it again when you are ready.',
-      );
-    }).then(retain);
-    void listen<TemporaryCaptureEvent>('exalto:temporary-capture-restored', (event) => {
-      windowGeneration.current = Math.max(
-        windowGeneration.current,
-        event.payload.window_generation,
-      );
-      if (temporaryCaptureLease.current === event.payload.lease_id) {
-        temporaryCaptureLease.current = null;
-      }
-      void refresh();
-    }).then(retain);
-    void listen<string>('exalto:temporary-capture-restore-failed', (event) => {
-      setError(`Could not restore your capture setting: ${event.payload}`);
-    }).then(retain);
-    return () => {
-      disposed = true;
-      for (const stopListening of unlisten) stopListening();
-    };
-  }, [refresh]);
-
-  // Leaving a step backwards undoes anything that step changed on the way in.
-  // Returns false when the current step could not be left safely.
-  const leaveStepBackwards = async () => {
-    invalidateTestWork();
+  // Leaving the protection step backwards forgets an unsaved passphrase.
+  const leaveStep = (target: OnboardingStep) => {
     setError(null);
-    if (step === 'account') setTestStatus('idle');
-    if (step === 'test') {
-      setBusy(true);
-      try {
-        await restoreTestCapture();
-      } catch (caught) {
-        setError(`Could not restore your capture setting: ${errorMessage(caught)}`);
-        setBusy(false);
-        return false;
-      }
-      setBusy(false);
-    }
     if (step === 'protection') {
       setProtectionMode('keychain');
       setPassphrase('');
       setPassphraseConfirmation('');
     }
-    return true;
-  };
-
-  const goBack = async () => {
-    if (!(await leaveStepBackwards())) return;
-    // The disposable test is prepared on entry, so Back from Account returns to the tool choice.
-    setStep(step === 'account' ? 'client' : onboardingSteps[Math.max(0, stepIndex - 1)]);
-  };
-
-  const canReturnTo = (target: OnboardingStep) =>
-    onboardingSteps.indexOf(target) < stepIndex && target !== 'test';
-
-  const goToStep = async (target: OnboardingStep) => {
-    if (!canReturnTo(target) || busy || testStatus === 'checking') return;
-    if (!(await leaveStepBackwards())) return;
     setStep(target);
   };
+
+  const canReturnTo = (target: OnboardingStep) => onboardingSteps.indexOf(target) < stepIndex;
 
   const configureProtection = async () => {
     if (protectionMode === 'passphrase') {
@@ -322,7 +107,7 @@ export function Onboarding({
         setPassphraseConfirmation('');
         await refresh();
       }
-      setStep('notary');
+      setStep('client');
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -330,187 +115,19 @@ export function Onboarding({
     }
   };
 
-  const startService = async () => {
-    setBusy(true);
-    setError(null);
-    preparationCancelled.current = false;
-    const operation = testOperation.current + 1;
-    testOperation.current = operation;
-    const generation = windowGeneration.current;
-    let leaseId: string | null = null;
-    try {
-      if (temporaryCaptureLease.current) {
-        const previousLease = temporaryCaptureLease.current;
-        try {
-          await restoreTestCapture(previousLease);
-        } catch {
-          // A safely deferred lease can outlive a daemon exit. Restarting the
-          // supervised child forces capture off before it binds, then the
-          // owner-scoped restore clears the durable recovery marker.
-          await startDaemon();
-          if (!testWorkIsCurrent(operation, generation)) return;
-          await restoreTestCapture(previousLease);
-        }
-      }
-      if (!testWorkIsCurrent(operation, generation)) return;
-      await startDaemon();
-      if (!testWorkIsCurrent(operation, generation)) return;
-      let readiness: DesktopState | null = null;
-      for (let attempt = 0; attempt < 12; attempt += 1) {
-        readiness = await getDesktopState(true);
-        if (!testWorkIsCurrent(operation, generation)) return;
-        if (readiness.sealing_service_readiness.phase === 'ready') break;
-        if (
-          readiness.sealing_service_readiness.phase === 'unreachable' ||
-          readiness.sealing_service_readiness.phase === 'trust_unavailable'
-        )
-          break;
-        await new Promise((resolve) => window.setTimeout(resolve, 250));
-      }
-      await refresh();
-      if (!testWorkIsCurrent(operation, generation)) return;
-      if (readiness?.sealing_service_readiness.phase !== 'ready') {
-        throw new Error(
-          'The trusted capture transport is not ready. No Exalto Seal account is required. Restore the trusted connection, then prepare the disposable test again.',
-        );
-      }
-      leaseId = createTemporaryCaptureLeaseId();
-      temporaryCaptureLease.current = leaseId;
-      onDisposableTestChange?.(true);
-      await beginTemporaryCapture(generation, leaseId);
-      if (!testWorkIsCurrent(operation, generation)) {
-        await endTemporaryCapture(leaseId).catch(() => undefined);
-        return;
-      }
-      await refresh();
-      if (!testWorkIsCurrent(operation, generation)) return;
-      let baseline = null;
-      let lastError: unknown = null;
-      for (let attempt = 0; attempt < 12; attempt += 1) {
-        if (!testWorkIsCurrent(operation, generation)) return;
-        try {
-          baseline = await getRecentTraceProbes(leaseId);
-          lastError = null;
-          break;
-        } catch (caught) {
-          lastError = caught;
-          await new Promise((resolve) => window.setTimeout(resolve, 250));
-        }
-      }
-      if (!testWorkIsCurrent(operation, generation)) return;
-      if (lastError) throw lastError;
-      if (baseline === null) throw new Error('The local service did not become ready.');
-      setDisposableTraceId(null);
-      setTestBaseline(new Set(baseline.map((trace) => trace.trace_id)));
-      setTestStatus('idle');
-      setStep('test');
-    } catch (caught) {
-      if (!testWorkIsCurrent(operation, generation)) {
-        if (leaseId) await endTemporaryCapture(leaseId).catch(() => undefined);
-        return;
-      }
-      let message = errorMessage(caught);
-      if (leaseId && temporaryCaptureLease.current === leaseId) {
-        try {
-          await restoreTestCapture(leaseId);
-        } catch (restoreError) {
-          message = `${message} Capture may still be enabled: ${errorMessage(restoreError)}`;
-        }
-      }
-      setError(message);
-    } finally {
-      if (operation === testOperation.current) setBusy(false);
-    }
-  };
-
-  const checkForTestTrace = async () => {
-    if (state.sealing_service_readiness.phase !== 'ready') {
-      setError(
-        'The trusted capture transport is not ready. No Exalto Seal account is required. Restore the trusted connection before running the disposable test.',
-      );
-      return;
-    }
-    const leaseId = temporaryCaptureLease.current;
-    if (!leaseId) {
-      setError('Prepare the disposable capture test again.');
-      return;
-    }
-    preparationCancelled.current = false;
-    const operation = testOperation.current + 1;
-    testOperation.current = operation;
-    const generation = windowGeneration.current;
-    setTestStatus('checking');
-    setError(null);
-    try {
-      const expectedProvider = expectedTestProvider(client);
-      const traceId =
-        testBaseline === null
-          ? null
-          : await confirmDisposableTrace([...testBaseline], expectedProvider, testMarker, leaseId);
-      if (!testWorkIsCurrent(operation, generation) || temporaryCaptureLease.current !== leaseId)
-        return;
-      if (traceId) {
-        await restoreTestCapture(leaseId);
-        if (!testWorkIsCurrent(operation, generation)) return;
-        setDisposableTraceId(traceId);
-        setTestStatus('captured');
-      } else {
-        await refresh();
-        if (!testWorkIsCurrent(operation, generation)) return;
-        setTestStatus('not-found');
-      }
-    } catch (caught) {
-      if (!testWorkIsCurrent(operation, generation)) return;
-      setError(errorMessage(caught));
-      setTestStatus('not-found');
-    }
-  };
-
-  const leaveTest = async () => {
-    invalidateTestWork();
+  const finish = async (destination: View) => {
     setBusy(true);
     setError(null);
     try {
-      await restoreTestCapture();
-      setStep('account');
-    } catch (caught) {
-      setError(`Could not restore your capture setting: ${errorMessage(caught)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const cancelSetup = async () => {
-    invalidateTestWork();
-    setBusy(true);
-    setError(null);
-    try {
-      await restoreTestCapture();
-      onCancel?.();
-    } catch (caught) {
-      setError(`Could not restore your capture setting: ${errorMessage(caught)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const finish = async (destination: View, traceTarget?: TraceTarget) => {
-    invalidateTestWork();
-    setBusy(true);
-    setError(null);
-    try {
-      await restoreTestCapture();
       await completeOnboarding();
       await refresh();
-      onFinish(destination, traceTarget);
+      onFinish(destination);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
       setBusy(false);
     }
   };
-
-  const navigationBusy = busy || testStatus === 'checking';
 
   const decisions: Partial<Record<OnboardingStep, string>> = {
     protection: state.vault_configured
@@ -518,14 +135,7 @@ export function Onboarding({
       : protectionMode === 'passphrase'
         ? 'Passphrase'
         : 'Keychain',
-    notary: sealingService.name,
     client: clientLabels[client],
-    test:
-      testStatus === 'captured'
-        ? 'Trace captured'
-        : testStatus === 'unconfirmed'
-          ? 'Unconfirmed'
-          : undefined,
   };
 
   return (
@@ -563,8 +173,8 @@ export function Onboarding({
                   <button
                     type="button"
                     className="ledger-step"
-                    onClick={() => void goToStep(item)}
-                    disabled={navigationBusy}
+                    onClick={() => leaveStep(item)}
+                    disabled={busy}
                     aria-label={`Return to ${stepNames[item]}`}
                   >
                     {content}
@@ -583,8 +193,8 @@ export function Onboarding({
             <button
               className="back-button"
               type="button"
-              onClick={() => void goBack()}
-              disabled={navigationBusy}
+              onClick={() => leaveStep(onboardingSteps[stepIndex - 1])}
+              disabled={busy}
             >
               <ChevronLeft size={13} /> Back
             </button>
@@ -592,12 +202,7 @@ export function Onboarding({
             <span className="setup-bar-step" />
           )}
           {onCancel && (
-            <button
-              className="onboarding-close"
-              type="button"
-              onClick={() => void cancelSetup()}
-              disabled={navigationBusy}
-            >
+            <button className="onboarding-close" type="button" onClick={onCancel} disabled={busy}>
               Done
             </button>
           )}
@@ -618,40 +223,12 @@ export function Onboarding({
             onContinue={() => void configureProtection()}
           />
         )}
-        {step === 'notary' && (
-          <NotaryStep service={sealingService} onContinue={() => setStep('client')} />
-        )}
         {step === 'client' && (
           <ClientStep
             client={client}
             setClient={chooseClient}
             busy={busy}
-            running={state.running}
-            externallyManagedService={state.running && !state.managed_by_desktop}
-            onContinue={() => void startService()}
-            onSkip={() => setStep('account')}
-            onChat={() => void finish('chat')}
-          />
-        )}
-        {step === 'test' && (
-          <TestTraceStep
-            client={client}
-            testPrompt={testPrompt}
-            state={state}
-            status={testStatus}
-            busy={busy}
-            onCheck={() => void checkForTestTrace()}
-            onContinue={() => void leaveTest()}
-            onSkip={() => void leaveTest()}
-          />
-        )}
-        {step === 'account' && (
-          <AccountReadyStep
-            state={state}
-            client={client}
-            disposableTraceId={disposableTraceId}
-            busy={busy}
-            onFinish={finish}
+            onFinish={(destination) => void finish(destination)}
           />
         )}
         {error && (
@@ -877,126 +454,16 @@ function ProtectionStep({
   );
 }
 
-function NotaryStep({
-  service,
-  onContinue,
-}: {
-  service: OnboardingSealingService;
-  onContinue: () => void;
-}) {
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const heading = service.isExaltoSeal
-    ? 'Start with Exalto Seal'
-    : service.available
-      ? `Continue with ${service.name}`
-      : 'Review your configured sealing service';
-  const introduction = service.isExaltoSeal
-    ? 'Exalto Seal witnesses the provider connection while seeing encrypted protocol data, not your prompt, response, or provider credentials.'
-    : service.available
-      ? `${service.name} is selected by this runtime. The sealing service sees encrypted protocol data, not your prompt, response, or provider credentials.`
-      : 'This Mac has an existing runtime configuration, but its sealing trust is not currently available. Exalto Capture will preserve that configuration.';
-  const detail = service.isExaltoSeal
-    ? 'The default hosted sealing service for this build. Capture does not require an Exalto Seal account, but it does require the trusted live capture transport.'
-    : service.available
-      ? 'Selected by the current signed Registry or local runtime configuration.'
-      : 'Start the configured local service to inspect its endpoint and verification key.';
-  const continueLabel = service.isExaltoSeal
-    ? 'Continue with Exalto Seal'
-    : service.available
-      ? `Continue with ${service.name}`
-      : 'Continue with configured service';
-  return (
-    <>
-      <div className="wizard-step notary-step">
-        <h1>{heading}</h1>
-        <p>{introduction}</p>
-        <div className="notary-choice is-selected">
-          <span className="notary-choice-mark">
-            <Check size={13} />
-          </span>
-          <div>
-            <strong>{service.name}</strong>
-            <p>{detail}</p>
-          </div>
-          <span className="choice-status">
-            {service.isExaltoSeal && !service.configured
-              ? 'Recommended'
-              : service.available
-                ? 'Configured'
-                : 'Unavailable'}
-          </span>
-        </div>
-        <dl className="notary-boundary">
-          <div>
-            <dt>Sealing service sees</dt>
-            <dd>Provider hostname, encrypted traffic, sizes, timing</dd>
-          </div>
-          <div>
-            <dt>Application plaintext</dt>
-            <dd>Visible to this Mac and your chosen model provider</dd>
-          </div>
-        </dl>
-        <button
-          type="button"
-          className="advanced-options-toggle"
-          aria-expanded={advancedOpen}
-          onClick={() => setAdvancedOpen(!advancedOpen)}
-        >
-          About compatible notaries <ChevronDown size={12} />
-        </button>
-        {advancedOpen && (
-          <div className="advanced-notaries">
-            <div>
-              <Server size={15} />
-              <span>
-                <strong>Compatible notary</strong>
-                <small>Selected through signed Registry trust</small>
-              </span>
-              <em>Administrator managed</em>
-            </div>
-            <div>
-              <SquareTerminal size={15} />
-              <span>
-                <strong>Self-hosted notary</strong>
-                <small>Operator endpoint and verification key required</small>
-              </span>
-              <em>Administrator managed</em>
-            </div>
-            <p>
-              This build preserves the pinned notary selected by its runtime configuration.
-              Switching or adding a compatible notary requires an administrator-managed
-              configuration.
-            </p>
-          </div>
-        )}
-      </div>
-      <div className="wizard-actions">
-        <button className="mac-button is-primary is-large" type="button" onClick={onContinue}>
-          {continueLabel}
-        </button>
-      </div>
-    </>
-  );
-}
-
 function ClientStep({
   client,
   setClient,
   busy,
-  running,
-  externallyManagedService,
-  onContinue,
-  onSkip,
-  onChat,
+  onFinish,
 }: {
   client: ClientId;
   setClient: (client: ClientId) => void;
   busy: boolean;
-  running: boolean;
-  externallyManagedService: boolean;
-  onContinue: () => void;
-  onSkip: () => void;
-  onChat: () => void;
+  onFinish: (destination: View) => void;
 }) {
   return (
     <>
@@ -1073,9 +540,8 @@ function ClientStep({
           <div className="wizard-note credential-capture-note" role="note">
             <LockKeyhole size={13} />
             <span>
-              {externallyManagedService
-                ? 'This separately managed service must already have capture on to run the optional test.'
-                : 'Credentials stay in your tool. Private encrypted captures can retain credential-bearing request bytes; keep them secret.'}
+              Credentials stay in your tool. Private encrypted captures can retain
+              credential-bearing request bytes; keep them secret.
             </span>
           </div>
         )}
@@ -1085,326 +551,10 @@ function ClientStep({
           className="mac-button is-primary is-large"
           type="button"
           disabled={busy}
-          onClick={client === 'builtin' ? onChat : onContinue}
+          onClick={() => onFinish(client === 'builtin' ? 'chat' : 'traces')}
         >
-          {busy
-            ? 'Preparing…'
-            : client === 'builtin'
-              ? 'Try a chat'
-              : running
-                ? 'Prepare optional test'
-                : 'Start service and prepare test'}
+          {busy ? 'Finishing setup…' : client === 'builtin' ? 'Try a chat' : 'Open Capture'}
         </button>
-        <button className="mac-button is-large" type="button" disabled={busy} onClick={onSkip}>
-          Continue without a test
-        </button>
-      </div>
-    </>
-  );
-}
-
-function TestTraceStep({
-  client,
-  testPrompt,
-  state,
-  status,
-  busy,
-  onCheck,
-  onContinue,
-  onSkip,
-}: {
-  client: ClientId;
-  testPrompt: string;
-  state: DesktopState;
-  status: TestStatus;
-  busy: boolean;
-  onCheck: () => void;
-  onContinue: () => void;
-  onSkip: () => void;
-}) {
-  const captureTransportReady = state.sealing_service_readiness.phase === 'ready';
-  const credentialCopy = `The credential stays in ${clientLabels[client]}.`;
-  return (
-    <>
-      <div className="wizard-step test-step">
-        <h1>Capture one disposable trace</h1>
-        <p>
-          Send a tiny request through the route you just configured. If capture was off, Exalto
-          Capture turns it on only for this disposable test, then restores your previous setting.
-        </p>
-        {!captureTransportReady && (
-          <div className="wizard-warning credential-service-warning" role="status">
-            <Network size={13} />
-            <span>
-              The trusted capture transport is not ready. No Exalto Seal account is required. Wait
-              for the trusted connection, then run this disposable test.
-            </span>
-          </div>
-        )}
-        <div className="test-prompt-receipt">
-          <span>
-            <CircleDot size={10} /> REC / SMALL TEST
-          </span>
-          <strong>{testPrompt}</strong>
-          <small>
-            Use a low-cost model available to your account. {credentialCopy} Once captured, setup
-            can take this exact disposable Trace through sealing and local verification.
-          </small>
-        </div>
-        {captureTransportReady && client !== 'builtin' ? (
-          <AgentSetup
-            key={`${client}-${testPrompt}`}
-            client={client}
-            test
-            disabled={busy || status === 'checking' || status === 'captured'}
-            prompt={`Run one disposable Exalto Capture test in my local ${client === 'codex' ? 'Codex CLI' : 'Claude Code CLI'} environment. Setup should already be complete. ${client === 'codex' ? 'Run codex login status. Use the exalto-capture profile prepared for its existing ChatGPT or API-key authentication. Do not switch authentication methods. If the profile or required login is missing, stop and return to setup. Never read login caches or print tokens.' : 'Check only whether ANTHROPIC_API_KEY is nonempty; never read or print its value, login caches, or tokens. If missing, stop and ask me to provision it privately. Use API billing, never Claude subscription tokens.'} Do not change my global configuration, start/stop the service, change capture settings, or publish any Trace. Run this command once:\n\n${testCommand(client, testPrompt)}\n\nIf setup or the model is unavailable, report that and stop. Do not retry or fall back to a direct provider route. Return me to Exalto Capture to check for the matching Trace. A successful response alone does not confirm capture.`}
-            manual={
-              <pre>
-                <code>{testCommand(client, testPrompt)}</code>
-              </pre>
-            }
-          />
-        ) : (
-          <div className="connection-instructions test-command is-waiting">
-            <div className="instruction-heading">
-              <span>WAIT FOR TRUSTED TRANSPORT</span>
-              <strong>The disposable command will appear when capture is ready</strong>
-            </div>
-            <p>
-              Capture authenticates the provider exchange through a trusted live transport. This
-              check is separate from an Exalto Seal account.
-            </p>
-          </div>
-        )}
-        <div className={`test-result is-${status}`} role="status" aria-live="polite">
-          <span>
-            {status === 'captured' || status === 'unconfirmed' ? (
-              <Check size={14} />
-            ) : (
-              <StatusDot running={state.capture_enabled} warning={!state.capture_enabled} />
-            )}
-          </span>
-          <div>
-            <strong>
-              {status === 'captured'
-                ? 'Test trace captured'
-                : status === 'unconfirmed'
-                  ? 'Request succeeded, trace not auto-confirmed'
-                  : status === 'checking'
-                    ? 'Checking local traces'
-                    : status === 'not-found'
-                      ? 'No new trace yet'
-                      : state.capture_enabled
-                        ? 'Disposable capture is on'
-                        : state.running
-                          ? 'Disposable capture is off'
-                          : 'Local service is still starting'}
-            </strong>
-            <small>
-              {status === 'captured'
-                ? 'The matching response appeared in the local store, and your previous capture setting was restored. Continue to seal and verify it, or keep it private on this Mac.'
-                : status === 'unconfirmed'
-                  ? 'The provider returned success, but automatic confirmation requires response previews. Your previous capture setting was restored. Continue, then open Traces to review the request.'
-                  : status === 'not-found'
-                    ? 'Run the test in your AI tool, wait for its response, then check again. Automatic confirmation requires response previews.'
-                    : 'Run the test above, then check for its matching response.'}
-            </small>
-          </div>
-        </div>
-      </div>
-      <div className="wizard-actions split-actions">
-        {status === 'captured' || status === 'unconfirmed' ? (
-          <button
-            className="mac-button is-primary is-large"
-            type="button"
-            onClick={onContinue}
-            disabled={busy}
-          >
-            {busy ? 'Finishing…' : 'Continue'}
-          </button>
-        ) : (
-          <button
-            className="mac-button is-primary is-large"
-            type="button"
-            onClick={onCheck}
-            disabled={!captureTransportReady || status === 'checking' || busy}
-          >
-            {status === 'checking' ? 'Checking…' : 'Check for new trace'}
-          </button>
-        )}
-        {status !== 'captured' && status !== 'unconfirmed' && (
-          <button
-            className="mac-button is-large"
-            type="button"
-            onClick={onSkip}
-            disabled={status === 'checking' || busy}
-          >
-            {busy
-              ? 'Restoring setting…'
-              : status === 'checking'
-                ? 'Test in progress…'
-                : 'Continue without a test'}
-          </button>
-        )}
-      </div>
-    </>
-  );
-}
-
-function AccountReadyStep({
-  state,
-  client,
-  disposableTraceId,
-  busy,
-  onFinish,
-}: {
-  state: DesktopState;
-  client: ClientId;
-  disposableTraceId: string | null;
-  busy: boolean;
-  onFinish: (destination: View, traceTarget?: TraceTarget) => Promise<void>;
-}) {
-  const clientLabel = clientLabels[client];
-  const notaryLabel = state.sealing_service?.name ?? 'Sealing service';
-  const sealingPhase = state.sealing_service_readiness.phase;
-  const sealingReady = sealingPhase === 'ready';
-  const sealingStatus = sealingReady
-    ? 'Ready'
-    : sealingPhase === 'starting'
-      ? 'Starting'
-      : sealingPhase === 'unreachable'
-        ? 'Unreachable'
-        : sealingPhase === 'trust_unavailable'
-          ? 'Trust needs attention'
-          : 'Off';
-  return (
-    <>
-      <div className="wizard-step account-step ready-step">
-        <span className="ready-check">
-          <Check size={16} />
-        </span>
-        <h1>Exalto Capture is ready</h1>
-        <p>
-          Local capture does not require an Exalto account. Connect one now for hosted credits,
-          usage, and account-owned sharing, or continue without it.
-        </p>
-        <dl className="ready-summary">
-          <div>
-            <span>
-              <StatusDot running={state.running} />
-            </span>
-            <dt>Local service</dt>
-            <dd>
-              {state.running ? `Running, capture ${state.capture_enabled ? 'on' : 'off'}` : 'Off'}
-            </dd>
-          </div>
-          <div>
-            <span>
-              <SquareTerminal size={13} />
-            </span>
-            <dt>First AI tool</dt>
-            <dd>{clientLabel}</dd>
-          </div>
-          <div>
-            <span>
-              <FileCheck2 size={13} />
-            </span>
-            <dt>Sealing service</dt>
-            <dd>
-              {notaryLabel} · {sealingStatus}
-            </dd>
-          </div>
-          <div>
-            <span>
-              <ShieldCheck size={13} />
-            </span>
-            <dt>Local vault</dt>
-            <dd>{vaultProtection(state.vault_mode).label}</dd>
-          </div>
-        </dl>
-        {disposableTraceId && (
-          <div className={`first-proof-ready ${sealingReady ? '' : 'is-blocked'}`}>
-            <span>
-              <BadgeCheck size={15} />
-            </span>
-            {sealingReady ? (
-              <div>
-                <strong>Your first local Trace is ready to seal</strong>
-                <small>
-                  Exalto Capture will open this exact test Trace, seal it with {notaryLabel}, and
-                  verify the portable proof locally. It will stay private unless you explicitly
-                  share it.
-                </small>
-              </div>
-            ) : (
-              <div>
-                <strong>Your first local Trace will stay private for now</strong>
-                <small>
-                  {notaryLabel} is{' '}
-                  {sealingPhase === 'unreachable'
-                    ? 'not reachable'
-                    : sealingPhase === 'trust_unavailable'
-                      ? 'missing trusted endpoint information'
-                      : 'still starting'}
-                  . Finish setup, then retry the Seal connection before creating a portable proof.
-                </small>
-              </div>
-            )}
-          </div>
-        )}
-        <AccountConnectionCard api={localApi} />
-      </div>
-      <div className="wizard-actions split-actions final-actions">
-        {disposableTraceId && sealingReady ? (
-          <>
-            <button
-              className="mac-button is-primary is-large"
-              type="button"
-              onClick={() =>
-                void onFinish('traces', { traceId: disposableTraceId, action: 'first-proof' })
-              }
-              disabled={busy}
-            >
-              {busy ? 'Finishing setup…' : 'Seal and verify test Trace'}
-            </button>
-            <button
-              className="mac-button is-large"
-              type="button"
-              onClick={() => void onFinish('traces')}
-              disabled={busy}
-            >
-              Keep it local for now
-            </button>
-          </>
-        ) : disposableTraceId ? (
-          <>
-            <button
-              className="mac-button is-primary is-large"
-              type="button"
-              onClick={() => void onFinish('traces')}
-              disabled={busy}
-            >
-              {busy ? 'Finishing setup…' : 'Open Capture and retry Seal'}
-            </button>
-            <button
-              className="mac-button is-large"
-              type="button"
-              onClick={() => void onFinish('traces', { traceId: disposableTraceId })}
-              disabled={busy}
-            >
-              Open test Trace
-            </button>
-          </>
-        ) : (
-          <button
-            className="mac-button is-primary is-large"
-            type="button"
-            onClick={() => void onFinish('traces')}
-            disabled={busy}
-          >
-            {busy ? 'Finishing setup…' : 'Open Capture'}
-          </button>
-        )}
       </div>
     </>
   );
