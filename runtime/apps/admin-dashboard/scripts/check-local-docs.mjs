@@ -313,23 +313,30 @@ const consistencySources = [
   resolve(appRoot, 'src/generated/api.generated.d.ts'),
   resolve(runtimeRoot, 'crates/notaryd/src/lib.rs'),
 ];
-const obsoleteCommand =
-  /notaryctl(?:(?:\s+--json)|(?:\s+--(?:config|admin-password-file)\s+\S+))*\s+(captures|notarize|notarization|operation|operations|events|login|logout|whoami|publish|proxy|verify-trace|download|config|vault|list|show|verify|decode)\b/;
+// `capture` and `captured` replaced `notaryctl`, `notaryd` and
+// `traces notarize` outright (docs/adr/0003-public-cli-names.md). Crate paths,
+// `-p` package arguments and Rust paths keep the crate names.
+const retiredCommand =
+  /(?<![\w/.-])(?<!-p )notaryctl(?![\w/:-])|(?<![\w/.-])(?<!-p )notaryd(?:\s+(?:--config|migrate|reconcile-artifacts)\b|\s*$)|\btraces notarize\b/m;
 for (const example of [
-  'notaryctl notarize trc-example --wait',
-  'notaryctl --json\ncaptures list --metadata-only',
-  'notaryctl --config /tmp/notary.toml operations show op-example',
+  'notaryctl status',
+  'notaryd --config /tmp/notary.toml',
+  'capture traces notarize trc-example --wait',
 ]) {
-  if (!obsoleteCommand.test(example)) {
-    throw new Error(`Obsolete-command check does not reject: ${example}`);
+  if (!retiredCommand.test(example)) {
+    throw new Error(`Retired-command check does not reject: ${example}`);
   }
 }
-const obsoleteDaemonInvocation = /^notaryctl(?:\s+--config\s+\S+)?\s*$/m;
+for (const example of ['cargo fmt --check -p notaryctl', 'crates/notaryd/src/lib.rs']) {
+  if (retiredCommand.test(example)) {
+    throw new Error(`Retired-command check rejects a crate reference: ${example}`);
+  }
+}
 for (const file of consistencySources) {
   const source = readFileSync(file, 'utf8');
-  if (obsoleteCommand.test(source) || obsoleteDaemonInvocation.test(source)) {
+  if (retiredCommand.test(source)) {
     throw new Error(
-      `Documentation retains an obsolete local operational command: ${file.replace(`${runtimeRoot}/`, '')}`,
+      `Documentation retains a retired command name: ${file.replace(`${runtimeRoot}/`, '')}`,
     );
   }
 }
@@ -355,10 +362,10 @@ for (const file of consistencySources) {
 }
 
 for (const required of [
-  'notaryd',
-  'notaryctl status',
-  'notaryctl traces list',
-  'notaryctl skill install',
+  'captured',
+  'capture status',
+  'capture traces list',
+  'capture skill install',
   '--metadata-only',
   '--json',
 ]) {

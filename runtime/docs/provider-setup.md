@@ -1,7 +1,7 @@
 # Exalto Capture provider and client setup
 
-Exalto Capture launches `notaryd` when no compatible local service is already
-running. `notaryd` exposes provider-compatible HTTP/1.1 routes on one loopback
+Exalto Capture launches `captured` when no compatible local service is already
+running. `captured` exposes provider-compatible HTTP/1.1 routes on one loopback
 listener. Codex CLI and Claude Code can keep their saved product sign-ins. API
 and SDK clients send their existing provider key. In every case, replace only
 the base URL.
@@ -67,7 +67,7 @@ through the same fixed loopback route as any other client. The app does not
 write the key to Keychain, disk, app settings, or daemon configuration. It is
 cleared when setup finishes, is cancelled, or the setup window closes.
 
-If a compatible `notaryd` is already running outside the app, setup reuses it
+If a compatible `captured` is already running outside the app, setup reuses it
 instead of starting another process. The app does not stop, restart, or change
 the capture setting of that process. A disposable test can use it when capture
 is already enabled.
@@ -260,7 +260,7 @@ Exalto Capture forwards those values for the provider request, but does not read
 Codex's auth cache, collect browser cookies, refresh the login, or write the
 header values to logs or notarized packages.
 
-Run Codex normally after starting `notaryd`:
+Run Codex normally after starting `captured`:
 
 ```bash
 codex exec --ephemeral --skip-git-repo-check \
@@ -283,7 +283,7 @@ client surface. Remote and cloud Codex work cannot reach the loopback proxy.
 ## Other agents and SDKs
 
 - To let a local coding agent inspect and operate captured evidence, install
-  the portable management skill with `notaryctl skill install --target codex`,
+  the portable management skill with `capture skill install --target codex`,
   `--target claude`, or `--target all`. Use `--skills-dir` for another
   Agent Skills compatible client. This teaches the agent to use the loopback
   administration API; it does not route that agent's own model traffic through

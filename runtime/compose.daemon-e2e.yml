@@ -78,7 +78,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    entrypoint: ["notaryd"]
+    entrypoint: ["captured"]
     command: ["migrate", "--config", "/etc/notary/config-postgres.toml"]
     environment:
       NOTARYD_METADATA_MIGRATION_URL: postgresql://daemon_e2e:synthetic-daemon-e2e-password@postgres:5432/daemon_e2e
@@ -483,7 +483,7 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
-    entrypoint: ["notaryd"]
+    entrypoint: ["captured"]
     command: ["migrate", "--config", "/state/config-cluster-a.toml"]
     environment:
       NOTARYD_PLATFORM_API_ORIGIN: http://127.0.0.1:9797

@@ -108,13 +108,13 @@ wait_for_daemon() {
     attempts=$((attempts + 1))
     sleep 1
   done
-  echo "notaryd did not become healthy" >&2
+  echo "captured did not become healthy" >&2
   return 1
 }
 
 daemon_cli() {
   "${compose[@]}" exec -T "$daemon_service" \
-    notaryctl --config "$daemon_config" --json "$@"
+    capture --config "$daemon_config" --json "$@"
 }
 
 daemon_operation() {
@@ -326,7 +326,7 @@ expect_postgres_daemon_failure() {
   local status
   set +e
   output=$("${compose[@]}" run --rm --no-deps --entrypoint /usr/bin/timeout \
-    daemon-postgres 15s notaryd --config /etc/notary/config-postgres.toml 2>&1)
+    daemon-postgres 15s captured --config /etc/notary/config-postgres.toml 2>&1)
   status=$?
   set -e
   if [[ $status -eq 0 || $status -eq 124 ]]; then
@@ -412,7 +412,7 @@ SQL
   local migration_status
   set +e
   migration_output=$("${compose[@]}" run --rm --no-deps --entrypoint /usr/bin/timeout \
-    migrator 15s notaryd migrate --config /etc/notary/config-postgres.toml 2>&1)
+    migrator 15s captured migrate --config /etc/notary/config-postgres.toml 2>&1)
   migration_status=$?
   set -e
   if [[ $migration_status -eq 0 || $migration_status -eq 124 ]]; then
@@ -741,7 +741,7 @@ assert_json "$capture_page" '
 '
 
 echo "queuing a notarization to exercise durable mutation and failure history"
-notarization=$(daemon_cli traces notarize trc-e2e-notarize --wait)
+notarization=$(daemon_cli traces seal trc-e2e-notarize --wait)
 expected_fixture_failure=notarization_error
 if [[ $artifact_engine == s3 ]]; then
   expected_fixture_failure=artifact_corrupt
@@ -819,7 +819,7 @@ if [[ $profile == full ]]; then
   fi
 
   echo "notarizing the captured checkpoint and building a verified package"
-  full_notarization=$(daemon_cli traces notarize "$full_trace_id" --wait)
+  full_notarization=$(daemon_cli traces seal "$full_trace_id" --wait)
   assert_json "$full_notarization" '
     .deduplicated == false and
     .operation.trace_id == $trace_id and
@@ -925,7 +925,7 @@ if [[ $profile == full ]]; then
     .output_preview == "offline streaming response" and
     any(.artifacts[]; .kind == "capture_checkpoint")
   ' --arg trace_id "$stream_trace_id"
-  stream_notarization=$(daemon_cli traces notarize "$stream_trace_id" --wait)
+  stream_notarization=$(daemon_cli traces seal "$stream_trace_id" --wait)
   assert_json "$stream_notarization" '
     .operation.trace_id == $trace_id and
     .operation.state == "succeeded" and
@@ -984,7 +984,7 @@ if [[ $profile == full ]]; then
     echo "crash-window capture omitted a valid trace ID" >&2
     exit 1
   fi
-  crash_notarization=$(daemon_cli traces notarize "$crash_trace_id")
+  crash_notarization=$(daemon_cli traces seal "$crash_trace_id")
   crash_operation_id=$(json_value "$crash_notarization" '.operation.operation_id')
 
   crash_package_path=$(artifact_target "$crash_trace_id" trace_package)
@@ -1014,7 +1014,7 @@ if [[ $profile == full ]]; then
   assert_json "$interrupted" '
     .state == "interrupted" and .attempt == 1 and .retryable == true
   '
-  retry_request=$(daemon_cli traces notarize "$crash_trace_id")
+  retry_request=$(daemon_cli traces seal "$crash_trace_id")
   assert_json "$retry_request" '
     .deduplicated == false and
     .operation.operation_id == $operation_id and

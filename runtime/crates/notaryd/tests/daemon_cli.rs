@@ -120,7 +120,7 @@ async fn daemon_uses_the_versioned_loopback_api_for_reads_and_mutations() {
     fs::set_permissions(&passphrase_path, fs::Permissions::from_mode(0o600)).unwrap();
     let isolated_config = directory.path().join("xdg-config");
     let isolated_data = directory.path().join("xdg-data");
-    let daemon = Command::new(env!("CARGO_BIN_EXE_notaryd"))
+    let daemon = Command::new(env!("CARGO_BIN_EXE_captured"))
         .args(["--config", config_path.to_str().unwrap()])
         .env("XDG_CONFIG_HOME", &isolated_config)
         .env("XDG_DATA_HOME", &isolated_data)
@@ -148,7 +148,7 @@ async fn daemon_uses_the_versioned_loopback_api_for_reads_and_mutations() {
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    assert!(ready, "notaryd did not become healthy");
+    assert!(ready, "captured did not become healthy");
 
     let status: serde_json::Value = client
         .get(format!("http://{admin}/v1/status"))

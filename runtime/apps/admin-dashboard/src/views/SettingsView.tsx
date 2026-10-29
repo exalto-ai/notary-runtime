@@ -347,8 +347,7 @@ export function StandaloneSettingsView({ status, api }: { status: Status; api: L
           </Text>
           {status.updates.update_available && (
             <Text>
-              Run <code>notaryctl update</code>, then restart the service after active work
-              finishes.
+              Run <code>capture update</code>, then restart the service after active work finishes.
             </Text>
           )}
         </Paper>

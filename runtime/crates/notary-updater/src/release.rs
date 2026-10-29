@@ -29,6 +29,8 @@ pub struct ReleaseArtifact {
 #[serde(deny_unknown_fields)]
 pub struct ReleasePlatform {
     pub archive: ReleaseArtifact,
+    // The signed channel names the CLI and service artifacts by their crates;
+    // desktop apps already in the field parse this schema too.
     pub notaryctl: ReleaseArtifact,
     pub notaryd: ReleaseArtifact,
 }

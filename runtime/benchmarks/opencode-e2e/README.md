@@ -13,11 +13,11 @@ failure as a rollout problem.
 The runner:
 
 1. preflights the exact `:free` OpenRouter model and tool support;
-2. starts `notaryd` with isolated config, catalog, vault, and artifact paths;
+2. starts `captured` with isolated config, catalog, vault, and artifact paths;
 3. copies the selected failing Python fixture into a private `/tmp` directory;
 4. lets a six-step OpenCode agent modify only the fixture's allowlisted files;
 5. checks the test result and exact diff allowlist;
-6. notarizes and locally verifies eligible traces;
+6. seals and locally verifies eligible traces;
 7. scans the public disclosure, explicitly accepts only entropy-heuristic false
    positives, publishes it as Listed, and polls admission;
 8. downloads each public package and verifies it again; and
@@ -31,7 +31,7 @@ The runner allows at most one retry from a fresh fixture for a typed transient
 provider failure, a response that makes no tool call, or a nonzero OpenCode
 exit after the tests and exact diff gate have already passed with only eligible
 HTTP 200 captures. Captures from the failed attempt are recorded as sanitized
-metadata but are never notarized or shared.
+metadata but are never sealed or shared.
 
 ## Fixture library
 
@@ -80,8 +80,8 @@ Build and run from the repository root:
 
 ```bash
 cargo build --manifest-path runtime/Cargo.toml --target-dir target \
-  --release --locked -p notaryd --bin notaryd \
-  -p notaryctl --bin notaryctl
+  --release --locked -p notaryd --bin captured \
+  -p notaryctl --bin capture
 npm install --global opencode-ai@1.18.11
 
 set -a
@@ -91,8 +91,8 @@ set +a
 result=/tmp/notary-opencode-e2e-result.json
 set +e
 python3 runtime/benchmarks/opencode-e2e/run.py \
-  --notaryctl target/release/notaryctl \
-  --notaryd target/release/notaryd \
+  --capture target/release/capture \
+  --captured target/release/captured \
   --result "$result"
 status=$?
 python3 runtime/benchmarks/opencode-e2e/notify.py "$result" || true

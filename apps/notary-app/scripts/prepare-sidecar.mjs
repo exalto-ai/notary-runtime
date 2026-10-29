@@ -17,15 +17,15 @@ const cargoArguments = [
   '-p',
   'notaryd',
   '--bin',
-  'notaryd',
+  'captured',
 ];
 if (profile === 'release') cargoArguments.push('--release');
 
 execFileSync('cargo', cargoArguments, { cwd: repository, stdio: 'inherit' });
 
-const source = resolve(repository, 'target', profile, `notaryd${extension}`);
+const source = resolve(repository, 'target', profile, `captured${extension}`);
 const destinationDirectory = resolve(scriptDirectory, '../src-tauri/binaries');
-const destination = resolve(destinationDirectory, `notaryd-${targetTriple}${extension}`);
+const destination = resolve(destinationDirectory, `captured-${targetTriple}${extension}`);
 mkdirSync(destinationDirectory, { recursive: true });
 copyFileSync(source, destination);
 if (process.platform !== 'win32') chmodSync(destination, 0o755);

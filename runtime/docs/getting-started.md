@@ -20,8 +20,8 @@ curl -fsSL https://capture.exalto.ai/install.sh | sh
 ```
 
 The installer selects the current complete `latest` build, verifies the selected
-archive against its published SHA-256 value, and places `notaryd` and
-`notaryctl` in `~/.local/bin`. Set `NOTARY_INSTALL_DIR` to choose another
+archive against its published SHA-256 value, and places `captured` and
+`capture` in `~/.local/bin`. Set `NOTARY_INSTALL_DIR` to choose another
 destination. The checksum detects corruption in transit or storage; it is not
 an independent signature because the archive and checksum share a publisher.
 
@@ -31,9 +31,9 @@ remembers the highest signed channel revision it accepted, so replaying an
 older pointer cannot silently downgrade it:
 
 ```bash
-notaryctl version
-notaryctl update --check
-notaryctl update
+capture version
+capture update --check
+capture update
 ```
 
 The immutable build ID, not a timestamp or version comparison, decides whether
@@ -41,7 +41,7 @@ an update is available. Any different build ID is accepted,
 including an intentional rollback selected by the trusted `latest` channel.
 The updater stages and verifies both programs before changing either one and
 keeps rollback copies until both replacements are confirmed. It never stops a
-running daemon. Restart `notaryd` yourself after active capture and proof
+running daemon. Restart `captured` yourself after active capture and proof
 work finishes. On Windows the daemon must already be stopped. The update is
 applied by a short-lived helper after the running CLI exits; the version
 command reports the helper's last durable result.
@@ -51,18 +51,18 @@ To build from source instead, install Rust 1.95.0 and a C toolchain, then run:
 ```bash
 git clone https://github.com/exalto-ai/notary-runtime.git
 cd notary-runtime/runtime
-cargo install --locked --path crates/notaryd --bin notaryd
-cargo install --locked --path crates/notaryctl --bin notaryctl
+cargo install --locked --path crates/notaryd --bin captured
+cargo install --locked --path crates/notaryctl --bin capture
 ```
 
 Node.js 24 and npm are needed only for dashboard development.
 
 The two installed programs have separate jobs:
 
-- `notaryd` is the long-running local proxy and administration daemon.
-- `notaryctl` is a short-lived REST client for that daemon.
+- `captured` is the long-running local proxy and administration daemon.
+- `capture` is a short-lived REST client for that daemon.
 
-`notaryctl` does not start the service and does not open the metadata store, vault,
+`capture` does not start the service and does not open the metadata store, vault,
 or artifacts directly.
 
 ## Install the portable agent skill
@@ -75,19 +75,19 @@ actions. Installing the skill does not contact or start the daemon.
 Install it for one supported agent, or both:
 
 ```bash
-notaryctl skill install --target codex
-notaryctl skill install --target claude
-notaryctl skill install --target all
+capture skill install --target codex
+capture skill install --target claude
+capture skill install --target all
 ```
 
 Codex receives it under `~/.agents/skills/notary`. Claude Code receives it
 under `$CLAUDE_CONFIG_DIR/skills/notary` when that environment variable is
 nonempty and under `~/.claude/skills/notary` otherwise. For another
 compatible agent, provide its skills directory and the installer will create
-the `notaryctl` child:
+the `capture` child:
 
 ```bash
-notaryctl skill install --skills-dir /path/to/agent/skills
+capture skill install --skills-dir /path/to/agent/skills
 ```
 
 Claude Code detects changes inside its existing personal `skills` directory.
@@ -101,7 +101,7 @@ contains different bundled files, installation stops without changing any
 target. Inspect the existing skill before explicitly replacing those files:
 
 ```bash
-notaryctl skill install --target all --force
+capture skill install --target all --force
 ```
 
 Re-run the install command after updating Notary so the installed skill
@@ -113,7 +113,7 @@ boundaries.
 ## Start the daemon
 
 ```bash
-notaryd
+captured
 ```
 
 The first start writes `config.toml` once and initializes the checkpoint vault. The
@@ -135,10 +135,10 @@ Configuration locations are:
 Use an explicit file when developing isolated configurations:
 
 ```bash
-notaryd --config /path/to/config.toml
+captured --config /path/to/config.toml
 ```
 
-Pass the same `--config` option to `notaryctl` commands.
+Pass the same `--config` option to `capture` commands.
 
 ## Check the local service
 
@@ -147,7 +147,7 @@ Open [http://127.0.0.1:8788](http://127.0.0.1:8788), or query it directly:
 ```bash
 curl --fail-with-body http://127.0.0.1:8788/healthz
 curl --fail-with-body http://127.0.0.1:8788/openapi.json
-notaryctl status
+capture status
 ```
 
 The administration API is open to other local processes by default. Configure
@@ -226,13 +226,13 @@ a proof.
 Find the Trace without decrypting every checkpoint:
 
 ```bash
-notaryctl traces list --provider openai --limit 20
-notaryctl traces show trc-example
+capture traces list --provider openai --limit 20
+capture traces show trc-example
 ```
 
 Human Trace output omits stored prompt and output previews. For structured
 discovery that enters an agent transcript, use
-`notaryctl --json traces list --metadata-only`; raw Trace-list JSON includes
+`capture --json traces list --metadata-only`; raw Trace-list JSON includes
 those previews.
 
 ## Notarize and verify
@@ -241,10 +241,10 @@ Only captured `2xx` responses are currently eligible for notarization.
 Notarization is asynchronous and can take much longer than capture:
 
 ```bash
-notaryctl traces notarize trc-example --wait
+capture traces seal trc-example --wait
 ```
 
-Without `--wait`, return to `notaryctl traces show trc-example` to inspect the
+Without `--wait`, return to `capture traces show trc-example` to inspect the
 latest notarization attempt while it is queued or running. With `--wait`, the
 CLI follows the attempt and reports authenticated transcript bytes and
 completed commitments. Its terminal state is `succeeded`, `failed`, or
@@ -254,7 +254,7 @@ completed commitments. Its terminal state is `succeeded`, `failed`, or
 value.
 
 ```bash
-notaryctl traces verify trc-example
+capture traces verify trc-example
 ```
 
 Verification checks the notary evidence, authenticated provider, disclosed

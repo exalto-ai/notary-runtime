@@ -1,4 +1,4 @@
-//! Rollback-safe installation transaction for the notaryctl/notaryd pair.
+//! Rollback-safe installation transaction for the capture/captured pair.
 
 use std::{
     fs,
@@ -26,9 +26,9 @@ use crate::{
 };
 const JOURNAL_NAME: &str = ".notary-runtime-update.json";
 
-const CLI_BACKUP_NAME: &str = ".notaryctl.update-backup";
+const CLI_BACKUP_NAME: &str = ".capture.update-backup";
 
-const DAEMON_BACKUP_NAME: &str = ".notaryd.update-backup";
+const DAEMON_BACKUP_NAME: &str = ".captured.update-backup";
 
 const TRANSACTION_LOCK_NAME: &str = ".notary-runtime-update.lock";
 
@@ -62,7 +62,7 @@ pub(crate) struct InstallPaths {
 
 impl InstallPaths {
     pub(crate) fn discover() -> Result<Self> {
-        let cli = std::env::current_exe().context("locating the running notaryctl executable")?;
+        let cli = std::env::current_exe().context("locating the running capture executable")?;
         let directory = cli
             .parent()
             .context("the running executable has no parent directory")?
@@ -170,8 +170,8 @@ async fn install_verified_release(
     download_artifact(&client, &artifacts.notaryd, &daemon_candidate).await?;
     make_executable(&cli_candidate)?;
     make_executable(&daemon_candidate)?;
-    ensure_candidate_build(&cli_candidate, &release.manifest.build_id, "notaryctl")?;
-    ensure_candidate_build(&daemon_candidate, &release.manifest.build_id, "notaryd")?;
+    ensure_candidate_build(&cli_candidate, &release.manifest.build_id, "capture")?;
+    ensure_candidate_build(&daemon_candidate, &release.manifest.build_id, "captured")?;
 
     #[cfg(unix)]
     {
@@ -192,7 +192,7 @@ async fn install_verified_release(
     #[cfg(windows)]
     {
         let staging = staging.keep();
-        let helper = staging.join("notaryctl-update-helper.exe");
+        let helper = staging.join("capture-update-helper.exe");
         fs::copy(&cli_candidate, &helper).context("creating the Windows update helper")?;
         let mut command = Command::new(&helper);
         command
@@ -228,8 +228,8 @@ async fn install_verified_release(
 }
 
 fn ensure_current_pair(install: &InstallPaths) -> Result<()> {
-    ensure_candidate_build(&install.cli, BUILD_ID, "notaryctl")?;
-    ensure_candidate_build(&install.daemon, BUILD_ID, "notaryd")
+    ensure_candidate_build(&install.cli, BUILD_ID, "capture")?;
+    ensure_candidate_build(&install.daemon, BUILD_ID, "captured")
 }
 
 pub(crate) fn ensure_candidate_build(path: &Path, build_id: &str, program: &str) -> Result<()> {
@@ -335,16 +335,16 @@ fn replace_installed_pair(
 ) -> Result<()> {
     hard_link_backup(&install.daemon, &install.daemon_backup)?;
     write_journal(install, build_id, JournalPhase::ReplacingNotaryd)?;
-    replace_file(daemon_candidate, &install.daemon).context("installing the new notaryd")?;
+    replace_file(daemon_candidate, &install.daemon).context("installing the new captured")?;
     sync_directory(&install.directory)?;
     write_journal(install, build_id, JournalPhase::NotarydReplaced)?;
     hard_link_backup(&install.cli, &install.cli_backup)?;
     write_journal(install, build_id, JournalPhase::ReplacingNotaryctl)?;
-    replace_file(cli_candidate, &install.cli).context("installing the new notaryctl")?;
+    replace_file(cli_candidate, &install.cli).context("installing the new capture")?;
     sync_directory(&install.directory)?;
     write_journal(install, build_id, JournalPhase::NotaryctlReplaced)?;
-    ensure_candidate_build(&install.cli, build_id, "notaryctl")
-        .and_then(|()| ensure_candidate_build(&install.daemon, build_id, "notaryd"))
+    ensure_candidate_build(&install.cli, build_id, "capture")
+        .and_then(|()| ensure_candidate_build(&install.daemon, build_id, "captured"))
         .context("validating the installed update")
 }
 
@@ -409,7 +409,7 @@ pub(crate) fn recover_interrupted_update(install: &InstallPaths) -> Result<()> {
         // so its copies land here.
         ensure!(
             path_is_absent(&install.cli_backup)? && path_is_absent(&install.daemon_backup)?,
-            "orphaned update rollback files require manual inspection; check {} and {}, then delete them if the installed notaryctl and notaryd both run",
+            "orphaned update rollback files require manual inspection; check {} and {}, then delete them if the installed capture and captured both run",
             install.cli_backup.display(),
             install.daemon_backup.display()
         );
@@ -433,8 +433,8 @@ pub(crate) fn recover_interrupted_update(install: &InstallPaths) -> Result<()> {
             restore_backup(&install.daemon_backup, &install.daemon)?;
         }
         JournalPhase::NotaryctlReplaced => {
-            if ensure_candidate_build(&install.cli, &journal.build_id, "notaryctl").is_ok()
-                && ensure_candidate_build(&install.daemon, &journal.build_id, "notaryd").is_ok()
+            if ensure_candidate_build(&install.cli, &journal.build_id, "capture").is_ok()
+                && ensure_candidate_build(&install.daemon, &journal.build_id, "captured").is_ok()
             {
                 return finish_transaction(install);
             }
@@ -545,17 +545,17 @@ mod tests {
     fn replaces_both_programs_and_removes_the_journal() {
         let directory = tempfile::tempdir().unwrap();
         let install = InstallPaths::from_directory(directory.path());
-        executable(&install.cli, "notaryctl", "old-build");
-        executable(&install.daemon, "notaryd", "old-build");
+        executable(&install.cli, "capture", "old-build");
+        executable(&install.daemon, "captured", "old-build");
         let cli_candidate = directory.path().join("new-cli");
         let daemon_candidate = directory.path().join("new-daemon");
-        executable(&cli_candidate, "notaryctl", "new-build");
-        executable(&daemon_candidate, "notaryd", "new-build");
+        executable(&cli_candidate, "capture", "new-build");
+        executable(&daemon_candidate, "captured", "new-build");
 
         apply_update_transaction(&install, &cli_candidate, &daemon_candidate, "new-build").unwrap();
 
-        ensure_candidate_build(&install.cli, "new-build", "notaryctl").unwrap();
-        ensure_candidate_build(&install.daemon, "new-build", "notaryd").unwrap();
+        ensure_candidate_build(&install.cli, "new-build", "capture").unwrap();
+        ensure_candidate_build(&install.daemon, "new-build", "captured").unwrap();
         assert!(!install.journal.exists());
         assert!(!install.cli_backup.exists());
         assert!(!install.daemon_backup.exists());
@@ -566,11 +566,11 @@ mod tests {
     fn restores_the_old_pair_when_the_second_replace_fails() {
         let directory = tempfile::tempdir().unwrap();
         let install = InstallPaths::from_directory(directory.path());
-        executable(&install.cli, "notaryctl", "old-build");
-        executable(&install.daemon, "notaryd", "old-build");
+        executable(&install.cli, "capture", "old-build");
+        executable(&install.daemon, "captured", "old-build");
         let missing_cli_candidate = directory.path().join("missing-cli");
         let daemon_candidate = directory.path().join("new-daemon");
-        executable(&daemon_candidate, "notaryd", "new-build");
+        executable(&daemon_candidate, "captured", "new-build");
 
         assert!(
             apply_update_transaction(
@@ -582,8 +582,8 @@ mod tests {
             .is_err()
         );
 
-        ensure_candidate_build(&install.cli, "old-build", "notaryctl").unwrap();
-        ensure_candidate_build(&install.daemon, "old-build", "notaryd").unwrap();
+        ensure_candidate_build(&install.cli, "old-build", "capture").unwrap();
+        ensure_candidate_build(&install.daemon, "old-build", "captured").unwrap();
         assert!(!install.journal.exists());
         assert!(!install.cli_backup.exists());
         assert!(!install.daemon_backup.exists());
@@ -594,22 +594,22 @@ mod tests {
     fn recovers_a_crash_between_pair_replacements() {
         let directory = tempfile::tempdir().unwrap();
         let install = InstallPaths::from_directory(directory.path());
-        executable(&install.cli, "notaryctl", "old-build");
-        executable(&install.daemon, "notaryd", "old-build");
+        executable(&install.cli, "capture", "old-build");
+        executable(&install.daemon, "captured", "old-build");
         hard_link_backup(&install.cli, &install.cli_backup).unwrap();
         hard_link_backup(&install.daemon, &install.daemon_backup).unwrap();
         let new_cli = directory.path().join("new-cli");
         let new_daemon = directory.path().join("new-daemon");
-        executable(&new_cli, "notaryctl", "new-build");
-        executable(&new_daemon, "notaryd", "new-build");
+        executable(&new_cli, "capture", "new-build");
+        executable(&new_daemon, "captured", "new-build");
         replace_file(&new_cli, &install.cli).unwrap();
         replace_file(&new_daemon, &install.daemon).unwrap();
         write_journal(&install, "new-build", JournalPhase::ReplacingNotaryctl).unwrap();
 
         recover_interrupted_update(&install).unwrap();
 
-        ensure_candidate_build(&install.cli, "old-build", "notaryctl").unwrap();
-        ensure_candidate_build(&install.daemon, "old-build", "notaryd").unwrap();
+        ensure_candidate_build(&install.cli, "old-build", "capture").unwrap();
+        ensure_candidate_build(&install.daemon, "old-build", "captured").unwrap();
     }
 
     #[cfg(unix)]
@@ -617,22 +617,22 @@ mod tests {
     fn recovery_finishes_a_fully_replaced_current_pair() {
         let directory = tempfile::tempdir().unwrap();
         let install = InstallPaths::from_directory(directory.path());
-        executable(&install.cli, "notaryctl", "old-build");
-        executable(&install.daemon, "notaryd", "old-build");
+        executable(&install.cli, "capture", "old-build");
+        executable(&install.daemon, "captured", "old-build");
         hard_link_backup(&install.cli, &install.cli_backup).unwrap();
         hard_link_backup(&install.daemon, &install.daemon_backup).unwrap();
         let new_cli = directory.path().join("new-cli");
         let new_daemon = directory.path().join("new-daemon");
-        executable(&new_cli, "notaryctl", "new-build");
-        executable(&new_daemon, "notaryd", "new-build");
+        executable(&new_cli, "capture", "new-build");
+        executable(&new_daemon, "captured", "new-build");
         replace_file(&new_cli, &install.cli).unwrap();
         replace_file(&new_daemon, &install.daemon).unwrap();
         write_journal(&install, "new-build", JournalPhase::NotaryctlReplaced).unwrap();
 
         recover_interrupted_update(&install).unwrap();
 
-        ensure_candidate_build(&install.cli, "new-build", "notaryctl").unwrap();
-        ensure_candidate_build(&install.daemon, "new-build", "notaryd").unwrap();
+        ensure_candidate_build(&install.cli, "new-build", "capture").unwrap();
+        ensure_candidate_build(&install.daemon, "new-build", "captured").unwrap();
         assert!(path_is_absent(&install.journal).unwrap());
         assert!(path_is_absent(&install.cli_backup).unwrap());
         assert!(path_is_absent(&install.daemon_backup).unwrap());
@@ -643,23 +643,23 @@ mod tests {
     fn recovery_is_repeatable_when_it_is_interrupted_part_way() {
         let directory = tempfile::tempdir().unwrap();
         let install = InstallPaths::from_directory(directory.path());
-        executable(&install.cli, "notaryctl", "old-build");
-        executable(&install.daemon, "notaryd", "old-build");
+        executable(&install.cli, "capture", "old-build");
+        executable(&install.daemon, "captured", "old-build");
         hard_link_backup(&install.cli, &install.cli_backup).unwrap();
         hard_link_backup(&install.daemon, &install.daemon_backup).unwrap();
         let new_cli = directory.path().join("new-cli");
         let new_daemon = directory.path().join("new-daemon");
-        executable(&new_cli, "notaryctl", "new-build");
-        executable(&new_daemon, "notaryd", "new-build");
+        executable(&new_cli, "capture", "new-build");
+        executable(&new_daemon, "captured", "new-build");
         replace_file(&new_cli, &install.cli).unwrap();
         replace_file(&new_daemon, &install.daemon).unwrap();
         write_journal(&install, "new-build", JournalPhase::ReplacingNotaryctl).unwrap();
 
-        // Recovery restores notaryctl first. Simulate losing power immediately
+        // Recovery restores capture first. Simulate losing power immediately
         // afterwards: the journal is unchanged and the daemon is still new.
         restore_backup(&install.cli_backup, &install.cli).unwrap();
-        ensure_candidate_build(&install.cli, "old-build", "notaryctl").unwrap();
-        ensure_candidate_build(&install.daemon, "new-build", "notaryd").unwrap();
+        ensure_candidate_build(&install.cli, "old-build", "capture").unwrap();
+        ensure_candidate_build(&install.daemon, "new-build", "captured").unwrap();
         assert!(
             install.cli_backup.exists(),
             "the rollback copy was consumed"
@@ -668,8 +668,8 @@ mod tests {
         // The next run must still be able to finish the restore.
         recover_interrupted_update(&install).unwrap();
 
-        ensure_candidate_build(&install.cli, "old-build", "notaryctl").unwrap();
-        ensure_candidate_build(&install.daemon, "old-build", "notaryd").unwrap();
+        ensure_candidate_build(&install.cli, "old-build", "capture").unwrap();
+        ensure_candidate_build(&install.daemon, "old-build", "captured").unwrap();
         assert!(path_is_absent(&install.journal).unwrap());
         assert!(path_is_absent(&install.cli_backup).unwrap());
         assert!(path_is_absent(&install.daemon_backup).unwrap());
@@ -715,22 +715,22 @@ mod tests {
     fn a_failure_after_the_daemon_is_replaced_restores_the_old_pair() {
         let directory = tempfile::tempdir().unwrap();
         let install = InstallPaths::from_directory(directory.path());
-        executable(&install.cli, "notaryctl", "old-build");
-        executable(&install.daemon, "notaryd", "old-build");
+        executable(&install.cli, "capture", "old-build");
+        executable(&install.daemon, "captured", "old-build");
         let daemon_candidate = directory.path().join("new-daemon");
-        executable(&daemon_candidate, "notaryd", "new-build");
-        // The staged notaryctl reports the wrong build, so validation fails
+        executable(&daemon_candidate, "captured", "new-build");
+        // The staged capture reports the wrong build, so validation fails
         // only after both executables have already been replaced.
         let cli_candidate = directory.path().join("new-cli");
-        executable(&cli_candidate, "notaryctl", "mismatched-build");
+        executable(&cli_candidate, "capture", "mismatched-build");
 
         assert!(
             apply_update_transaction(&install, &cli_candidate, &daemon_candidate, "new-build")
                 .is_err()
         );
 
-        ensure_candidate_build(&install.cli, "old-build", "notaryctl").unwrap();
-        ensure_candidate_build(&install.daemon, "old-build", "notaryd").unwrap();
+        ensure_candidate_build(&install.cli, "old-build", "capture").unwrap();
+        ensure_candidate_build(&install.daemon, "old-build", "captured").unwrap();
         assert!(path_is_absent(&install.journal).unwrap());
         assert!(path_is_absent(&install.cli_backup).unwrap());
         assert!(path_is_absent(&install.daemon_backup).unwrap());
@@ -741,8 +741,8 @@ mod tests {
     fn recovery_rejects_a_retired_update_journal() {
         let directory = tempfile::tempdir().unwrap();
         let install = InstallPaths::from_directory(directory.path());
-        executable(&install.cli, "notaryctl", "old-build");
-        executable(&install.daemon, "notaryd", "old-build");
+        executable(&install.cli, "capture", "old-build");
+        executable(&install.daemon, "captured", "old-build");
         fs::write(
             &install.journal,
             br#"{"schema_version":"llm-notary/update-journal/v1","build_id":"build","phase":"prepared"}"#,

@@ -194,7 +194,7 @@ if [[ $profile == full ]]; then
     exit 1
   fi
   if "${compose[@]}" run --rm --no-deps --entrypoint /bin/sh daemon-a -ec \
-      'dd if=/dev/zero of=/tmp/wrong-vault.key bs=32 count=1 status=none; chmod 600 /tmp/wrong-vault.key; export NOTARYD_CLUSTER_VAULT_KEY_FILE=/tmp/wrong-vault.key; exec notaryd --config /state/config-cluster-a.toml' \
+      'dd if=/dev/zero of=/tmp/wrong-vault.key bs=32 count=1 status=none; chmod 600 /tmp/wrong-vault.key; export NOTARYD_CLUSTER_VAULT_KEY_FILE=/tmp/wrong-vault.key; exec captured --config /state/config-cluster-a.toml' \
       >/dev/null 2>&1; then
     echo "server daemon accepted incompatible vault material" >&2
     exit 1

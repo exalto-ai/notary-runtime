@@ -1,9 +1,9 @@
 # Local service and REST API
 
-In the default local profile, one `notaryd` process owns the metadata store,
+In the default local profile, one `captured` process owns the metadata store,
 vault, artifacts, and durable operation state. The short-lived
-`notaryctl` command talks to it through the versioned loopback API.
-`notaryd` owns two different loopback listeners:
+`capture` command talks to it through the versioned loopback API.
+`captured` owns two different loopback listeners:
 
 | Listener | Default | Purpose |
 | --- | --- | --- |
@@ -47,7 +47,7 @@ authentication is configured, these routes require it like the other `/v1`
 routes.
 
 Off does not stop or bypass the local daemon. Existing configured provider
-URLs continue to work, but new requests stream from `notaryd` directly to
+URLs continue to work, but new requests stream from `captured` directly to
 the adapter's fixed provider origin over HTTPS. There is no remote notary,
 hosted admission, capture row, capture ID, preview, or `.llmcapture`, so nothing
 from that request can later be notarized or verified. Existing captures and
@@ -77,7 +77,7 @@ Run the service in the foreground. It writes the default configuration on
 first start, or accepts an explicit file:
 
 ```bash
-notaryd --config /path/to/config.toml
+captured --config /path/to/config.toml
 ```
 
 The process logs lifecycle metadata to standard error and exits when it cannot
@@ -95,9 +95,9 @@ over
 its private child-process pipe. It does not send a kill signal as an update or
 normal stop mechanism.
 
-There is no compatibility alias: `notaryctl` does not start the service.
+There is no compatibility alias: `capture` does not start the service.
 Service-manager `ExecStart`, launchd `ProgramArguments`, and Windows service
-definitions must invoke `notaryd`, optionally followed by `--config` and
+definitions must invoke `captured`, optionally followed by `--config` and
 the configuration path.
 
 The executable name is the same in each supervisor. Adapt the executable and
@@ -105,13 +105,13 @@ configuration paths to the installation:
 
 ```ini
 # systemd service
-ExecStart=/usr/local/bin/notaryd --config /etc/notary/config.toml
+ExecStart=/usr/local/bin/captured --config /etc/notary/config.toml
 ```
 
 ```xml
 <!-- launchd ProgramArguments -->
 <array>
-  <string>/usr/local/bin/notaryd</string>
+  <string>/usr/local/bin/captured</string>
   <string>--config</string>
   <string>/Users/example/Library/Application Support/notary/config.toml</string>
 </array>
@@ -119,7 +119,7 @@ ExecStart=/usr/local/bin/notaryd --config /etc/notary/config.toml
 
 ```powershell
 # Windows Service Control Manager
-sc.exe create Notary binPath= '"C:\Program Files\Notary\notaryd.exe" --config "C:\ProgramData\Notary\config.toml"'
+sc.exe create Notary binPath= '"C:\Program Files\Notary\captured.exe" --config "C:\ProgramData\Notary\config.toml"'
 ```
 
 The smallest useful explicit configuration is:
@@ -156,8 +156,8 @@ backend = "postgres"
 
 ```bash
 export NOTARYD_METADATA_DATABASE_URL='postgresql://…'
-notaryd migrate --config /path/to/config.toml
-notaryd --config /path/to/config.toml
+captured migrate --config /path/to/config.toml
+captured --config /path/to/config.toml
 ```
 
 Use `NOTARYD_METADATA_DATABASE_URL_FILE` for a mounted secret. The defaults
@@ -226,7 +226,7 @@ recovery or notarization retry. Stop the daemon and run the bounded,
 report-only check before cleanup:
 
 ```bash
-notaryd reconcile-artifacts --config /etc/notary/config.toml
+captured reconcile-artifacts --config /etc/notary/config.toml
 ```
 
 The JSON report verifies every referenced artifact and counts old,
@@ -307,17 +307,17 @@ password without echoing it. For automation, store the password in a private
 UTF-8 file and pass its path rather than the secret itself:
 
 ```bash
-notaryctl status
-notaryctl --admin-password-file /private/admin-password status
-notaryctl --config /path/to/config.toml traces list --metadata-only --json
+capture status
+capture --admin-password-file /private/admin-password status
+capture --config /path/to/config.toml traces list --metadata-only --json
 ```
 
 On Unix, the password file must not be accessible to group or other users.
 The CLI never reads the Argon2id hash as though it were a password and never
 stores a prompted password.
 
-`notaryctl version`, `notaryctl update --check`, `notaryctl update`, and
-`notaryctl skill install` run before configuration loading and daemon
+`capture version`, `capture update --check`, `capture update`, and
+`capture skill install` run before configuration loading and daemon
 compatibility checks. This keeps release recovery and agent-skill installation
 available when the service is stopped or an installed pair has an incompatible
 API. Official daemons authenticate the signed `latest` channel and its
@@ -338,39 +338,39 @@ waiting indefinitely. Trace-list JSON includes stored prompt and output
 previews; use `--metadata-only` before sending it to an agent transcript:
 
 ```bash
-notaryctl traces list --query sanitized --provider openai --limit 20
-notaryctl traces list --cursor "$next_cursor"
-notaryctl traces list --provider openai --all --metadata-only --json
-notaryctl traces show trc-example
-notaryctl traces notarize trc-example
-notaryctl traces show trc-example --json
-notaryctl traces verify trc-example
-notaryctl activity --severity error --limit 20
-notaryctl activity --after "$high_water_cursor"
-notaryctl notaries list
-notaryctl skill install --target all
-notaryctl open
+capture traces list --query sanitized --provider openai --limit 20
+capture traces list --cursor "$next_cursor"
+capture traces list --provider openai --all --metadata-only --json
+capture traces show trc-example
+capture traces seal trc-example
+capture traces show trc-example --json
+capture traces verify trc-example
+capture activity --severity error --limit 20
+capture activity --after "$high_water_cursor"
+capture notaries list
+capture skill install --target all
+capture open
 ```
 
-The skill installer writes the release's portable `notaryctl` skill to Codex,
+The skill installer writes the release's portable `notary` skill to Codex,
 Claude Code, both, or a custom skills directory. It preflights every requested
 destination and refuses to replace different bundled files without `--force`.
 It does not contact the daemon. See the [coding-agent
 playbook](agent-playbook.md) for paths and consent boundaries.
 
 Sharing identity remains daemon-owned. Account connection, disconnection,
-inspection, and sharing all use the local REST API, so only `notaryd` accesses
+inspection, and sharing all use the local REST API, so only `captured` accesses
 the credential vault or notarized artifact:
 
 ```bash
-notaryctl account connect
-notaryctl account show
-notaryctl account show --json
-notaryctl traces share trc-example                         # Unlisted by default
-notaryctl traces share trc-example --visibility listed
-notaryctl traces share trc-example --force                 # Only after disclosure review
-notaryctl traces share trc-example --reactivate            # Resume a stopped share
-notaryctl account disconnect
+capture account connect
+capture account show
+capture account show --json
+capture traces share trc-example                         # Unlisted by default
+capture traces share trc-example --visibility listed
+capture traces share trc-example --force                 # Only after disclosure review
+capture traces share trc-example --reactivate            # Resume a stopped share
+capture account disconnect
 ```
 
 `account show` reports an explicit connection state (`disconnected`, `connected`,
@@ -620,7 +620,7 @@ Before it authenticates or uploads, the local service cryptographically verifies
 the exact notarized package and applies the same versioned public-disclosure
 safety policy used by hosted admission. The hosted worker repeats both checks;
 local acceptance never guarantees admission by a newer server policy.
-An explicit `force: true` request, exposed by `notaryctl traces share --force`, accepts
+An explicit `force: true` request, exposed by `capture traces share --force`, accepts
 only unexplained high-entropy values after the user reviews the complete
 disclosure. It cannot override known secret patterns, credential fields,
 disclosed header values, signed credential queries, invalid archives, or failed

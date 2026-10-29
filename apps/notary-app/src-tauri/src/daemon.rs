@@ -138,7 +138,7 @@ fn spawn_daemon_inner(app: &tauri::AppHandle, process: &DaemonProcess) -> Result
     let mut child_initialization = vault_unlock_key_for_child(&vault_session)?;
     let command = app
         .shell()
-        .sidecar("notaryd")
+        .sidecar("captured")
         .map_err(|error| format!("Could not locate the bundled local capture service: {error}"))?
         .env(CHILD_KEY_STDIN_ENV, "1")
         .env(DESKTOP_CONTROL_STDIN_ENV, "1");

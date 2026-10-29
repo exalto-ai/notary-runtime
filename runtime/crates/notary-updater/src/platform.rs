@@ -35,17 +35,17 @@ pub struct WindowsUpdateResult {
 
 pub(crate) fn cli_file_name() -> &'static str {
     if cfg!(windows) {
-        "notaryctl.exe"
+        "capture.exe"
     } else {
-        "notaryctl"
+        "capture"
     }
 }
 
 pub(crate) fn daemon_file_name() -> &'static str {
     if cfg!(windows) {
-        "notaryd.exe"
+        "captured.exe"
     } else {
-        "notaryd"
+        "captured"
     }
 }
 
@@ -79,7 +79,7 @@ pub(crate) fn ensure_windows_daemon_stopped(install: &InstallPaths) -> Result<()
     };
     ensure!(
         handle != INVALID_HANDLE_VALUE,
-        "notaryd.exe is running, locked, or cannot be replaced; stop the local service before updating"
+        "captured.exe is running, locked, or cannot be replaced; stop the local service before updating"
     );
     unsafe { CloseHandle(handle) };
     Ok(())
@@ -162,7 +162,7 @@ pub fn run_windows_apply_helper(
         message: if result.is_ok() {
             "The staged Windows update completed.".into()
         } else {
-            "The staged Windows update failed safely. Run notaryctl update again after stopping notaryd.".into()
+            "The staged Windows update failed safely. Run capture update again after stopping captured.".into()
         },
     };
     let report_path = install_directory.join(WINDOWS_RESULT_NAME);

@@ -47,9 +47,9 @@ pub(super) fn update_human_output(value: &Value, check: bool) -> Result<String, 
             ));
         }
         return Ok(if available {
-            format!("Update available: {current} → {latest}\nRun `notaryctl update` to install it.")
+            format!("Update available: {current} → {latest}\nRun `capture update` to install it.")
         } else {
-            format!("Notary is up to date ({current}).")
+            format!("capture is up to date ({current}).")
         });
     }
     let state = value
@@ -61,12 +61,12 @@ pub(super) fn update_human_output(value: &Value, check: bool) -> Result<String, 
         .and_then(Value::as_str)
         .unwrap_or("unknown");
     Ok(match state {
-        "current" => format!("Notary is already up to date ({build})."),
+        "current" => format!("capture is already up to date ({build})."),
         "staged" => format!(
-            "Update {build} is staged and will finish after this command exits. Restart notaryd when no capture or notarization is active."
+            "Update {build} is staged and will finish after this command exits. Restart captured when no capture or sealing is active."
         ),
         _ => format!(
-            "Updated notaryctl and notaryd to {build}. Restart notaryd when no capture or notarization is active."
+            "Updated capture and captured to {build}. Restart captured when no capture or sealing is active."
         ),
     })
 }

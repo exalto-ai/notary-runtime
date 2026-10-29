@@ -1,6 +1,6 @@
 # Exalto Capture admin dashboard
 
-Open [http://127.0.0.1:8788](http://127.0.0.1:8788) while `notaryd` is
+Open [http://127.0.0.1:8788](http://127.0.0.1:8788) while `captured` is
 running. The default local configuration opens the dashboard directly. If
 `admin.auth` is configured, enter that administrator username and password.
 The service exchanges them for an HttpOnly session and does not put the
@@ -161,7 +161,7 @@ desktop app owns the theme choice.
 
 | Symptom | What to check |
 | --- | --- |
-| Service unavailable | Confirm `notaryd` is running and the browser uses the configured admin address, normally port 8788. |
+| Service unavailable | Confirm `captured` is running and the browser uses the configured admin address, normally port 8788. |
 | Unauthorized session | Confirm `admin.auth`, then enter that administrator username and password. Never add the password to the URL. |
 | Vault unavailable | Unlock the configured credential store or private passphrase source, then restart. Do not move encrypted checkpoints outside their initialized vault profile. |
 | Provider unavailable | Open Providers and check the explicit readiness and upstream host. Do not substitute an unlisted hostname. |

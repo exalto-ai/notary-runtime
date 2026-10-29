@@ -16,8 +16,8 @@ seams, but those implementations are not part of this workspace.
 | Component | Sees application plaintext? | Durable state | Responsibility |
 | --- | --- | --- | --- |
 | Provider client | yes | provider credential | Sends an ordinary provider request to a fixed local route |
-| `notaryd` | yes | vault, metadata, operations, artifacts, trust cache | Proxies requests, captures private state, notarizes, and verifies |
-| `notaryctl` | only API responses requested by the user | none | Calls the daemon's versioned administration API |
+| `captured` | yes | vault, metadata, operations, artifacts, trust cache | Proxies requests, captures private state, notarizes, and verifies |
+| `capture` | only API responses requested by the user | none | Calls the daemon's versioned administration API |
 | Local dashboard | only safe metadata store fields and deliberately opened notarized disclosures | browser session preference | Uses the same administration API as the CLI |
 | `notary-server` | no | signing key | Resolves the provider, relays encrypted TLS records, witnesses sessions, and completes proof work |
 | Model provider | yes | provider-owned | Serves an ordinary HTTPS request without a Notary integration |
@@ -29,7 +29,7 @@ credentials, prompts, and response plaintext. The remote notary learns the
 selected provider hostname, ciphertext sizes, timing, and protocol metadata,
 but it must not receive credential values or application plaintext.
 
-`notaryctl` is intentionally a thin REST client. It does not open the metadata store,
+`capture` is intentionally a thin REST client. It does not open the metadata store,
 vault, captures, or protocol implementation directly. The local dashboard uses
 the same generated OpenAPI contract and never receives a hosted credential or
 a decrypted source capture.
@@ -80,7 +80,7 @@ become evidence or application plaintext.
 
 ## Capture-off request flow
 
-`notaryd` owns one durable capture setting. Each request snapshots it once
+`captured` owns one durable capture setting. Each request snapshots it once
 after its fixed route is accepted, so changing the setting affects only later
 requests.
 

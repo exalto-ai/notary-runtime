@@ -234,7 +234,7 @@ async fn run_parsed(
     if matches!(&cli.command, CliCommand::Open) {
         if cli.admin_password_file.is_some() {
             return Err(CliError::invalid(
-                "--admin-password-file is not used by `notaryctl open`",
+                "--admin-password-file is not used by `capture open`",
             ));
         }
     } else {
@@ -277,51 +277,52 @@ mod tests {
         routing::{get, post},
     };
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
+    use output::trace_status_label;
 
     #[test]
     fn every_initial_command_parses_and_the_cli_never_has_an_implicit_daemon_mode() {
-        assert!(Cli::try_parse_from(["notaryctl"]).is_err());
+        assert!(Cli::try_parse_from(["capture"]).is_err());
         for arguments in [
-            vec!["notaryctl", "version"],
-            vec!["notaryctl", "update", "--check"],
-            vec!["notaryctl", "skill", "install", "--target", "codex"],
-            vec!["notaryctl", "skill", "install", "--target", "claude"],
-            vec!["notaryctl", "skill", "install", "--target", "all"],
+            vec!["capture", "version"],
+            vec!["capture", "update", "--check"],
+            vec!["capture", "skill", "install", "--target", "codex"],
+            vec!["capture", "skill", "install", "--target", "claude"],
+            vec!["capture", "skill", "install", "--target", "all"],
             vec![
-                "notaryctl",
+                "capture",
                 "skill",
                 "install",
                 "--skills-dir",
                 "/tmp/agent-skills",
             ],
-            vec!["notaryctl", "status"],
-            vec!["notaryctl", "traces", "list"],
-            vec!["notaryctl", "traces", "list", "--all"],
-            vec!["notaryctl", "traces", "list", "--metadata-only"],
-            vec!["notaryctl", "traces", "list", "--cursor", "opaque-cursor"],
-            vec!["notaryctl", "traces", "show", "trc-example"],
-            vec!["notaryctl", "traces", "notarize", "trc-example"],
-            vec!["notaryctl", "traces", "notarize", "trc-example", "--wait"],
-            vec!["notaryctl", "traces", "export", "trc-example"],
-            vec!["notaryctl", "traces", "verify", "trc-example"],
-            vec!["notaryctl", "account", "connect"],
-            vec!["notaryctl", "account", "disconnect"],
-            vec!["notaryctl", "account", "show"],
-            vec!["notaryctl", "traces", "share", "trc-example"],
+            vec!["capture", "status"],
+            vec!["capture", "traces", "list"],
+            vec!["capture", "traces", "list", "--all"],
+            vec!["capture", "traces", "list", "--metadata-only"],
+            vec!["capture", "traces", "list", "--cursor", "opaque-cursor"],
+            vec!["capture", "traces", "show", "trc-example"],
+            vec!["capture", "traces", "seal", "trc-example"],
+            vec!["capture", "traces", "seal", "trc-example", "--wait"],
+            vec!["capture", "traces", "export", "trc-example"],
+            vec!["capture", "traces", "verify", "trc-example"],
+            vec!["capture", "account", "connect"],
+            vec!["capture", "account", "disconnect"],
+            vec!["capture", "account", "show"],
+            vec!["capture", "traces", "share", "trc-example"],
             vec![
-                "notaryctl",
+                "capture",
                 "traces",
                 "share",
                 "trc-example",
                 "--visibility",
                 "listed",
             ],
-            vec!["notaryctl", "traces", "stop-sharing", "trc-example"],
-            vec!["notaryctl", "activity"],
-            vec!["notaryctl", "activity", "--all"],
-            vec!["notaryctl", "activity", "--after", "high-water"],
-            vec!["notaryctl", "notaries", "list"],
-            vec!["notaryctl", "open"],
+            vec!["capture", "traces", "stop-sharing", "trc-example"],
+            vec!["capture", "activity"],
+            vec!["capture", "activity", "--all"],
+            vec!["capture", "activity", "--after", "high-water"],
+            vec!["capture", "notaries", "list"],
+            vec!["capture", "open"],
         ] {
             assert!(Cli::try_parse_from(arguments).is_ok());
         }
@@ -335,13 +336,13 @@ mod tests {
             "whoami",
             "publish",
         ] {
-            assert!(Cli::try_parse_from(["notaryctl", retired]).is_err());
+            assert!(Cli::try_parse_from(["capture", retired]).is_err());
         }
     }
 
     #[test]
     fn version_flag_reports_the_exact_build_identity() {
-        let error = Cli::try_parse_from(["notaryctl", "--version"]).unwrap_err();
+        let error = Cli::try_parse_from(["capture", "--version"]).unwrap_err();
 
         assert_eq!(error.kind(), ErrorKind::DisplayVersion);
         assert!(
@@ -355,7 +356,7 @@ mod tests {
     async fn version_bypasses_configuration_and_the_daemon() {
         let missing = tempfile::tempdir().unwrap().path().join("missing.toml");
         let cli = Cli::try_parse_from([
-            "notaryctl",
+            "capture",
             "--json",
             "--config",
             missing.to_str().unwrap(),
@@ -379,7 +380,7 @@ mod tests {
         let missing = directory.path().join("missing.toml");
         let skills = directory.path().join("skills");
         let cli = Cli::try_parse_from([
-            "notaryctl",
+            "capture",
             "--json",
             "--config",
             missing.to_str().unwrap(),
@@ -652,7 +653,7 @@ mod tests {
     fn share_passwords_are_never_cli_values() {
         assert!(
             Cli::try_parse_from([
-                "notaryctl",
+                "capture",
                 "traces",
                 "share",
                 "trc-example",
@@ -663,7 +664,7 @@ mod tests {
         );
         assert!(
             Cli::try_parse_from([
-                "notaryctl",
+                "capture",
                 "traces",
                 "share",
                 "trc-example",
@@ -672,14 +673,9 @@ mod tests {
             ])
             .is_ok()
         );
-        let cli = Cli::try_parse_from([
-            "notaryctl",
-            "traces",
-            "share",
-            "trc-example",
-            "--reactivate",
-        ])
-        .unwrap();
+        let cli =
+            Cli::try_parse_from(["capture", "traces", "share", "trc-example", "--reactivate"])
+                .unwrap();
         assert!(matches!(
             cli.command,
             CliCommand::Traces {
@@ -787,9 +783,9 @@ mod tests {
         .unwrap();
         assert!(rich_output.contains("Example Person (google; device_session: workstation)"));
         assert!(rich_output.contains("plan one_gb (active, purchase mode live)"));
-        assert!(rich_output.contains("notarization used 1.9 MiB / 19.1 MiB granted"));
+        assert!(rich_output.contains("sealing used 1.9 MiB / 19.1 MiB granted"));
         assert!(rich_output.contains("capture used 976.6 KiB / 9.5 MiB granted"));
-        assert!(rich_output.contains("next notarization expiration 1800000000"));
+        assert!(rich_output.contains("next sealing expiration 1800000000"));
         assert!(rich_output.contains("settings https://example.test/account/settings"));
         assert_eq!(
             human_output(
@@ -1071,7 +1067,7 @@ mod tests {
         let client = NotarydClient::new(address, None).unwrap();
         let error = client.verify_version().await.unwrap_err();
         assert_eq!(error.exit_code(), EXIT_UNAVAILABLE);
-        assert!(error.to_string().contains("start the daemon"));
+        assert!(error.to_string().contains("captured is unavailable"));
     }
 
     #[test]
@@ -1093,8 +1089,16 @@ mod tests {
         )
         .unwrap();
 
-        assert!(output.ends_with("Captured · Notarization failed"));
+        assert!(output.ends_with("Captured · Sealing failed"));
         assert!(!output.contains("notarization_failed"));
+        assert_eq!(trace_status_label("notarized"), "Sealed");
+        assert_eq!(trace_status_label("notarizing"), "Sealing");
+    }
+
+    #[test]
+    fn traces_seal_replaces_notarize() {
+        assert!(Cli::try_parse_from(["capture", "traces", "seal", "trc-example"]).is_ok());
+        assert!(Cli::try_parse_from(["capture", "traces", "notarize", "trc-example"]).is_err());
     }
 
     async fn serve(router: Router) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {

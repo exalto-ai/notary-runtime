@@ -5,8 +5,8 @@ use notary_updater::BUILD_ID;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "notaryctl",
-    about = "Inspect and operate Notary from the command line.",
+    name = "capture",
+    about = "Inspect and operate Exalto Capture from the command line.",
     version,
     long_version = format!("{} ({BUILD_ID})", env!("CARGO_PKG_VERSION")),
     arg_required_else_help = true
@@ -98,6 +98,7 @@ pub(super) enum SkillTarget {
 pub(super) enum TracesCommand {
     List(TraceListArgs),
     Show(IdArgs),
+    #[command(name = "seal")]
     Notarize(NotarizeArgs),
     Export(TraceExportArgs),
     Verify(TraceVerifyArgs),

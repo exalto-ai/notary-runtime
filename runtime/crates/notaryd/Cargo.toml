@@ -6,8 +6,8 @@ license = "MIT"
 description = "Local Notary proxy and administration daemon"
 
 [[bin]]
-name = "notaryd"
-path = "src/bin/notaryd.rs"
+name = "captured"
+path = "src/bin/captured.rs"
 
 [[bin]]
 name = "notary-e2e-notary"

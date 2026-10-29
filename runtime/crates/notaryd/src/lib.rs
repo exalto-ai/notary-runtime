@@ -29,8 +29,8 @@ pub use notary_updater as update;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "notaryd",
-    about = "Run the Notary proxy and administration daemon",
+    name = "captured",
+    about = "Run the Exalto Capture local proxy and administration service",
     version,
     long_version = format!(
         "{} ({})",
@@ -163,20 +163,20 @@ mod tests {
 
     #[test]
     fn daemon_accepts_only_configuration() {
-        assert!(DaemonCli::try_parse_from(["notaryd"]).is_ok());
-        assert!(DaemonCli::try_parse_from(["notaryd", "traces"]).is_err());
-        assert!(DaemonCli::try_parse_from(["notaryd", "migrate", "traces"]).is_err());
-        assert!(DaemonCli::try_parse_from(["notaryd", "migrate"]).is_ok());
+        assert!(DaemonCli::try_parse_from(["captured"]).is_ok());
+        assert!(DaemonCli::try_parse_from(["captured", "traces"]).is_err());
+        assert!(DaemonCli::try_parse_from(["captured", "migrate", "traces"]).is_err());
+        assert!(DaemonCli::try_parse_from(["captured", "migrate"]).is_ok());
         assert!(
-            DaemonCli::try_parse_from(["notaryd", "--config", "agent.toml", "migrate"]).is_ok()
+            DaemonCli::try_parse_from(["captured", "--config", "agent.toml", "migrate"]).is_ok()
         );
         assert!(
-            DaemonCli::try_parse_from(["notaryd", "migrate", "--config", "agent.toml"]).is_ok()
+            DaemonCli::try_parse_from(["captured", "migrate", "--config", "agent.toml"]).is_ok()
         );
-        assert!(DaemonCli::try_parse_from(["notaryd", "reconcile-artifacts"]).is_ok());
+        assert!(DaemonCli::try_parse_from(["captured", "reconcile-artifacts"]).is_ok());
         assert!(
             DaemonCli::try_parse_from([
-                "notaryd",
+                "captured",
                 "cluster",
                 "init",
                 "--vault-key",
@@ -186,7 +186,7 @@ mod tests {
         );
         assert!(
             DaemonCli::try_parse_from([
-                "notaryd",
+                "captured",
                 "server",
                 "init",
                 "--vault-key",
@@ -196,7 +196,7 @@ mod tests {
         );
         assert!(
             DaemonCli::try_parse_from([
-                "notaryd",
+                "captured",
                 "--config",
                 "agent.toml",
                 "reconcile-artifacts",
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn version_flag_reports_the_exact_build_identity() {
-        let error = DaemonCli::try_parse_from(["notaryd", "--version"]).unwrap_err();
+        let error = DaemonCli::try_parse_from(["captured", "--version"]).unwrap_err();
 
         assert_eq!(error.kind(), clap::error::ErrorKind::DisplayVersion);
         assert!(error.to_string().contains(&format!(

@@ -33,24 +33,14 @@ The CLI and daemon require Rust 1.95.0 and a C toolchain:
 ```bash
 git clone https://github.com/exalto-ai/notary-runtime.git
 cd notary-runtime
-cargo install --locked --path runtime/crates/notaryd --bin notaryd
-cargo install --locked --path runtime/crates/notaryctl --bin notaryctl
+cargo install --locked --path runtime/crates/notaryd --bin captured
+cargo install --locked --path runtime/crates/notaryctl --bin capture
 ```
 
 ### Command names
 
-The public command names are `capture` (the command client) and `captured`
-(the local service), and the public verb for proof generation is `seal`. The
-binaries built here are still `notaryctl` and `notaryd`, and the subcommand is
-still `traces notarize`; the installer at capture.exalto.ai adds `capture` and
-`captured` as thin shims until the rename ships. Every `capture …` example in
-the documentation is the same command under the older name:
-
-| Documentation | Source build |
-| --- | --- |
-| `capture …` | `notaryctl …` |
-| `captured` | `notaryd` |
-| `capture traces seal <trace_id>` | `notaryctl traces notarize <trace_id>` |
+The command client is `capture` and the local service is `captured`; the
+crates that build them keep their source names, `notaryctl` and `notaryd`.
 
 Dashboard development additionally requires Node.js 24 and npm:
 

@@ -14,7 +14,7 @@ pub(super) fn human_output(command: &CliCommand, value: &Value) -> Result<String
             unreachable!("direct commands provide their own human output")
         }
         CliCommand::Status => Ok(format!(
-            "notaryd {} ({})\nproxy {}\nadmin {}\nmetadata {} ({})\nartifacts {} ({})\ntraces {} captured, {} notarizing, {} notarized, {} need attention\nsource capture {} active, {} failed\nupdates {}",
+            "captured {} ({})\nproxy {}\nadmin {}\nmetadata {} ({})\nartifacts {} ({})\ntraces {} captured, {} sealing, {} sealed, {} need attention\nsource capture {} active, {} failed\nupdates {}",
             value_string(value, "/version"),
             value_string(value, "/build_id"),
             value_string(value, "/proxy_listener"),
@@ -75,7 +75,7 @@ pub(super) fn human_output(command: &CliCommand, value: &Value) -> Result<String
         CliCommand::Traces {
             command: TracesCommand::Show(_),
         } => Ok(format!(
-            "Trace {}\nprovider {}\nmodel {}\nstate {}{}\nrequest {} bytes; response {} bytes\nnotarization {} (attempt {}; retryable {})\nartifacts {}",
+            "Trace {}\nprovider {}\nmodel {}\nstate {}{}\nrequest {} bytes; response {} bytes\nsealing {} (attempt {}; retryable {})\nartifacts {}",
             value_string(value, "/trace_id"),
             value_string(value, "/provider"),
             value_string(value, "/requested_model"),
@@ -99,7 +99,7 @@ pub(super) fn human_output(command: &CliCommand, value: &Value) -> Result<String
         } => Ok(format!(
             "{} operation {} ({})",
             if args.wait {
-                "Notarization"
+                "Sealing"
             } else if value
                 .get("deduplicated")
                 .and_then(Value::as_bool)
@@ -161,12 +161,18 @@ pub(super) fn human_output(command: &CliCommand, value: &Value) -> Result<String
                 }
                 if let Some(credits) = value.get("credits") {
                     output.push_str(&format!(
-                        "\nnotarization used {} / {} granted; {} remaining ({} included, {} additional)",
+                        "\nsealing used {} / {} granted; {} remaining ({} included, {} additional)",
                         format_bytes(value_i64(credits, "/notarization/total_used_bytes")),
                         format_bytes(value_i64(credits, "/notarization/total_granted_bytes")),
                         format_bytes(value_i64(credits, "/notarization/total_remaining_bytes")),
-                        format_bytes(value_i64(credits, "/notarization/included_monthly_remaining_bytes")),
-                        format_bytes(value_i64(credits, "/notarization/supplemental_remaining_bytes")),
+                        format_bytes(value_i64(
+                            credits,
+                            "/notarization/included_monthly_remaining_bytes"
+                        )),
+                        format_bytes(value_i64(
+                            credits,
+                            "/notarization/supplemental_remaining_bytes"
+                        )),
                     ));
                     output.push_str(&format!(
                         "\ncapture used {} / {} granted; {} remaining",
@@ -183,7 +189,7 @@ pub(super) fn human_output(command: &CliCommand, value: &Value) -> Result<String
                         .is_some_and(|value| !value.is_null())
                     {
                         output.push_str(&format!(
-                            "\nnext notarization expiration {}",
+                            "\nnext sealing expiration {}",
                             value_string(credits, "/notarization/next_grant_expiration"),
                         ));
                     }
@@ -266,8 +272,14 @@ pub(super) fn value_i64(value: &Value, pointer: &str) -> i64 {
     value.pointer(pointer).and_then(Value::as_i64).unwrap_or(0)
 }
 
+/// Labels a runtime state value with the public verbs; the API keeps the
+/// notarization names for protocol compatibility (ADR 0003).
 pub(super) fn trace_status_label(value: &str) -> String {
-    let mut words = value.replace('_', " ");
+    let mut words = value
+        .replace("notarization", "sealing")
+        .replace("notarizing", "sealing")
+        .replace("notarized", "sealed")
+        .replace('_', " ");
     if let Some(first) = words.get_mut(0..1) {
         first.make_ascii_uppercase();
     }

@@ -6,8 +6,8 @@ license = "MIT"
 description = "Thin REST client for the Notary daemon"
 
 [[bin]]
-name = "notaryctl"
-path = "src/bin/notaryctl.rs"
+name = "capture"
+path = "src/bin/capture.rs"
 
 [dependencies]
 anyhow = { workspace = true }

@@ -23,7 +23,7 @@ fn main() {
 }
 
 /// Lets `cargo check`, `clippy`, and `test` run before
-/// `npm run prepare:sidecar:*` has produced the bundled `notaryd`; tauri-build
+/// `npm run prepare:sidecar:*` has produced the bundled `captured`; tauri-build
 /// otherwise fails because `bundle.externalBin` names a missing file.
 ///
 /// Only this build script's view of the configuration changes. The embedded
@@ -37,7 +37,7 @@ fn allow_plain_cargo_without_sidecar() {
     } else {
         ""
     };
-    let sidecar = format!("binaries/notaryd-{target}{extension}");
+    let sidecar = format!("binaries/captured-{target}{extension}");
     println!("cargo:rerun-if-changed={sidecar}");
     println!("cargo:rerun-if-env-changed=TAURI_CLI_VERBOSITY");
     if std::path::Path::new(&sidecar).exists()

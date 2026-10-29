@@ -2,21 +2,21 @@
 
 ## Install the portable skill
 
-The `notaryctl` release embeds the portable skill from
+The `capture` release embeds the portable skill from
 [`skills/notary`](../skills/notary/SKILL.md). Install it without
 starting or contacting the daemon:
 
 ```bash
-notaryctl skill install --target codex
-notaryctl skill install --target claude
-notaryctl skill install --target all
+capture skill install --target codex
+capture skill install --target claude
+capture skill install --target all
 ```
 
 Codex installs under `~/.agents/skills`. Claude Code installs under
 `$CLAUDE_CONFIG_DIR/skills` when that environment variable is nonempty and
-under `~/.claude/skills` otherwise. Use `notaryctl skill install --skills-dir
+under `~/.claude/skills` otherwise. Use `capture skill install --skills-dir
 /path/to/agent/skills` for another Agent Skills compatible client. The
-installer appends the `notaryctl` skill directory, reports `installed`,
+installer appends the `notary` skill directory, reports `installed`,
 `current`, or `updated`, and emits the same result as structured data with
 `--json`.
 
@@ -152,7 +152,7 @@ curl --fail-with-body -X POST \
 ```
 
 For a portable file that is not retained by this daemon, use
-`notaryctl traces verify ./capture.llmtrace`. The CLI sends those bytes to the
+`capture traces verify ./capture.llmtrace`. The CLI sends those bytes to the
 loopback daemon's in-memory verifier; it reads no `.llmcapture` and writes no
 local state.
 

@@ -27,11 +27,11 @@ npm --prefix apps/admin-dashboard run build
 Install the two local programs independently:
 
 ```bash
-cargo install --locked --path crates/notaryd --bin notaryd
-cargo install --locked --path crates/notaryctl --bin notaryctl
+cargo install --locked --path crates/notaryd --bin captured
+cargo install --locked --path crates/notaryctl --bin capture
 ```
 
-Run `notaryd`, route a supported provider client through `127.0.0.1:8787`, and inspect private captures through the dashboard at `127.0.0.1:8788` or the `notaryctl` command.
+Run `captured`, route a supported provider client through `127.0.0.1:8787`, and inspect private captures through the dashboard at `127.0.0.1:8788` or the `capture` command.
 
 ## Trust boundary
 

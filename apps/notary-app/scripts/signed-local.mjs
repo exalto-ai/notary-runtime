@@ -37,7 +37,7 @@ const metadata = JSON.parse(
   }),
 );
 const bundle = resolve(metadata.target_directory, 'debug/bundle/macos/Exalto Capture.app');
-const sidecar = resolve(bundle, 'Contents/MacOS/notaryd');
+const sidecar = resolve(bundle, 'Contents/MacOS/captured');
 if (!existsSync(sidecar)) throw new Error(`Missing bundled sidecar: ${sidecar}`);
 run('/usr/bin/codesign', [
   '--force',

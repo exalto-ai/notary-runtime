@@ -92,15 +92,15 @@ class GateAndClassificationTests(unittest.TestCase):
             workflow,
         )
 
-    def test_parser_exposes_the_canonical_notaryd_option(self) -> None:
-        with patch.object(sys, "argv", ["run.py", "--notaryd", "/tmp/notaryd"]):
+    def test_parser_exposes_the_canonical_captured_option(self) -> None:
+        with patch.object(sys, "argv", ["run.py", "--captured", "/tmp/captured"]):
             arguments = run.parse_arguments()
-        self.assertEqual(arguments.notaryd, "/tmp/notaryd")
+        self.assertEqual(arguments.captured, "/tmp/captured")
         self.assertFalse(hasattr(arguments, "llm_notaryd"))
 
     def test_notarization_uses_the_trace_wait_command(self) -> None:
         canary = run.Canary.__new__(run.Canary)
-        canary.cli = ["notaryctl", "--json"]
+        canary.cli = ["capture", "--json"]
         canary.environment = {}
         canary.arguments = SimpleNamespace(notarization_timeout=60)
 
@@ -116,21 +116,21 @@ class GateAndClassificationTests(unittest.TestCase):
             patch.object(run.time, "sleep"),
             self.assertRaisesRegex(RuntimeError, "stop after notarization"),
         ):
-            canary.notarize_verify_share(
+            canary.seal_verify_share(
                 [{"trace_id": "trc-1"}],
                 {"notarizations": [], "shares": []},
             )
 
         self.assertEqual(
             run_json.call_args_list[0].args[0],
-            ["notaryctl", "--json", "traces", "notarize", "trc-1", "--wait"],
+            ["capture", "--json", "traces", "seal", "trc-1", "--wait"],
         )
 
     def test_notarization_uses_canonical_verification_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             canary = run.Canary.__new__(run.Canary)
             canary.cli = [
-                "notaryctl",
+                "capture",
                 "--json",
                 "--config",
                 "/private/config.toml",
@@ -171,14 +171,14 @@ class GateAndClassificationTests(unittest.TestCase):
                 ) as run_json,
                 patch.object(run.urllib.request, "urlopen", return_value=download),
             ):
-                canary.notarize_verify_share([{"trace_id": "trc-1"}], result)
+                canary.seal_verify_share([{"trace_id": "trc-1"}], result)
 
         self.assertEqual(len(result["notarizations"]), 1)
         self.assertEqual(len(result["shares"]), 1)
         self.assertEqual(
             run_json.call_args_list[-1].args[0][:-1],
             [
-                "notaryctl",
+                "capture",
                 "--json",
                 "--config",
                 "/private/config.toml",

@@ -312,7 +312,7 @@ impl NotarydClient {
             CliError::invalid("the configured admin listener could not be converted to a URL")
         })?;
         let client = reqwest::Client::builder()
-            .user_agent(concat!("notaryctl/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("capture/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(3))
             .timeout(Duration::from_secs(30))
             .build()
@@ -347,7 +347,7 @@ impl NotarydClient {
         if service != "notaryd" {
             return Err(CliError::new(
                 EXIT_VERSION_MISMATCH,
-                format!("unexpected local service {service}; this CLI requires notaryd"),
+                format!("unexpected local service {service}; this CLI requires captured"),
             ));
         }
         let actual = health
@@ -369,7 +369,7 @@ impl NotarydClient {
         serde_json::from_value(value).map_err(|_| {
             CliError::new(
                 EXIT_RETRYABLE,
-                "the daemon returned an invalid status response; check that notaryctl and notaryd versions match",
+                "the daemon returned an invalid status response; check that capture and captured versions match",
             )
         })
     }
@@ -488,7 +488,7 @@ impl NotarydClient {
         serde_json::from_value(value).map_err(|_| {
             CliError::new(
                 EXIT_RETRYABLE,
-                "the daemon returned an invalid response; check that notaryctl and notaryd versions match",
+                "the daemon returned an invalid response; check that capture and captured versions match",
             )
         })
     }
@@ -501,7 +501,7 @@ impl NotarydClient {
         }
         let response = request.send().await.map_err(|_| {
             CliError::unavailable(format!(
-                "notaryd is unavailable at {}; start the daemon and try again",
+                "captured is unavailable at {}; start it and try again",
                 self.origin
             ))
         })?;
@@ -546,7 +546,7 @@ impl NotarydClient {
         }
         let response = request.send().await.map_err(|_| {
             CliError::unavailable(format!(
-                "notaryd is unavailable at {}; start the daemon and try again",
+                "captured is unavailable at {}; start it and try again",
                 self.origin
             ))
         })?;
@@ -586,7 +586,7 @@ impl NotarydClient {
         }
         let response = request.send().await.map_err(|_| {
             CliError::unavailable(format!(
-                "notaryd is unavailable at {}; start the daemon and try again",
+                "captured is unavailable at {}; start it and try again",
                 self.origin
             ))
         })?;

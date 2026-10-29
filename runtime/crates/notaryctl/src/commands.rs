@@ -275,12 +275,12 @@ pub(super) fn operation_progress(value: &Value) -> String {
         }
     }
     match phase.as_str() {
-        "queued" => "Notarization queued".to_owned(),
+        "queued" => "Sealing queued".to_owned(),
         "preparing" => "Preparing proof inputs".to_owned(),
         "signing" => "Requesting notary signature".to_owned(),
         "packaging" => "Building portable package".to_owned(),
-        "complete" => "Notarization complete".to_owned(),
-        _ => format!("Notarization {phase}"),
+        "complete" => "Sealing complete".to_owned(),
+        _ => format!("Sealing {phase}"),
     }
 }
 
@@ -321,7 +321,7 @@ pub(super) async fn connect_account(
         if tokio::time::Instant::now() >= deadline {
             return Err(CliError::new(
                 EXIT_AUTHENTICATION,
-                "Notary Account connection expired; run `notaryctl account connect` again",
+                "Notary Account connection expired; run `capture account connect` again",
             ));
         }
         tokio::time::sleep(Duration::from_secs(poll_interval)).await;

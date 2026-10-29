@@ -591,7 +591,7 @@ class Canary:
             }
         )
         self.cli = [
-            arguments.notaryctl,
+            arguments.capture,
             "--json",
             "--config",
             str(self.config),
@@ -606,7 +606,7 @@ class Canary:
         private_write(self.root / "private" / "platform-api-key", self.platform_key)
         try:
             self.daemon = subprocess.Popen(
-                [self.arguments.notaryd, "--config", str(self.config)],
+                [self.arguments.captured, "--config", str(self.config)],
                 env=self.environment,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -797,7 +797,7 @@ class Canary:
             if response_model is not None and response_model not in returned:
                 raise CanaryFailure("provenance", "unexpected_model")
 
-    def notarize_verify_share(
+    def seal_verify_share(
         self, eligible: list[dict[str, Any]], result: dict[str, Any]
     ) -> None:
         for trace in eligible:
@@ -805,7 +805,7 @@ class Canary:
             if not isinstance(trace_id, str):
                 raise CanaryFailure("notarization", "notarization_failed")
             queued = run_json(
-                [*self.cli, "traces", "notarize", trace_id, "--wait"],
+                [*self.cli, "traces", "seal", trace_id, "--wait"],
                 env=self.environment,
                 timeout=self.arguments.notarization_timeout,
                 stage="notarization",
@@ -995,8 +995,8 @@ def base_result(arguments: argparse.Namespace, fixture: dict[str, Any]) -> dict[
             "hosted_rollout_id": os.environ.get("NOTARY_HOSTED_ROLLOUT_ID"),
         },
         "versions": {
-            "notaryctl": command_version(arguments.notaryctl, "--version"),
-            "notaryd": command_version(arguments.notaryd, "--version"),
+            "capture": command_version(arguments.capture, "--version"),
+            "captured": command_version(arguments.captured, "--version"),
             "opencode": command_version(arguments.opencode, "--version"),
             "node": command_version("node", "--version"),
         },
@@ -1089,8 +1089,8 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--opencode", default="opencode")
-    parser.add_argument("--notaryctl", default="notaryctl")
-    parser.add_argument("--notaryd", default="notaryd")
+    parser.add_argument("--capture", default="capture")
+    parser.add_argument("--captured", default="captured")
     parser.add_argument(
         "--result",
         default=os.environ.get(
@@ -1135,7 +1135,7 @@ def main() -> int:
         if successful is None:
             raise CanaryFailure("agent", "agent_task_failed")
         canary.validate_provenance(successful["traces"], preflight)
-        canary.notarize_verify_share(successful["eligible"], result)
+        canary.seal_verify_share(successful["eligible"], result)
         result["status"] = "passed"
     except CanaryFailure as error:
         result["status"] = "failed"

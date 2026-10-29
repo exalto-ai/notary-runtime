@@ -9,10 +9,10 @@ the installed CLI.
 Check the service, then list Traces using server-side filters:
 
 ```bash
-notaryctl --json status
-notaryctl --json traces list --metadata-only --provider openai --limit 20
-notaryctl --json traces list --metadata-only --state notarized --limit 20
-notaryctl traces show trc-example
+capture --json status
+capture --json traces list --metadata-only --provider openai --limit 20
+capture --json traces list --metadata-only --state notarized --limit 20
+capture traces show trc-example
 ```
 
 Use `--metadata-only` whenever structured Trace-list output enters an agent
@@ -27,7 +27,7 @@ contract explicitly guarantees an order.
 Verify a Notarized Trace without printing its disclosed bodies:
 
 ```bash
-notaryctl --json traces verify trc-example
+capture --json traces verify trc-example
 ```
 
 `traces show` prints the canonical disclosed request and response bodies. Run
@@ -35,14 +35,14 @@ it only after the user explicitly asks to place that content in the current
 agent transcript:
 
 ```bash
-notaryctl --json traces show trc-example
+capture --json traces show trc-example
 ```
 
 For a portable file that is not cataloged by this daemon, the only supported
 path-based workflow is verification of a `.llmtrace` package:
 
 ```bash
-notaryctl --json traces verify ./capture.llmtrace
+capture --json traces verify ./capture.llmtrace
 ```
 
 Never pass a `.llmcapture` path. Those files are encrypted
@@ -55,20 +55,20 @@ Explain that notarization generates a proof, can take substantially longer
 than capture, and does not publish anything. After the user approves, run:
 
 ```bash
-notaryctl --json traces notarize trc-example --wait
+capture --json traces seal trc-example --wait
 ```
 
 Without `--wait`, inspect the same Trace for its technical operation state and
 attempt history. Use trace-filtered Activity when explaining a failure:
 
 ```bash
-notaryctl --json activity --trace-id trc-example --limit 20
+capture --json activity --trace-id trc-example --limit 20
 ```
 
 Ask again before retrying a failed or interrupted operation:
 
 ```bash
-notaryctl --json traces notarize trc-example
+capture --json traces seal trc-example
 ```
 
 After notarization succeeds, verify the Trace and report `outcome`,
@@ -89,8 +89,8 @@ link. Confirm the visibility:
 After explicit approval, run one of:
 
 ```bash
-notaryctl --json traces share trc-example --visibility unlisted
-notaryctl --json traces share trc-example --visibility listed
+capture --json traces share trc-example --visibility unlisted
+capture --json traces share trc-example --visibility listed
 ```
 
 Do not use `--force` merely to bypass a warning. Review the reported disclosure
@@ -103,14 +103,14 @@ not claim the Trace is reachable until
 
 ## Account and authentication changes
 
-Ask before running `notaryctl account connect` or `notaryctl account disconnect`. The browser
+Ask before running `capture account connect` or `capture account disconnect`. The browser
 approval flow connects the local daemon to a Notary Account; it does not
 expose the vault-held account credential to the agent.
 
 If `admin.auth` is configured, use an approved private file:
 
 ```bash
-notaryctl --admin-password-file /private/admin-password --json status
+capture --admin-password-file /private/admin-password --json status
 ```
 
 Do not read the password file or place its contents in an environment variable,
