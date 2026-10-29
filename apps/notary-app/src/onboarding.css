@@ -396,6 +396,23 @@
   background: var(--blue);
 }
 
+.exalto-onboarding .check-mark {
+  display: grid;
+  width: 13px;
+  height: 13px;
+  place-items: center;
+  margin-top: 2px;
+  border: 1px solid var(--tertiary);
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.exalto-onboarding [aria-checked='true'] > .check-mark {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: #fff;
+}
+
 .exalto-onboarding .protection-options strong {
   display: block;
   font: 600 var(--text-body)/1.3 var(--font-text);
@@ -498,47 +515,6 @@
   color: inherit;
   font-family: var(--font-code);
   font-size: .95em;
-}
-
-/* Where to chat */
-
-/* Segmented control: a recessed track with a raised selected segment. */
-.exalto-onboarding .client-picker {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 2px;
-  padding: 2px;
-  border-radius: 7px;
-  background: var(--surface-secondary);
-}
-
-.exalto-onboarding .client-picker > button {
-  min-height: 24px;
-  padding: 3px 10px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--secondary);
-  font: 500 var(--text-body)/1.2 var(--font-text);
-}
-
-.exalto-onboarding .client-picker > button:hover:not(:disabled):not(.is-selected) {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.exalto-onboarding .client-picker > button.is-selected {
-  background: var(--surface);
-  color: var(--text);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .16), 0 0 0 .5px rgba(0, 0, 0, .06);
-}
-
-.exalto-onboarding .harness-description {
-  margin-top: 10px;
-  color: var(--secondary);
-  font-size: var(--text-label);
-  line-height: 1.5;
 }
 
 .exalto-onboarding .provider-connections {

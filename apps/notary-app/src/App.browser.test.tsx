@@ -259,7 +259,7 @@ describe('Exalto Capture desktop shell', () => {
     await expect.element(dialog).not.toBeInTheDocument();
     await userEvent.click(page.getByRole('button', { name: 'Set up…' }));
     await expect
-      .element(page.getByRole('heading', { name: 'Where would you like to chat?' }))
+      .element(page.getByRole('heading', { name: 'What would you like to capture?' }))
       .toBeVisible();
     await userEvent.click(page.getByRole('button', { name: 'Done' }));
     await expect
@@ -273,7 +273,7 @@ describe('Exalto Capture desktop shell', () => {
     renderApp('?screen=capture-on&no-traces');
     await userEvent.click(page.getByRole('button', { name: 'Set up a connection' }));
     await expect
-      .element(page.getByRole('heading', { name: 'Where would you like to chat?' }))
+      .element(page.getByRole('heading', { name: 'What would you like to capture?' }))
       .toBeVisible();
   });
 
@@ -371,16 +371,21 @@ describe('Exalto Capture desktop shell', () => {
     await expect.element(page.getByRole('switch', { name: 'Capture' })).toBeEnabled();
   });
 
-  test('separates built-in credentials from external setup and finishes without a test', async () => {
+  test('sets up each chosen tool in turn and finishes without a test', async () => {
     renderApp('?screen=onboarding');
     await userEvent.click(page.getByRole('button', { name: /Begin setup/ }));
     await userEvent.click(page.getByRole('button', { name: /Protect traces/ }));
-    await expect
-      .element(page.getByRole('radio', { name: 'Built-in', exact: true }))
-      .toHaveAttribute('aria-checked', 'true');
+    const builtin = page.getByRole('checkbox', { name: /^Built-in Chat/ });
+    await expect.element(builtin).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(builtin);
+    await expect.element(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    await userEvent.click(builtin);
+    await userEvent.click(page.getByRole('checkbox', { name: /^Codex/ }));
+    await userEvent.click(page.getByRole('button', { name: 'Continue' }));
     await expect.element(page.getByRole('button', { name: 'Link ChatGPT plan' })).toBeVisible();
     expect(document.body.textContent).not.toMatch(/Grok|xAI|API or SDK|temporary key/);
-    await userEvent.click(page.getByRole('radio', { name: 'Codex', exact: true }));
+    await userEvent.click(page.getByRole('button', { name: 'Next: Codex' }));
+    await expect.element(page.getByRole('heading', { name: 'Set up Codex' })).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Copy setup prompt' })).toBeVisible();
     await expect.element(page.getByLabelText('Connection type')).not.toBeInTheDocument();
     await userEvent.click(page.getByText('Review setup prompt', { exact: true }));
@@ -399,7 +404,7 @@ describe('Exalto Capture desktop shell', () => {
     await userEvent.click(page.getByRole('button', { name: /Begin setup/ }));
     await userEvent.click(page.getByRole('button', { name: /Protect traces/ }));
     await expect
-      .element(page.getByRole('heading', { name: 'Where would you like to chat?' }))
+      .element(page.getByRole('heading', { name: 'What would you like to capture?' }))
       .toBeVisible();
     expect(document.body.textContent).not.toContain('Exalto Seal');
     expect(document.body.textContent).not.toContain('Sealing service');
@@ -416,8 +421,10 @@ describe('Exalto Capture desktop shell', () => {
       renderApp('?screen=onboarding');
       await userEvent.click(page.getByRole('button', { name: /Begin setup/ }));
       await userEvent.click(page.getByRole('button', { name: /Protect traces/ }));
+      await userEvent.click(page.getByRole('checkbox', { name: /^Codex/ }));
+      await userEvent.click(page.getByRole('button', { name: 'Continue' }));
 
-      const continueButton = page.getByRole('button', { name: /Try a chat/ });
+      const continueButton = page.getByRole('button', { name: 'Next: Codex' });
       const bounds = continueButton.element().getBoundingClientRect();
       const content = present(
         document.querySelector<HTMLElement>('.onboarding-content.is-client-step'),
@@ -432,12 +439,12 @@ describe('Exalto Capture desktop shell', () => {
       expect(bounds.bottom).toBeLessThanOrEqual(content.getBoundingClientRect().bottom);
       expect(window.getComputedStyle(actions).marginTop).toBe('0px');
       const headingBounds = page
-        .getByRole('heading', { name: 'Where would you like to chat?' })
+        .getByRole('heading', { name: 'Connect Built-in Chat' })
         .element()
         .getBoundingClientRect();
       expect(headingBounds.top).toBeGreaterThanOrEqual(content.getBoundingClientRect().top);
 
-      await userEvent.click(page.getByRole('radio', { name: /^Codex/ }));
+      await userEvent.click(continueButton);
       await userEvent.click(page.getByText('Review setup prompt', { exact: true }));
       const setupPanel = present(
         document.querySelector<HTMLElement>('.agent-setup'),
@@ -451,16 +458,20 @@ describe('Exalto Capture desktop shell', () => {
         .getBoundingClientRect();
       expect(promptBounds.top).toBeGreaterThanOrEqual(0);
       expect(promptBounds.top + promptBounds.height / 2).toBeLessThan(
-        actions.getBoundingClientRect().top,
+        present(
+          document.querySelector<HTMLElement>('.client-step-actions'),
+          'the Codex step actions',
+        ).getBoundingClientRect().top,
       );
 
-      await userEvent.click(page.getByRole('radio', { name: /^Built-in/ }));
+      await userEvent.click(page.getByRole('button', { name: 'Back' }));
+      const builtinAction = page.getByRole('button', { name: 'Next: Codex' });
       const scrollRegion = present(
         document.querySelector<HTMLElement>('.client-step-scroll'),
         'the client step scroll region',
       );
       expect(window.getComputedStyle(scrollRegion).overflowY).toBe('auto');
-      const apiBounds = continueButton.element().getBoundingClientRect();
+      const apiBounds = builtinAction.element().getBoundingClientRect();
       expect(apiBounds.bottom).toBeLessThanOrEqual(window.innerHeight);
       expect(apiBounds.bottom).toBeLessThanOrEqual(content.getBoundingClientRect().bottom);
     } finally {
@@ -501,7 +512,7 @@ describe('Exalto Capture desktop shell', () => {
     cleanup();
     renderApp('?screen=capture-on&view=settings');
     await userEvent.click(page.getByRole('button', { name: 'Set up…' }));
-    await userEvent.click(page.getByRole('radio', { name: /^Built-in/ }));
+    await userEvent.click(page.getByRole('button', { name: 'Continue' }));
     await page.getByRole('combobox', { name: 'Connection type' }).click();
     await page.getByRole('option', { name: 'OpenAI API' }).click();
     const openAiKey = page.getByLabelText('OpenAI API key');
@@ -510,7 +521,7 @@ describe('Exalto Capture desktop shell', () => {
     await act(async () => {
       window.dispatchEvent(new Event(SENSITIVE_INPUT_RESET_EVENT));
     });
-    await userEvent.click(page.getByRole('radio', { name: /^Built-in/ }));
+    await userEvent.click(page.getByRole('button', { name: 'Continue' }));
     await page.getByRole('combobox', { name: 'Connection type' }).click();
     await page.getByRole('option', { name: 'OpenAI API' }).click();
     await expect.element(page.getByLabelText('OpenAI API key')).toHaveValue('');

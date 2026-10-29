@@ -319,7 +319,7 @@ function AppContent() {
         key={`onboarding-${sensitiveInputGeneration}`}
         state={state}
         refresh={refresh}
-        initialStep={setupOpen ? 'client' : 'welcome'}
+        initialStep={setupOpen ? 'tools' : 'welcome'}
         onCancel={setupOpen ? () => setSetupOpen(false) : undefined}
         onFinish={(next) => {
           setSetupOpen(false);

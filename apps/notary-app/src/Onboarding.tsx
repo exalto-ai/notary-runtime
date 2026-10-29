@@ -7,42 +7,37 @@ import { ProviderConnections } from './ProviderConnections';
 import type { View } from './product';
 import './onboarding.css';
 
-type OnboardingStep = 'welcome' | 'protection' | 'client';
+type ClientId = 'builtin' | 'codex' | 'claude';
+// Setup ends with one step for each tool chosen on the tools step.
+type OnboardingStep = 'welcome' | 'protection' | 'tools' | ClientId;
 type VaultSetupMode = 'keychain' | 'passphrase';
-type ClientId = 'codex' | 'claude' | 'builtin';
-
-const onboardingSteps: OnboardingStep[] = ['welcome', 'protection', 'client'];
 
 const stepNames: Record<OnboardingStep, string> = {
   welcome: 'Overview',
   protection: 'Protection',
-  client: 'Chat',
+  tools: 'Tools',
+  builtin: 'Built-in Chat',
+  codex: 'Codex',
+  claude: 'Claude Code',
 };
 
-const clientChoices = [
+const clientChoices: { id: ClientId; detail: string; setup: string }[] = [
   {
     id: 'builtin',
-    name: 'Built-in',
-    detail: 'Chat inside Capture. Link your ChatGPT plan, or save an OpenAI or Anthropic API key.',
+    detail: 'Chat inside Capture with your ChatGPT plan, or an OpenAI or Anthropic API key.',
+    setup: 'Link your ChatGPT plan, or save an OpenAI or Anthropic API key.',
   },
   {
     id: 'codex',
-    name: 'Codex',
-    detail:
-      'Configure a separate Codex session. It keeps your existing ChatGPT sign-in or API key.',
+    detail: 'The Codex CLI, with its existing ChatGPT sign-in or API key.',
+    setup: 'Configure a separate Codex session. It keeps your existing ChatGPT sign-in or API key.',
   },
   {
     id: 'claude',
-    name: 'Claude Code',
-    detail: 'Configure a separate Claude Code session that uses an Anthropic API key.',
+    detail: 'The Claude Code CLI, with an Anthropic API key.',
+    setup: 'Configure a separate Claude Code session that uses an Anthropic API key.',
   },
-] as const;
-
-const clientLabels: Record<ClientId, string> = {
-  builtin: 'Built-in chat',
-  codex: 'Codex CLI',
-  claude: 'Claude Code',
-};
+];
 
 export function Onboarding({
   state,
@@ -61,14 +56,20 @@ export function Onboarding({
   const [protectionMode, setProtectionMode] = useState<VaultSetupMode>('keychain');
   const [passphrase, setPassphrase] = useState('');
   const [passphraseConfirmation, setPassphraseConfirmation] = useState('');
-  const [client, setClient] = useState<ClientId>('builtin');
+  const [clients, setClients] = useState<ClientId[]>(['builtin']);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const onboardingSteps: OnboardingStep[] = ['welcome', 'protection', 'tools', ...clients];
   const stepIndex = onboardingSteps.indexOf(step);
+  const nextStep = onboardingSteps[stepIndex + 1];
 
-  const chooseClient = (nextClient: ClientId) => {
+  const toggleClient = (id: ClientId) => {
     setError(null);
-    setClient(nextClient);
+    setClients((current) =>
+      clientChoices
+        .map((choice) => choice.id)
+        .filter((choice) => (choice === id ? !current.includes(id) : current.includes(choice))),
+    );
   };
 
   // Leaving the protection step backwards forgets an unsaved passphrase.
@@ -107,7 +108,7 @@ export function Onboarding({
         setPassphraseConfirmation('');
         await refresh();
       }
-      setStep('client');
+      setStep('tools');
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -135,8 +136,8 @@ export function Onboarding({
       : protectionMode === 'passphrase'
         ? 'Passphrase'
         : 'Keychain',
-    client: clientLabels[client],
   };
+  const onlyBuiltin = clients.length === 1 && clients[0] === 'builtin';
 
   return (
     <div className="onboarding-window exalto-onboarding">
@@ -187,7 +188,7 @@ export function Onboarding({
           })}
         </ol>
       </aside>
-      <section className={`onboarding-content${step === 'client' ? ' is-client-step' : ''}`}>
+      <section className={`onboarding-content${isClient(step) ? ' is-client-step' : ''}`}>
         <header className="setup-bar" data-tauri-drag-region="deep">
           {step !== 'welcome' ? (
             <button
@@ -223,17 +224,35 @@ export function Onboarding({
             onContinue={() => void configureProtection()}
           />
         )}
-        {step === 'client' && (
+        {step === 'tools' && (
+          <ToolsStep
+            clients={clients}
+            toggle={toggleClient}
+            onContinue={() => setStep(clients[0])}
+          />
+        )}
+        {isClient(step) && (
           <ClientStep
-            client={client}
-            setClient={chooseClient}
+            key={step}
+            client={step}
             busy={busy}
-            onFinish={(destination) => void finish(destination)}
+            action={
+              nextStep
+                ? `Next: ${stepNames[nextStep]}`
+                : busy
+                  ? 'Finishing setup…'
+                  : onlyBuiltin
+                    ? 'Try a chat'
+                    : 'Open Capture'
+            }
+            onContinue={() =>
+              nextStep ? setStep(nextStep) : void finish(onlyBuiltin ? 'chat' : 'traces')
+            }
           />
         )}
         {error && (
           <div
-            className={`onboarding-error${step === 'client' ? ' client-step-error' : ''}`}
+            className={`onboarding-error${isClient(step) ? ' client-step-error' : ''}`}
             role="alert"
           >
             {error}
@@ -454,48 +473,83 @@ function ProtectionStep({
   );
 }
 
+function isClient(step: OnboardingStep): step is ClientId {
+  return clientChoices.some((choice) => choice.id === step);
+}
+
+function ToolsStep({
+  clients,
+  toggle,
+  onContinue,
+}: {
+  clients: ClientId[];
+  toggle: (id: ClientId) => void;
+  onContinue: () => void;
+}) {
+  return (
+    <>
+      <div className="wizard-step">
+        <h1>What would you like to capture?</h1>
+        <p>
+          Choose every tool you want to send through Capture. Setup walks through each one in turn,
+          and you can add more later in Settings.
+        </p>
+        <div className="protection-options" role="group" aria-label="Tools to capture">
+          {clientChoices.map((choice) => {
+            const checked = clients.includes(choice.id);
+            return (
+              <button
+                key={choice.id}
+                type="button"
+                role="checkbox"
+                aria-checked={checked}
+                className={checked ? 'is-selected' : ''}
+                onClick={() => toggle(choice.id)}
+              >
+                <span className="check-mark">{checked && <Check size={10} strokeWidth={3} />}</span>
+                <div>
+                  <strong>{stepNames[choice.id]}</strong>
+                  <p>{choice.detail}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="wizard-actions">
+        <button
+          type="button"
+          className="mac-button is-primary is-large"
+          onClick={onContinue}
+          disabled={clients.length === 0}
+        >
+          Continue
+        </button>
+      </div>
+    </>
+  );
+}
+
 function ClientStep({
   client,
-  setClient,
   busy,
-  onFinish,
+  action,
+  onContinue,
 }: {
   client: ClientId;
-  setClient: (client: ClientId) => void;
   busy: boolean;
-  onFinish: (destination: View) => void;
+  action: string;
+  onContinue: () => void;
 }) {
   return (
     <>
       <div className="wizard-step client-step-scroll">
-        <h1>Where would you like to chat?</h1>
-        <p>
-          Chat inside Capture, or configure an external tool to send through it. You can add more
-          connections later.
-        </p>
-        <div className="client-picker" role="radiogroup" aria-label="AI tool to connect first">
-          {clientChoices.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="radio"
-              aria-checked={client === item.id}
-              className={client === item.id ? 'is-selected' : ''}
-              onClick={() => setClient(item.id)}
-              disabled={busy}
-            >
-              {item.name}
-            </button>
-          ))}
-        </div>
-        <p className="harness-description">
-          {clientChoices.find((item) => item.id === client)?.detail}
-        </p>
+        <h1>{client === 'builtin' ? 'Connect Built-in Chat' : `Set up ${stepNames[client]}`}</h1>
+        <p>{clientChoices.find((choice) => choice.id === client)?.setup}</p>
         {client === 'builtin' ? (
           <ProviderConnections disabled={busy} />
         ) : (
           <AgentSetup
-            key={client}
             client={client}
             prompt={agentSetupPrompt(client)}
             disabled={busy}
@@ -551,9 +605,9 @@ function ClientStep({
           className="mac-button is-primary is-large"
           type="button"
           disabled={busy}
-          onClick={() => onFinish(client === 'builtin' ? 'chat' : 'traces')}
+          onClick={onContinue}
         >
-          {busy ? 'Finishing setup…' : client === 'builtin' ? 'Try a chat' : 'Open Capture'}
+          {action}
         </button>
       </div>
     </>
