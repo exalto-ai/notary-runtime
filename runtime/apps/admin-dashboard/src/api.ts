@@ -2,6 +2,7 @@ import type { components, paths } from './generated/api.generated';
 
 export type Status = components['schemas']['StatusResponse'];
 export type CaptureSetting = components['schemas']['CaptureSettingResponse'];
+export type AutoSealSetting = components['schemas']['AutoSealSettingResponse'];
 export type Notaries = components['schemas']['NotariesResponse'];
 export type Notary = components['schemas']['Notary'];
 export type Providers = components['schemas']['ProvidersResponse'];
@@ -136,6 +137,12 @@ export function createLocalApi(options: LocalApiOptions = {}) {
     captureSetting: () => request<CaptureSetting>('/v1/settings/capture'),
     updateCaptureSetting: (enabled: boolean) =>
       request<CaptureSetting>('/v1/settings/capture', {
+        method: 'PUT',
+        body: { enabled },
+      }),
+    autoSealSetting: () => request<AutoSealSetting>('/v1/settings/auto-seal'),
+    updateAutoSealSetting: (enabled: boolean) =>
+      request<AutoSealSetting>('/v1/settings/auto-seal', {
         method: 'PUT',
         body: { enabled },
       }),

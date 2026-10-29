@@ -63,7 +63,10 @@ afterEach(() => {
   window.history.replaceState({}, '', '/');
 });
 
+let autoSealEnabled = false;
+
 beforeEach(() => {
+  autoSealEnabled = false;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -191,6 +194,10 @@ beforeEach(() => {
         });
       }
       if (path === '/v1/settings/capture') return response({ enabled: false });
+      if (path === '/v1/settings/auto-seal') {
+        if (init?.method === 'PUT') autoSealEnabled = JSON.parse(String(init.body)).enabled;
+        return response({ enabled: autoSealEnabled });
+      }
       return response({});
     }),
   );
@@ -243,6 +250,17 @@ describe('Exalto Capture desktop shell', () => {
     await expect
       .element(page.getByText(/^Capture is off\. Requests sent while it is off/))
       .toBeVisible();
+  });
+
+  test('turns auto-seal on without an account', async () => {
+    renderApp('?screen=capture-on&view=traces');
+    const autoSeal = page.getByRole('switch', { name: 'Auto-seal' });
+    await expect.element(autoSeal).not.toBeChecked();
+    await expect.element(autoSeal).toBeEnabled();
+    await userEvent.click(autoSeal);
+    await expect.element(autoSeal).toBeChecked();
+    expect(autoSealEnabled).toBe(true);
+    await expect.element(page.getByText(/New traces are sealed as they arrive/)).toBeVisible();
   });
 
   test('keeps connections inside Settings', async () => {

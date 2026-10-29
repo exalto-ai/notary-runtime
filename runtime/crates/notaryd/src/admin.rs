@@ -244,6 +244,10 @@ pub(crate) fn router(state: AdminState) -> Result<Router> {
             "/v1/settings/capture",
             get(capture_setting).put(update_capture_setting),
         )
+        .route(
+            "/v1/settings/auto-seal",
+            get(auto_seal_setting).put(update_auto_seal_setting),
+        )
         .route("/v1/notaries", get(notaries))
         .route("/v1/notaries/readiness", get(notary_readiness))
         .route("/v1/providers", get(providers))
@@ -401,7 +405,7 @@ fn embedded_dashboard_response(path: &str, desktop_embed: bool) -> Response {
     ),
     paths(
         health, readiness, openapi, start_session, end_session, status, capture_setting,
-        update_capture_setting, notaries, notary_readiness, providers, traces, trace,
+        update_capture_setting, auto_seal_setting, update_auto_seal_setting, notaries, notary_readiness, providers, traces, trace,
         delete_trace, start_notarization,
         operation, trace_content, download_package, verify_trace, verify_uploaded_trace,
         activity, account_status, start_account_connection, end_account_connection,
@@ -409,7 +413,7 @@ fn embedded_dashboard_response(path: &str, desktop_embed: bool) -> Response {
     ),
     components(schemas(
         HealthResponse, ReadinessResponse, StatusResponse, CaptureSettingResponse,
-        UpdateCaptureSetting, TraceCounts, UpdateStatusResponse, NotariesResponse, Notary,
+        UpdateCaptureSetting, AutoSealSettingResponse, UpdateAutoSealSetting, TraceCounts, UpdateStatusResponse, NotariesResponse, Notary,
         NotaryReadinessResponse, NotaryReadinessPhase,
         ProvidersResponse, Provider, TraceState, TraceOperationalStatus, TracePage, TraceSummary,
         TraceDetail, EvidenceArtifact,
@@ -732,6 +736,39 @@ async fn update_capture_setting(
             })
         })?;
     Ok(Json(CaptureSettingResponse { enabled }))
+}
+
+#[utoipa::path(get, path = "/v1/settings/auto-seal", summary = "Get auto-seal mode", description = "Returns whether each newly completed, successful capture is queued for sealing.", responses((status = 200, body = AutoSealSettingResponse), (status = 401, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
+async fn auto_seal_setting(
+    State(state): State<AdminState>,
+) -> Result<Json<AutoSealSettingResponse>, ApiError> {
+    let enabled = state
+        .persistence
+        .metadata
+        .auto_seal_enabled()
+        .await
+        .map_err(|_| ApiError::service_unavailable("metadata_not_ready"))?;
+    Ok(Json(AutoSealSettingResponse { enabled }))
+}
+
+#[utoipa::path(put, path = "/v1/settings/auto-seal", summary = "Set auto-seal mode", description = "Durably changes whether later captures are queued for sealing as they complete. Each seal uses the account's monthly notarization allowance, or the Free allowance under public access; a seal beyond it is refused, never billed. The cluster profile does not support auto-seal.", request_body = UpdateAutoSealSetting, responses((status = 200, body = AutoSealSettingResponse), (status = 401, body = ErrorEnvelope), (status = 409, body = ErrorEnvelope), (status = 503, body = ErrorEnvelope)), security((), ("basicAuth" = [])), tag = "local-admin")]
+async fn update_auto_seal_setting(
+    State(state): State<AdminState>,
+    Json(update): Json<UpdateAutoSealSetting>,
+) -> Result<Json<AutoSealSettingResponse>, ApiError> {
+    if state.cluster_runtime.is_some() {
+        return Err(ApiError::conflict("auto_seal_cluster_managed"));
+    }
+    let enabled = state
+        .persistence
+        .metadata
+        .set_auto_seal_enabled(
+            update.enabled,
+            now_ms().map_err(|_| ApiError::internal("clock_failed"))?,
+        )
+        .await
+        .map_err(|_| ApiError::service_unavailable("auto_seal_setting_not_stored"))?;
+    Ok(Json(AutoSealSettingResponse { enabled }))
 }
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
@@ -2938,6 +2975,16 @@ struct UpdateCaptureSetting {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+struct AutoSealSettingResponse {
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+struct UpdateAutoSealSetting {
+    enabled: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
 struct UpdateStatusResponse {
     enabled: bool,
     current_build_id: String,
@@ -4077,6 +4124,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auto_seal_setting_is_off_by_default_and_durable() {
+        let directory = tempfile::tempdir().unwrap();
+        let app = router(state(directory.path()).await).unwrap();
+        let read = |response: Response| async move {
+            assert_eq!(response.status(), StatusCode::OK);
+            let body: serde_json::Value =
+                serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                    .unwrap();
+            body["enabled"].clone()
+        };
+        let get = || {
+            Request::get("/v1/settings/auto-seal")
+                .body(Body::empty())
+                .unwrap()
+        };
+        assert_eq!(read(app.clone().oneshot(get()).await.unwrap()).await, false);
+        let enabled = app
+            .clone()
+            .oneshot(
+                Request::put("/v1/settings/auto-seal")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"enabled":true}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(read(enabled).await, true);
+        assert_eq!(read(app.oneshot(get()).await.unwrap()).await, true);
+    }
+
+    #[tokio::test]
     async fn protected_routes_reject_missing_or_wrong_auth_without_echoing_it() {
         let directory = tempfile::tempdir().unwrap();
         let app = router(protected_state(directory.path()).await).unwrap();
@@ -4248,6 +4326,7 @@ mod tests {
             "/openapi.json",
             "/v1/status",
             "/v1/settings/capture",
+            "/v1/settings/auto-seal",
             "/v1/notaries",
             "/v1/notaries/readiness",
             "/v1/providers",
@@ -4271,6 +4350,8 @@ mod tests {
             ("/v1/status", "get"),
             ("/v1/settings/capture", "get"),
             ("/v1/settings/capture", "put"),
+            ("/v1/settings/auto-seal", "get"),
+            ("/v1/settings/auto-seal", "put"),
             ("/v1/notaries", "get"),
             ("/v1/notaries/readiness", "get"),
             ("/v1/providers", "get"),
@@ -4324,7 +4405,7 @@ mod tests {
                 documented_operations += 1;
             }
         }
-        assert_eq!(documented_operations, 28);
+        assert_eq!(documented_operations, 30);
     }
 
     #[tokio::test]

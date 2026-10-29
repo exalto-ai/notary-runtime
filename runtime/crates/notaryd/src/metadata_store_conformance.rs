@@ -37,6 +37,7 @@ where
 {
     make_store().await.readiness().await.unwrap();
     capture_mode_is_durable_and_evented(make_store()).await;
+    auto_seal_is_off_by_default_durable_and_evented(make_store()).await;
     capture_lifecycle(make_store().await).await;
     canonical_trace_share_is_durable(make_store().await).await;
     terminal_trace_deletion_is_atomic_and_safe(make_store().await).await;
@@ -333,6 +334,37 @@ where
     );
     assert_eq!(events[0].event_type, "capture_enabled");
     assert_eq!(events[0].message, "Capture requests enabled");
+}
+
+async fn auto_seal_is_off_by_default_durable_and_evented<Fut>(store: Fut)
+where
+    Fut: Future<Output = Arc<dyn MetadataStore>>,
+{
+    let store = store.await;
+    assert!(!store.auto_seal_enabled().await.unwrap());
+    assert!(store.set_auto_seal_enabled(true, 1).await.unwrap());
+    assert!(store.set_auto_seal_enabled(true, 2).await.unwrap());
+    assert!(store.auto_seal_enabled().await.unwrap());
+    assert!(store.capture_enabled().await.unwrap());
+    assert!(!store.set_auto_seal_enabled(false, 3).await.unwrap());
+    let events = store
+        .events_snapshot(EventFilters {
+            limit: 20,
+            ..EventFilters::default()
+        })
+        .await
+        .unwrap()
+        .events;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.event_type == "auto_seal_enabled")
+            .count(),
+        1,
+        "an idempotent write must not emit a duplicate activity event"
+    );
+    assert_eq!(events[0].event_type, "auto_seal_disabled");
+    assert_eq!(events[0].message, "Auto-seal disabled");
 }
 
 pub(crate) fn new_capture(id: &str, created_at_unix_ms: u64) -> NewTrace {

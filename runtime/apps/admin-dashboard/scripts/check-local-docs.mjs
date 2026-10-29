@@ -29,6 +29,7 @@ const expectedOperations = {
   '/v1/session': { post: ['204', '401', '503'], delete: ['204', '401', '503'] },
   '/v1/status': { get: ['200', '401', '503'] },
   '/v1/settings/capture': { get: ['200', '401', '503'], put: ['200', '401', '503'] },
+  '/v1/settings/auto-seal': { get: ['200', '401', '503'], put: ['200', '401', '409', '503'] },
   '/v1/notaries': { get: ['200', '401', '500', '503'] },
   '/v1/notaries/readiness': { get: ['200', '400', '401', '500'] },
   '/v1/providers': { get: ['200', '401'] },

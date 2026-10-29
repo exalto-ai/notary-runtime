@@ -17,7 +17,7 @@ use crate::metadata::{
 };
 use crate::metadata_store::{TraceDeletionOutcome, TraceDeletionPreparation};
 
-const METADATA_SCHEMA_VERSION: i64 = 2;
+const METADATA_SCHEMA_VERSION: i64 = 3;
 
 /// A single-process SQLite capture inventory.
 pub(crate) struct SqliteMetadata {
@@ -84,45 +84,63 @@ impl SqliteMetadata {
     }
 
     pub fn capture_enabled(&self) -> Result<bool> {
-        let connection = self.connection()?;
-        connection
-            .query_row(
-                "SELECT capture_enabled FROM settings WHERE singleton = 1",
-                [],
-                |row| row.get(0),
-            )
-            .context("reading capture mode")
+        self.setting(&CAPTURE_SETTING)
     }
 
     pub fn set_capture_enabled(&self, enabled: bool, now_unix_ms: u64) -> Result<bool> {
+        self.set_setting(&CAPTURE_SETTING, enabled, now_unix_ms)
+    }
+
+    pub fn auto_seal_enabled(&self) -> Result<bool> {
+        self.setting(&AUTO_SEAL_SETTING)
+    }
+
+    pub fn set_auto_seal_enabled(&self, enabled: bool, now_unix_ms: u64) -> Result<bool> {
+        self.set_setting(&AUTO_SEAL_SETTING, enabled, now_unix_ms)
+    }
+
+    fn setting(&self, setting: &Setting) -> Result<bool> {
+        let connection = self.connection()?;
+        connection
+            .query_row(
+                &format!(
+                    "SELECT {} FROM settings WHERE singleton = 1",
+                    setting.column
+                ),
+                [],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("reading {}", setting.column))
+    }
+
+    fn set_setting(&self, setting: &Setting, enabled: bool, now_unix_ms: u64) -> Result<bool> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
         let current: bool = transaction.query_row(
-            "SELECT capture_enabled FROM settings WHERE singleton = 1",
+            &format!(
+                "SELECT {} FROM settings WHERE singleton = 1",
+                setting.column
+            ),
             [],
             |row| row.get(0),
         )?;
         if current != enabled {
             transaction.execute(
-                "UPDATE settings SET capture_enabled = ? WHERE singleton = 1",
+                &format!(
+                    "UPDATE settings SET {} = ? WHERE singleton = 1",
+                    setting.column
+                ),
                 [enabled],
             )?;
+            let (event_type, message) = setting.event(enabled);
             insert_event(
                 &transaction,
                 now_unix_ms,
-                if enabled {
-                    "capture_enabled"
-                } else {
-                    "capture_disabled"
-                },
+                event_type,
                 None,
                 None,
                 "info",
-                if enabled {
-                    "Capture requests enabled"
-                } else {
-                    "Capture requests disabled"
-                },
+                message,
             )?;
         }
         transaction.commit()?;
@@ -1401,7 +1419,7 @@ fn migrate(connection: &mut Connection) -> Result<()> {
     anyhow::ensure!(
         matches!(
             (migration_count, version),
-            (0, None) | (1, Some(1)) | (2, Some(2))
+            (0, None) | (1, Some(1)) | (2, Some(2)) | (3, Some(3))
         ),
         "SQLite metadata uses an unsupported pre-cutover or newer schema"
     );
@@ -1443,6 +1461,15 @@ fn migrate(connection: &mut Connection) -> Result<()> {
              FROM trace_shares_v1;
              DROP TABLE trace_shares_v1;
              INSERT INTO schema_migrations(version) VALUES (2);",
+        )?;
+        transaction.commit()?;
+    }
+    if version.unwrap_or(1) <= 2 {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(
+            "ALTER TABLE settings ADD COLUMN auto_seal_enabled INTEGER NOT NULL DEFAULT 0
+                CHECK (auto_seal_enabled IN (0, 1));
+             INSERT INTO schema_migrations(version) VALUES (3);",
         )?;
         transaction.commit()?;
     }
@@ -1901,6 +1928,31 @@ fn trace_share_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TraceShareR
         updated_at_unix_ms,
     })
 }
+
+/// A boolean column of the singleton settings row and its activity events.
+struct Setting {
+    column: &'static str,
+    enabled: (&'static str, &'static str),
+    disabled: (&'static str, &'static str),
+}
+
+impl Setting {
+    fn event(&self, enabled: bool) -> (&'static str, &'static str) {
+        if enabled { self.enabled } else { self.disabled }
+    }
+}
+
+const CAPTURE_SETTING: Setting = Setting {
+    column: "capture_enabled",
+    enabled: ("capture_enabled", "Capture requests enabled"),
+    disabled: ("capture_disabled", "Capture requests disabled"),
+};
+
+const AUTO_SEAL_SETTING: Setting = Setting {
+    column: "auto_seal_enabled",
+    enabled: ("auto_seal_enabled", "Auto-seal enabled"),
+    disabled: ("auto_seal_disabled", "Auto-seal disabled"),
+};
 
 fn insert_event(
     transaction: &rusqlite::Transaction<'_>,

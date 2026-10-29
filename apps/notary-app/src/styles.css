@@ -433,6 +433,7 @@ h1, h2, p { margin: 0; }
   background: var(--red);
   content: "";
 }
+.native-window .traces-header-switches { display: flex; align-items: center; gap: 20px; }
 .native-window .capture-switch .mantine-Switch-label { font: 600 var(--text-label)/1.4 var(--font-text); }
 .native-window .traces-header-alert {
   display: flex;

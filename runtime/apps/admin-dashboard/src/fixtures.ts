@@ -754,6 +754,7 @@ export function createFixtureApi({
   let nextEventId = Math.max(...events.map((event) => event.event_id)) + 1;
   let nextActionTime = clock;
   let captureEnabled = fixtureStatus.capture_enabled;
+  let autoSealEnabled = false;
   const progressingOperations = new Set<string>();
   const operationPolls = new Map<string, number>();
   const shares = new Map<string, FixtureShareState>();
@@ -1027,6 +1028,11 @@ export function createFixtureApi({
         );
       }
       return { enabled: captureEnabled };
+    },
+    autoSealSetting: async () => ({ enabled: autoSealEnabled }),
+    updateAutoSealSetting: async (enabled) => {
+      autoSealEnabled = enabled;
+      return { enabled: autoSealEnabled };
     },
     notaries: async () => structuredClone(fixtureNotaries),
     providers: async () => ({

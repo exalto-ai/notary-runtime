@@ -150,6 +150,16 @@ impl MetadataStore for SqliteMetadataStore {
             .await
     }
 
+    async fn auto_seal_enabled(&self) -> MetadataResult<bool> {
+        self.blocking(SqliteMetadata::auto_seal_enabled).await
+    }
+
+    async fn set_auto_seal_enabled(&self, enabled: bool, now_unix_ms: u64) -> MetadataResult<bool> {
+        validate_i64(now_unix_ms, "timestamp_out_of_range")?;
+        self.blocking(move |metadata| metadata.set_auto_seal_enabled(enabled, now_unix_ms))
+            .await
+    }
+
     async fn begin_capture(&self, capture: NewTrace) -> MetadataResult<()> {
         validate_trace_id(&capture.trace_id)?;
         validate_i64(

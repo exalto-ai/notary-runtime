@@ -55,6 +55,22 @@ notarizations remain usable. Enabling capture first initializes trusted notary
 state; if that fails, the API returns
 `capture_enable_initialization_failed` and capture stays off.
 
+## Seal new captures automatically
+
+`GET /v1/settings/auto-seal` and `PUT /v1/settings/auto-seal` read and change
+whether each newly completed capture with a successful provider response is
+queued for sealing. The setting defaults to off and lives in daemon metadata.
+Each seal uses the connected account's monthly notarization allowance, or the
+Free allowance under public access; a seal beyond it is refused, never billed.
+A capture that was not queued or sealed stays Captured and can still be sealed
+by hand. The cluster profile does not support auto-seal.
+
+```bash
+curl -X PUT http://127.0.0.1:8788/v1/settings/auto-seal \
+  -H 'content-type: application/json' \
+  -d '{"enabled":true}'
+```
+
 ## Start and supervise the service
 
 Run the service in the foreground. It writes the default configuration on
@@ -413,6 +429,7 @@ which workflow owns each operation:
 | Discovery | `GET /healthz`, `GET /readyz`, `GET /openapi.json` |
 | Session and status | `POST /v1/session`, `DELETE /v1/session`, `GET /v1/status` |
 | Capture setting | `GET /v1/settings/capture`, `PUT /v1/settings/capture` |
+| Auto-seal setting | `GET /v1/settings/auto-seal`, `PUT /v1/settings/auto-seal` |
 | Notaries and providers | `GET /v1/notaries`, `GET /v1/notaries/readiness`, `GET /v1/providers` |
 | Traces | `GET /v1/traces`, `GET /v1/traces/{trace_id}`, `DELETE /v1/traces/{trace_id}` |
 | Notarization | `POST /v1/traces/{trace_id}/notarizations`, `GET /v1/operations/{operation_id}` |

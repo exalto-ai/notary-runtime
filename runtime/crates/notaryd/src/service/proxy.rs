@@ -1760,12 +1760,39 @@ async fn complete_capture(
             .complete_capture_claimed(completion, artifact, claim.claim())
             .await?;
     } else {
+        let trace_id = completion.trace_id.clone();
+        let sealable = (200..=299).contains(&completion.http_status);
         persistence
             .metadata
             .complete_capture(completion, artifact)
             .await?;
+        if sealable {
+            queue_auto_seal(persistence, &trace_id).await;
+        }
     }
     Ok(())
+}
+
+/// Queues a completed local capture for sealing when auto-seal is on. The
+/// notarization worker polls its queue, so no wake-up is needed. A failure
+/// leaves the Trace captured for a manual seal.
+async fn queue_auto_seal(persistence: &Persistence, trace_id: &str) {
+    let queued = async {
+        if !persistence.metadata.auto_seal_enabled().await? {
+            return Ok(false);
+        }
+        persistence
+            .metadata
+            .enqueue_notarization(trace_id, current_unix_ms()?)
+            .await?;
+        anyhow::Ok(true)
+    }
+    .await;
+    match queued {
+        Ok(true) => tracing::info!(trace_id, "queued capture for auto-seal"),
+        Ok(false) => {}
+        Err(error) => tracing::warn!(trace_id, %error, "could not queue capture for auto-seal"),
+    }
 }
 
 fn artifact_failure_code(error: &anyhow::Error) -> Option<&'static str> {
@@ -2198,6 +2225,70 @@ fn hop_by_hop_header_names(headers: &HeaderMap) -> HashSet<HeaderName> {
 mod tests {
     use super::*;
     use std::sync::Mutex as StdMutex;
+
+    #[tokio::test]
+    async fn completed_successful_captures_are_queued_only_while_auto_seal_is_on() {
+        use crate::metadata_store::conformance::{artifact, completion, new_capture};
+
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = NotarydConfig::default();
+        config.metadata.path = directory.path().join("metadata.db");
+        config.storage.checkpoint_dir = directory.path().join("checkpoints");
+        config.storage.package_dir = directory.path().join("traces");
+        let persistence = Persistence::open(&config).await.unwrap();
+        let capture = |id: &'static str, http_status: u16| {
+            let persistence = persistence.clone();
+            async move {
+                persistence
+                    .metadata
+                    .begin_capture(new_capture(id, 1))
+                    .await
+                    .unwrap();
+                let completion = completion(id, 2, http_status);
+                persistence
+                    .metadata
+                    .prepare_capture_completion(completion.clone())
+                    .await
+                    .unwrap();
+                complete_capture(
+                    &persistence,
+                    None,
+                    completion,
+                    artifact(id, ArtifactKind::CaptureCheckpoint, 1),
+                )
+                .await
+                .unwrap();
+            }
+        };
+        let queued = |id: &'static str| {
+            let persistence = persistence.clone();
+            async move {
+                !persistence
+                    .metadata
+                    .operations(crate::metadata::OperationFilters {
+                        trace_id: Some(id.to_owned()),
+                        limit: 10,
+                        ..Default::default()
+                    })
+                    .await
+                    .unwrap()
+                    .is_empty()
+            }
+        };
+
+        capture("trc-auto-off", 200).await;
+        persistence
+            .metadata
+            .set_auto_seal_enabled(true, 3)
+            .await
+            .unwrap();
+        capture("trc-auto-on", 200).await;
+        capture("trc-auto-failed", 500).await;
+
+        assert!(!queued("trc-auto-off").await);
+        assert!(queued("trc-auto-on").await);
+        assert!(!queued("trc-auto-failed").await);
+    }
 
     #[derive(Clone)]
     struct DirectObservation {

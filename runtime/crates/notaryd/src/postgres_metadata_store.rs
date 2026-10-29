@@ -34,17 +34,19 @@ use crate::{
 const SCHEMA: &str = "notaryd";
 const JOURNAL: &str = "notaryd.schema_migrations";
 const MIGRATION_LOCK_NAMESPACE: &str = "notary/notaryd-postgres-migrations/v1";
-const LATEST_SCHEMA_VERSION: i64 = 2;
+const LATEST_SCHEMA_VERSION: i64 = 3;
 const INITIAL_MIGRATION: &str = include_str!("../migrations-postgres-daemon/0001_initial.sql");
 const TRACE_SHARE_STOPPED_MIGRATION: &str =
     include_str!("../migrations-postgres-daemon/0002_trace_share_stopped.sql");
-const MIGRATIONS: [(i64, &str, &str); 2] = [
+const AUTO_SEAL_MIGRATION: &str = include_str!("../migrations-postgres-daemon/0003_auto_seal.sql");
+const MIGRATIONS: [(i64, &str, &str); 3] = [
     (1, "initial notaryd metadata schema", INITIAL_MIGRATION),
     (
         2,
         "replace legacy Trace share progress states",
         TRACE_SHARE_STOPPED_MIGRATION,
     ),
+    (3, "add the auto-seal setting", AUTO_SEAL_MIGRATION),
 ];
 
 /// A pooled PostgreSQL metadata backend whose schema has already been migrated.
@@ -734,6 +736,89 @@ async fn completion_matches(
     .map_err(|error| db(anyhow!(error).context("checking capture completion metadata")))
 }
 
+/// A boolean column of the singleton settings row and its activity events.
+struct Setting {
+    column: &'static str,
+    enabled: (&'static str, &'static str),
+    disabled: (&'static str, &'static str),
+}
+
+impl Setting {
+    fn event(&self, enabled: bool) -> (&'static str, &'static str) {
+        if enabled { self.enabled } else { self.disabled }
+    }
+}
+
+const CAPTURE_SETTING: Setting = Setting {
+    column: "capture_enabled",
+    enabled: ("capture_enabled", "Capture requests enabled"),
+    disabled: ("capture_disabled", "Capture requests disabled"),
+};
+
+const AUTO_SEAL_SETTING: Setting = Setting {
+    column: "auto_seal_enabled",
+    enabled: ("auto_seal_enabled", "Auto-seal enabled"),
+    disabled: ("auto_seal_disabled", "Auto-seal disabled"),
+};
+
+impl PostgresMetadataStore {
+    async fn setting(&self, setting: &Setting) -> MetadataResult<bool> {
+        sqlx::query_scalar(&format!(
+            "SELECT {} FROM notaryd.settings WHERE singleton = TRUE",
+            setting.column
+        ))
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|error| db(anyhow!(error).context(format!("reading {}", setting.column))))
+    }
+
+    async fn set_setting(
+        &self,
+        setting: &Setting,
+        enabled: bool,
+        now_unix_ms: u64,
+    ) -> MetadataResult<bool> {
+        let now = invalid_i64(now_unix_ms, "timestamp_out_of_range")?;
+        let mut transaction = self.pool.begin().await.map_err(|error| {
+            db(anyhow!(error).context(format!("starting {} transaction", setting.column)))
+        })?;
+        let current: bool = sqlx::query_scalar(&format!(
+            "SELECT {} FROM notaryd.settings
+             WHERE singleton = TRUE FOR UPDATE",
+            setting.column
+        ))
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|error| db(anyhow!(error).context(format!("locking {}", setting.column))))?;
+        if current != enabled {
+            sqlx::query(&format!(
+                "UPDATE notaryd.settings
+                 SET {} = $1 WHERE singleton = TRUE",
+                setting.column
+            ))
+            .bind(enabled)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| db(anyhow!(error).context(format!("storing {}", setting.column))))?;
+            let (event_type, message) = setting.event(enabled);
+            insert_event(
+                &mut transaction,
+                now,
+                event_type,
+                None,
+                None,
+                "info",
+                message,
+            )
+            .await?;
+        }
+        transaction.commit().await.map_err(|error| {
+            db(anyhow!(error).context(format!("committing {}", setting.column)))
+        })?;
+        Ok(enabled)
+    }
+}
+
 #[async_trait]
 impl MetadataStore for PostgresMetadataStore {
     fn backend_name(&self) -> &'static str {
@@ -746,59 +831,21 @@ impl MetadataStore for PostgresMetadataStore {
     }
 
     async fn capture_enabled(&self) -> MetadataResult<bool> {
-        sqlx::query_scalar("SELECT capture_enabled FROM notaryd.settings WHERE singleton = TRUE")
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|error| db(anyhow!(error).context("reading capture mode")))
+        self.setting(&CAPTURE_SETTING).await
     }
 
     async fn set_capture_enabled(&self, enabled: bool, now_unix_ms: u64) -> MetadataResult<bool> {
-        let now = invalid_i64(now_unix_ms, "timestamp_out_of_range")?;
-        let mut transaction = self
-            .pool
-            .begin()
+        self.set_setting(&CAPTURE_SETTING, enabled, now_unix_ms)
             .await
-            .map_err(|error| db(anyhow!(error).context("starting capture mode transaction")))?;
-        let current: bool = sqlx::query_scalar(
-            "SELECT capture_enabled FROM notaryd.settings
-             WHERE singleton = TRUE FOR UPDATE",
-        )
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(|error| db(anyhow!(error).context("locking capture mode")))?;
-        if current != enabled {
-            sqlx::query(
-                "UPDATE notaryd.settings
-                 SET capture_enabled = $1 WHERE singleton = TRUE",
-            )
-            .bind(enabled)
-            .execute(&mut *transaction)
+    }
+
+    async fn auto_seal_enabled(&self) -> MetadataResult<bool> {
+        self.setting(&AUTO_SEAL_SETTING).await
+    }
+
+    async fn set_auto_seal_enabled(&self, enabled: bool, now_unix_ms: u64) -> MetadataResult<bool> {
+        self.set_setting(&AUTO_SEAL_SETTING, enabled, now_unix_ms)
             .await
-            .map_err(|error| db(anyhow!(error).context("storing capture mode")))?;
-            insert_event(
-                &mut transaction,
-                now,
-                if enabled {
-                    "capture_enabled"
-                } else {
-                    "capture_disabled"
-                },
-                None,
-                None,
-                "info",
-                if enabled {
-                    "Capture requests enabled"
-                } else {
-                    "Capture requests disabled"
-                },
-            )
-            .await?;
-        }
-        transaction
-            .commit()
-            .await
-            .map_err(|error| db(anyhow!(error).context("committing capture mode")))?;
-        Ok(enabled)
     }
 
     async fn begin_capture(&self, capture: NewTrace) -> MetadataResult<()> {

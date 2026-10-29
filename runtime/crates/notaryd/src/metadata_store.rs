@@ -190,6 +190,13 @@ pub trait MetadataStore: Send + Sync {
     /// have to infer the winner of a concurrent update.
     async fn set_capture_enabled(&self, enabled: bool, now_unix_ms: u64) -> MetadataResult<bool>;
 
+    /// Returns whether each newly completed capture is queued for sealing.
+    async fn auto_seal_enabled(&self) -> MetadataResult<bool>;
+
+    /// Atomically stores the auto-seal mode, records its safe activity event,
+    /// and returns the stored value.
+    async fn set_auto_seal_enabled(&self, enabled: bool, now_unix_ms: u64) -> MetadataResult<bool>;
+
     async fn begin_capture(&self, capture: NewTrace) -> MetadataResult<()>;
     async fn mark_capture_failed(&self, trace_id: &str, failure_code: &str) -> MetadataResult<()>;
     /// Persists completion fields while the capture remains unavailable.
